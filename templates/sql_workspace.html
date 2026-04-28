@@ -50,10 +50,26 @@
         </span>
         <div class="panel-title-copy">
           <h3>SQL Painter</h3>
-          <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan.</span>
+          <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan. `use_secondary_engine` defaults to <code>ON</code>.</span>
         </div>
       </div>
       <div class="panel-actions">
+        <div class="workspace-engine-shell">
+          <span class="metric-label">use_secondary_engine</span>
+          <div class="workspace-engine-list" role="group" aria-label="use_secondary_engine mode">
+            {% for mode in secondary_engine_modes %}
+            <label class="workspace-engine-option">
+              <input
+                type="radio"
+                name="use_secondary_engine"
+                value="{{ mode }}"
+                {% if use_secondary_engine == mode %}checked{% endif %}
+              >
+              <span>{{ mode }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
         <button class="button primary" type="submit" name="workspace_action" value="execute">Execute</button>
         <button class="button secondary" type="submit" name="workspace_action" value="explain">Explain</button>
       </div>
@@ -75,6 +91,7 @@
 </section>
 
 <section class="panel">
+  {% set result_output_tabs = last_result.tabs if last_result.has_output else [] %}
   <div class="panel-header">
     <div class="panel-title">
       <span class="panel-title-icon" aria-hidden="true">
@@ -87,7 +104,7 @@
       </span>
       <div class="panel-title-copy">
         <h3>Output</h3>
-        <span class="helper-text">Execution Result is a tab in the Output view, and result sets stay tabbed inside it.</span>
+        <span class="helper-text">Execution Result, History, and each returned result tab share one Output TabView.</span>
       </div>
     </div>
   </div>
@@ -102,6 +119,18 @@
     >
       Execution Result
     </button>
+    {% for tab in result_output_tabs %}
+    <button
+      class="tab-link {% if workspace_output_tab == tab.key %}active{% endif %}"
+      type="button"
+      role="tab"
+      aria-selected="{{ 'true' if workspace_output_tab == tab.key else 'false' }}"
+      data-workspace-tab-group="workspace-output"
+      data-workspace-tab-button="{{ tab.key }}"
+    >
+      {{ tab.label }}
+    </button>
+    {% endfor %}
     <button
       class="tab-link {% if workspace_output_tab == 'history' %}active{% endif %}"
       type="button"
@@ -129,47 +158,33 @@
       </div>
       {% endfor %}
     </dl>
-    <div class="tab-bar workspace-tab-bar" role="tablist" aria-label="Last SQL result tabs">
-      {% for tab in last_result.tabs %}
-      <button
-        class="tab-link {% if loop.first %}active{% endif %}"
-        type="button"
-        role="tab"
-        aria-selected="{{ 'true' if loop.first else 'false' }}"
-        data-workspace-tab-group="last-result"
-        data-workspace-tab-button="{{ tab.key }}"
-      >
-        {{ tab.label }}
-      </button>
-      {% endfor %}
-    </div>
-    {% for tab in last_result.tabs %}
-    <section
-      class="workspace-tab-panel {% if loop.first %}active{% endif %}"
-      role="tabpanel"
-      data-workspace-tab-group="last-result"
-      data-workspace-tab-panel="{{ tab.key }}"
-      {% if not loop.first %}hidden{% endif %}
-    >
-      {% if tab.kind == "table" %}
-      {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
-      {% elif tab.kind == "code" %}
-      <pre class="sql-block">{{ tab.text_output }}</pre>
-      {% elif tab.kind == "plan" %}
-      <div class="plan-visual-shell" data-plan-visual>
-        <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
-        <p class="helper-text" data-plan-status>Rendering execution plan...</p>
-        <div class="plan-canvas" data-plan-canvas hidden></div>
-      </div>
-      {% else %}
-      <p class="section-empty">{{ tab.message }}</p>
-      {% endif %}
-    </section>
-    {% endfor %}
     {% else %}
     <p class="helper-text">Run Execute or Explain to populate the Execution Result tab view.</p>
     {% endif %}
   </section>
+  {% for tab in result_output_tabs %}
+  <section
+    class="workspace-tab-panel {% if workspace_output_tab == tab.key %}active{% endif %}"
+    role="tabpanel"
+    data-workspace-tab-group="workspace-output"
+    data-workspace-tab-panel="{{ tab.key }}"
+    {% if workspace_output_tab != tab.key %}hidden{% endif %}
+  >
+    {% if tab.kind == "table" %}
+    {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
+    {% elif tab.kind == "code" %}
+    <pre class="sql-block">{{ tab.text_output }}</pre>
+    {% elif tab.kind == "plan" %}
+    <div class="plan-visual-shell" data-plan-visual>
+      <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
+      <p class="helper-text" data-plan-status>Rendering execution plan...</p>
+      <div class="plan-canvas" data-plan-canvas hidden></div>
+    </div>
+    {% else %}
+    <p class="section-empty">{{ tab.message }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
   <section
     class="workspace-tab-panel {% if workspace_output_tab == 'history' %}active{% endif %}"
     role="tabpanel"
@@ -194,6 +209,7 @@
         <input type="hidden" name="workspace_action" value="clear_history">
         <input type="hidden" name="database" value="{{ selected_database }}">
         <input type="hidden" name="output_tab" value="history">
+        <input type="hidden" name="use_secondary_engine" value="{{ use_secondary_engine }}">
         <textarea name="sql_text" hidden>{{ sql_text }}</textarea>
         <button
           class="panel-icon-button"

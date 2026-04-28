@@ -101,6 +101,7 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
 }
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
+SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
     "DOUBLE",
@@ -358,6 +359,13 @@ def normalize_page_number(value):
     return _normalize_int(value, 1, minimum=1)
 
 
+def normalize_sql_workspace_secondary_engine(value):
+    normalized = str(value or "").strip().upper()
+    if normalized not in SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS:
+        return "ON"
+    return normalized
+
+
 @contextmanager
 def mysql_connection(database_override=None, connect_timeout=5, autocommit=True):
     profile = get_session_profile()
@@ -407,9 +415,16 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
             tunnel.stop()
 
 
-def execute_query(sql, params=None, *, database=None):
+def _apply_query_session_options(cursor, *, use_secondary_engine=""):
+    normalized_secondary_engine = normalize_sql_workspace_secondary_engine(use_secondary_engine) if use_secondary_engine else ""
+    if normalized_secondary_engine:
+        cursor.execute(f"SET SESSION use_secondary_engine = {normalized_secondary_engine}")
+
+
+def execute_query(sql, params=None, *, database=None, use_secondary_engine=""):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
+            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
             if params is None:
                 cursor.execute(sql)
             else:
@@ -417,10 +432,11 @@ def execute_query(sql, params=None, *, database=None):
             return cursor.fetchall()
 
 
-def execute_multi_result_query(sql, params=None, *, database=None):
+def execute_multi_result_query(sql, params=None, *, database=None, use_secondary_engine=""):
     result_sets = []
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
+            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
             if params is None:
                 cursor.execute(sql)
             else:
@@ -4366,6 +4382,9 @@ def sql_workspace_page():
     workspace_output_tab = str(request.values.get("output_tab", "execution-result")).strip().lower()
     if workspace_output_tab not in {"execution-result", "history"}:
         workspace_output_tab = "execution-result"
+    use_secondary_engine = normalize_sql_workspace_secondary_engine(
+        request.values.get("use_secondary_engine", "ON")
+    )
     default_database = str(get_session_profile().get("database", "") or "").strip()
     if is_system_schema_name(default_database):
         default_database = ""
@@ -4383,10 +4402,13 @@ def sql_workspace_page():
         action = str(request.form.get("workspace_action", "execute")).strip().lower()
         selected_database = str(request.form.get("database", "")).strip()
         sql_text = str(request.form.get("sql_text", ""))
+        use_secondary_engine = normalize_sql_workspace_secondary_engine(
+            request.form.get("use_secondary_engine", "ON")
+        )
         if action == "clear_history":
             session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = []
             flash("SQL workspace history cleared.", "success")
-            redirect_values = {"output_tab": "history"}
+            redirect_values = {"output_tab": "history", "use_secondary_engine": use_secondary_engine}
             if selected_database:
                 redirect_values["database"] = selected_database
             if sql_text:
@@ -4400,13 +4422,18 @@ def sql_workspace_page():
             normalized_statement = sql_text
             try:
                 normalized_statement = _normalize_sql_workspace_explain_statement(sql_text)
-                text_rows = execute_query(f"EXPLAIN {normalized_statement}", database=selected_database or None)
+                text_rows = execute_query(
+                    f"EXPLAIN {normalized_statement}",
+                    database=selected_database or None,
+                    use_secondary_engine=use_secondary_engine,
+                )
                 json_rows = []
                 json_error = ""
                 try:
                     json_rows = execute_query(
                         f"EXPLAIN FORMAT=JSON {normalized_statement}",
                         database=selected_database or None,
+                        use_secondary_engine=use_secondary_engine,
                     )
                 except Exception as error:  # pragma: no cover - depends on server features
                     json_error = str(error)
@@ -4417,6 +4444,7 @@ def sql_workspace_page():
                     text_rows,
                     json_rows,
                     duration_ms,
+                    use_secondary_engine=use_secondary_engine,
                     json_error=json_error,
                 )
                 history_rows = module_append_sql_workspace_history(
@@ -4438,6 +4466,7 @@ def sql_workspace_page():
                     selected_database,
                     [],
                     duration_ms,
+                    use_secondary_engine=use_secondary_engine,
                     error_message=str(error),
                 )
                 history_rows = module_append_sql_workspace_history(
@@ -4459,6 +4488,7 @@ def sql_workspace_page():
                 result_sets = execute_multi_result_query(
                     normalized_statement,
                     database=selected_database or None,
+                    use_secondary_engine=use_secondary_engine,
                 )
                 duration_ms = (perf_counter() - started_at) * 1000
                 last_result = module_build_sql_workspace_result(
@@ -4467,6 +4497,7 @@ def sql_workspace_page():
                     selected_database,
                     result_sets,
                     duration_ms,
+                    use_secondary_engine=use_secondary_engine,
                 )
                 history_rows = module_append_sql_workspace_history(
                     history_rows,
@@ -4486,6 +4517,7 @@ def sql_workspace_page():
                     selected_database,
                     [],
                     duration_ms,
+                    use_secondary_engine=use_secondary_engine,
                     error_message=str(error),
                 )
                 history_rows = module_append_sql_workspace_history(
@@ -4514,6 +4546,8 @@ def sql_workspace_page():
         "sql_workspace.html",
         page_title="SQL Workspace",
         workspace_output_tab=workspace_output_tab,
+        use_secondary_engine=use_secondary_engine,
+        secondary_engine_modes=SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS,
         **page_context,
     )
 

@@ -417,7 +417,16 @@ def _format_rows_as_text_table(rows):
     return "\n".join(lines)
 
 
-def build_sql_workspace_result(action_label, executed_sql, selected_database, result_sets, duration_ms, *, error_message=""):
+def build_sql_workspace_result(
+    action_label,
+    executed_sql,
+    selected_database,
+    result_sets,
+    duration_ms,
+    *,
+    use_secondary_engine="ON",
+    error_message="",
+):
     status_label = "Error" if error_message else "Success"
     tabs = []
 
@@ -459,6 +468,7 @@ def build_sql_workspace_result(action_label, executed_sql, selected_database, re
         "summary_details": [
             {"label": "Action", "value": action_label},
             {"label": "Database", "value": selected_database or "Profile Default"},
+            {"label": "use_secondary_engine", "value": use_secondary_engine},
             {"label": "Status", "value": status_label},
             {"label": "Duration", "value": _format_duration_label(duration_ms)},
             {"label": "SQL", "value": executed_sql},
@@ -474,6 +484,7 @@ def build_sql_workspace_explain_result(
     json_rows,
     duration_ms,
     *,
+    use_secondary_engine="ON",
     json_error="",
 ):
     json_text = ""
@@ -533,6 +544,7 @@ def build_sql_workspace_explain_result(
         "summary_details": [
             {"label": "Action", "value": "Explain"},
             {"label": "Database", "value": selected_database or "Profile Default"},
+            {"label": "use_secondary_engine", "value": use_secondary_engine},
             {"label": "Status", "value": "Success" if not json_error else "Partial"},
             {"label": "Duration", "value": _format_duration_label(duration_ms)},
             {"label": "SQL", "value": explained_sql},

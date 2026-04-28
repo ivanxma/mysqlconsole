@@ -67,8 +67,10 @@
       {% if active_tab != 'db' %}hidden{% endif %}
     >
     <div class="panel-header">
-      <h3>DB Action</h3>
-      <span class="helper-text">`Load` and `Unload` call `sys.heatwave_load` and `sys.heatwave_unload` and return their result sets in a popup.</span>
+      <div>
+        <h3>DB Action</h3>
+        <span class="helper-text">`Load` and `Unload` call `sys.heatwave_load` and `sys.heatwave_unload` and return their result sets in a popup.</span>
+      </div>
     </div>
     <form method="post" class="form-grid">
       <input type="hidden" name="tab" value="db">
@@ -105,8 +107,10 @@
       {% if active_tab != 'table' %}hidden{% endif %}
     >
     <div class="panel-header">
-      <h3>Table Action</h3>
-      <span class="helper-text">Load configures `SECONDARY_ENGINE=RAPID` when needed, then runs `SECONDARY_LOAD` for the selected table.</span>
+      <div>
+        <h3>Table Action</h3>
+        <span class="helper-text">Load configures `SECONDARY_ENGINE=RAPID` when needed, then runs `SECONDARY_LOAD` for the selected table.</span>
+      </div>
     </div>
     <form method="post" class="form-grid">
       <input type="hidden" name="tab" value="table">

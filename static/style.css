@@ -541,6 +541,41 @@ dialog.management-dialog::backdrop {
   line-height: 1.5;
 }
 
+.workspace-engine-shell {
+  display: grid;
+  gap: 6px;
+  min-width: max-content;
+}
+
+.workspace-engine-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workspace-engine-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 252, 248, 0.88);
+  font-weight: 600;
+}
+
+.workspace-engine-option input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.workspace-engine-option:has(input[type="radio"]:checked) {
+  border-color: rgba(169, 58, 26, 0.28);
+  background: rgba(169, 58, 26, 0.1);
+}
+
 .workspace-tab-bar,
 .workspace-tab-strip {
   margin-top: 18px;
