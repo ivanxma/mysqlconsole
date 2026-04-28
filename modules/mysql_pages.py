@@ -12,6 +12,7 @@ def _empty_heatwave_summary():
             "configured_table_count": 0,
             "tracked_table_count": 0,
             "heatwave_table_count": 0,
+            "lakehouse_table_count": 0,
             "loaded_count": 0,
             "partial_count": 0,
             "not_loaded_count": 0,

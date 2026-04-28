@@ -6,10 +6,12 @@ It provides:
 
 - login/profile-based MySQL access with optional SSH tunnel settings
 - `Admin > Status and Variables` with grouped status and variable views
-- `MySQL > DB Admin` for schema/table browsing, DDL preview, indexes, partitions, and row preview
+- `MySQL > Admin Dashboard` for server, object, security, diagnostics, and HeatWave summary views
+- `MySQL > DB Admin` for schema/table browsing, DDL preview, indexes, partitions, row preview, and column-definition changes
+- `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, and session history
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
-- `HeatWave` pages for HW table inventory and management actions
-- `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, and browser-local time labels on the chart axis
+- `HeatWave` pages for HW table inventory and `HW Admin` management actions
+- `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
 
 ## Layout
 
@@ -139,12 +141,13 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 
 - `Admin Dashboard`
 - `DB Admin`
+- `SQL Workspace`
 - `Import`
 
 ### HeatWave
 
 - `HW Table`
-- `Management`
+- `HW Admin`
 - `Performance Query`
 - `ML Query`
 - `Table Load Recovery`
@@ -155,17 +158,50 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 - `Charts`
 - `Locks`
 
+## Admin Dashboard
+
+`Admin Dashboard` provides:
+
+- server connection, timezone, SQL mode, charset, collation, and connection-limit details
+- clickable object summary cards for InnoDB tables, views, and stored procedures/functions
+- HeatWave summary counts where HeatWave tables are defined by `secondary_engine=rapid`
+- Lakehouse summary counts where Lakehouse tables are defined by `engine=lakehouse`
+- security and diagnostics tabs for security features, installed components, and `performance_schema.error_log`
+
 ## DB Admin
 
 `DB Admin` supports:
 
+- tabbed create-database and select-database/table views
 - create and drop database
 - select database and table from dropdowns or table list
 - view column metadata
 - view `CREATE TABLE`
 - view index metadata
 - view partition metadata for partitioned tables
+- modify column definitions including rename and full type/length parameter edits
 - page through preview rows
+
+## SQL Workspace
+
+`SQL Workspace` supports:
+
+- toolbar controls for `USE_SECONDARY_ENGINE`, database selection, Execute, and Explain
+- Execute output rendered in one TabView with `Execution Result`, each result set, and `History`
+- Explain output rendered as `Text`, `JSON`, and `Visual` execution-plan tabs
+- multi-result-set SQL handling in the output area
+- session-local execution history with execution time, status, database, and `use_secondary_engine`
+
+## HW Admin
+
+`HW Admin` supports:
+
+- tabbed `DB` and `Table` actions
+- database-level HeatWave load and unload actions
+- table-level full load and unload actions
+- database status popup with HeatWave load details
+- exclude-column popup with selectable and de-selectable exclusion state
+- multi-result-set procedure output displayed in popup tabs
 
 ## Import
 
@@ -183,6 +219,7 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 
 Charts support:
 
+- tabbed chart groups for `General`, `HeatWave`, and `Replication`
 - refresh button
 - refresh period selection: `5s`, `15s`, `30s`, `60s`
 - close and restore

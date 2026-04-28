@@ -840,6 +840,7 @@ def fetch_dashboard_heatwave_summary():
     return module_build_dashboard_heatwave_summary(
         fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
         fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
+        fetch_lakehouse_engine_tables=fetch_lakehouse_engine_tables,
         is_system_schema_name=is_system_schema_name,
     )
 

@@ -245,14 +245,14 @@
   <article class="panel">
     <div class="panel-header">
       <h3>HeatWave Summary</h3>
-      <span class="helper-text">Configured tables plus current <code>performance_schema.rpd_*</code> tracking.</span>
+      <span class="helper-text">HeatWave tables use <code>secondary_engine=rapid</code>, Lakehouse tables use <code>engine=lakehouse</code>, with load state from current <code>performance_schema.rpd_*</code> tracking.</span>
     </div>
     {% if heatwave_summary.error %}
     <p class="helper-text error-text">{{ heatwave_summary.error }}</p>
     {% endif %}
     <dl class="detail-list dashboard-detail-list">
       <div>
-        <dt>Configured HeatWave Tables</dt>
+        <dt>HeatWave Tables</dt>
         <dd>{{ heatwave_summary.totals.configured_table_count }}</dd>
       </div>
       <div>
@@ -260,8 +260,8 @@
         <dd>{{ heatwave_summary.totals.tracked_table_count }}</dd>
       </div>
       <div>
-        <dt>HeatWave Tables</dt>
-        <dd>{{ heatwave_summary.totals.heatwave_table_count }}</dd>
+        <dt>Lakehouse Tables</dt>
+        <dd>{{ heatwave_summary.totals.lakehouse_table_count }}</dd>
       </div>
       <div>
         <dt>Loaded 100%</dt>
