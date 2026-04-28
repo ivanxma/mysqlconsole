@@ -33,12 +33,12 @@
 <section class="page-header">
   <p class="eyebrow">HeatWave</p>
   <h2>HW Table</h2>
-  <p>Review full HeatWave inventory metadata from <code>performance_schema.rpd_table_id</code> and <code>performance_schema.rpd_tables</code>, grouped by database, with load and Lakehouse health status.</p>
+  <p>Review HeatWave tables defined with <code>SECONDARY_ENGINE=RAPID</code>, Lakehouse tables defined in engine metadata, and tracked load information from <code>performance_schema.rpd_table_id</code> and <code>performance_schema.rpd_tables</code>.</p>
 </section>
 
 <section class="info-grid">
   <article class="info-card metric-card">
-    <span class="metric-label">Tracked HeatWave Tables</span>
+    <span class="metric-label">HeatWave Tables</span>
     <strong class="metric-value">{{ total_heatwave_tables }}</strong>
   </article>
   <article class="info-card metric-card">
@@ -101,8 +101,11 @@
   <article class="panel">
     <div class="panel-header">
       <h3>Lakehouse Health</h3>
-      <span class="helper-text">Lakehouse tables are inferred from <code>recovery_source</code> values that contain <code>lakehouse</code>.</span>
+      <span class="helper-text">Lakehouse tables are counted from engine metadata that contains <code>Lakehouse</code>.</span>
     </div>
+    {% if lakehouse_error %}
+    <p class="helper-text error-text">{{ lakehouse_error }}</p>
+    {% endif %}
     <dl class="detail-list">
       <div>
         <dt>Lakehouse Tables</dt>
@@ -125,15 +128,21 @@
           <tr>
             <th>Database</th>
             <th>Table</th>
+            <th>Definition</th>
+            <th>Load Progress</th>
+            <th>Load Status</th>
             <th>Load State</th>
             <th>Recovery Source</th>
           </tr>
         </thead>
         <tbody>
           {% for row in lakehouse_needs_attention_rows %}
-          <tr>
+          <tr class="hw-row-{{ row.health_class }}">
             <td>{{ row.database_name }}</td>
-            <td>{{ row.table_label }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.definition_label }}</td>
+            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+            <td>{{ row.load_status_value }}</td>
             <td>{{ row.load_state_label }}</td>
             <td>{{ row.recovery_source_label }}</td>
           </tr>
@@ -149,7 +158,7 @@
   <article class="panel">
     <div class="panel-header">
       <h3>Secondary Engine Defined But Not Fully Loaded</h3>
-      <span class="helper-text">Tables with <code>SECONDARY_ENGINE=RAPID</code> that are not currently fully loaded in HeatWave metadata.</span>
+      <span class="helper-text">HeatWave tables are counted from <code>SECONDARY_ENGINE=RAPID</code>. Fully loaded means tracked <code>load_progress</code> is 100%.</span>
     </div>
     {% if configured_secondary_engine_error %}
     <p class="helper-text error-text">{{ configured_secondary_engine_error }}</p>
@@ -161,16 +170,20 @@
             <th>Database</th>
             <th>Table</th>
             <th>Rows</th>
+            <th>Load Progress</th>
+            <th>Load Status</th>
             <th>Load State</th>
             <th>Recovery Source</th>
           </tr>
         </thead>
         <tbody>
           {% for row in secondary_engine_not_loaded_rows %}
-          <tr>
+          <tr class="hw-row-{{ row.health_class }}">
             <td>{{ row.database_name }}</td>
             <td>{{ row.table_name }}</td>
             <td>{{ row.row_count }}</td>
+            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+            <td>{{ row.load_status_value }}</td>
             <td>{{ row.load_state_label }}</td>
             <td>{{ row.recovery_source_label }}</td>
           </tr>
@@ -187,6 +200,7 @@
 <section class="panel">
   <div class="panel-header">
     <h3>HeatWave Table Inventory</h3>
+    <span class="helper-text">Green rows are 100% loaded, yellow rows are partial progress, and red rows have a non-available load status.</span>
     <div class="panel-actions">
       <a class="button secondary" href="{{ url_for('hw_table_download') }}">Download CSV</a>
     </div>
@@ -200,7 +214,7 @@
       <summary class="accordion-summary">
         <span class="accordion-title">{{ group.database_name }}</span>
         <span class="accordion-count">
-          {{ group.row_count }} tables • {{ group.loaded_count }} loaded • {{ group.partial_count }} partial • {{ group.not_loaded_count }} not loaded
+          {{ group.row_count }} tracked • {{ group.heatwave_count }} heatwave • {{ group.lakehouse_count }} lakehouse • {{ group.loaded_count }} loaded • {{ group.partial_count }} partial • {{ group.not_loaded_count }} not loaded
         </span>
       </summary>
       <div class="accordion-body">
@@ -227,12 +241,15 @@
             </thead>
             <tbody>
               {% for row in group.rows %}
-              <tr>
+              <tr class="hw-row-{{ row.health_class }}">
                 <td>
                   <strong>{{ row.table_label }}</strong>
                   <div class="helper-text">
-                    {{ row.load_state_label }}
+                    <span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span>
+                    <span>{{ row.load_state_label }}</span>
+                    {% if row.is_heatwave %} • HeatWave{% endif %}
                     {% if row.is_lakehouse %} • Lakehouse{% endif %}
+                    {% if row.load_status_value != "-" %} • {{ row.load_status_value }}{% endif %}
                     {% if row.recovery_source_label != "-" %} • {{ row.recovery_source_label }}{% endif %}
                   </div>
                 </td>

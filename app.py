@@ -4133,6 +4133,7 @@ def hw_table_page():
         fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
         fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
         fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
+        fetch_lakehouse_engine_tables=fetch_lakehouse_engine_tables,
     )
     return render_dashboard(
         "hw_table.html",
@@ -4149,6 +4150,7 @@ def hw_table_download():
         fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
         fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
         fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
+        fetch_lakehouse_engine_tables=fetch_lakehouse_engine_tables,
     )
     export_payload = module_build_heatwave_tables_export(report)
     return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])

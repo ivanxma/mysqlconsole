@@ -638,6 +638,50 @@ h4 {
   background: rgba(169, 58, 26, 0.08);
 }
 
+.hw-row-loaded td {
+  background: rgba(47, 116, 66, 0.14);
+}
+
+.hw-row-progress td {
+  background: rgba(209, 151, 0, 0.18);
+}
+
+.hw-row-error td {
+  background: rgba(161, 47, 39, 0.16);
+}
+
+.hw-load-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(33, 29, 24, 0.1);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hw-load-loaded {
+  color: #1b5f35;
+  background: rgba(47, 116, 66, 0.14);
+}
+
+.hw-load-progress {
+  color: #8b6100;
+  background: rgba(209, 151, 0, 0.18);
+}
+
+.hw-load-error {
+  color: #8f261b;
+  background: rgba(161, 47, 39, 0.16);
+}
+
+.hw-load-neutral {
+  color: var(--muted);
+  background: rgba(33, 29, 24, 0.06);
+}
+
 .detail-list {
   margin: 0;
   display: grid;
