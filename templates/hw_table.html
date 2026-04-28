@@ -65,12 +65,26 @@
     <span class="metric-label">Secondary Engine Not Fully Loaded</span>
     <strong class="metric-value">{{ secondary_engine_not_loaded_count }}</strong>
   </article>
-  <article class="info-card metric-card">
-    <span class="metric-label">Object Storage</span>
-    <strong class="metric-value">{{ setup_status.summary }}</strong>
-  </article>
 </section>
 
+<section class="tab-shell">
+  <div class="tab-strip">
+    <a
+      class="tab-link {% if active_tab == 'heatwave' %}active{% endif %}"
+      href="{{ url_for('hw_table_page', tab='heatwave') }}"
+    >
+      HeatWave
+    </a>
+    <a
+      class="tab-link {% if active_tab == 'lakehouse' %}active{% endif %}"
+      href="{{ url_for('hw_table_page', tab='lakehouse') }}"
+    >
+      Lakehouse
+    </a>
+  </div>
+</section>
+
+{% if active_tab == 'heatwave' %}
 <section class="split-layout split-layout-top">
   <article class="panel">
     <div class="panel-header">
@@ -86,7 +100,7 @@
 
   <article class="panel">
     <div class="panel-header">
-      <h3>Lakehouse Engine / rpd_nodes</h3>
+      <h3>rpd_nodes</h3>
       <span class="helper-text">Raw <code>performance_schema.rpd_nodes</code> rows.</span>
     </div>
     {% if nodes_report.error %}
@@ -97,110 +111,51 @@
   </article>
 </section>
 
-<section class="split-layout split-layout-top">
-  <article class="panel">
-    <div class="panel-header">
-      <h3>Lakehouse Health</h3>
-      <span class="helper-text">Lakehouse tables are counted from engine metadata that contains <code>Lakehouse</code>.</span>
-    </div>
-    {% if lakehouse_error %}
-    <p class="helper-text error-text">{{ lakehouse_error }}</p>
-    {% endif %}
-    <dl class="detail-list">
-      <div>
-        <dt>Lakehouse Tables</dt>
-        <dd>{{ lakehouse_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Healthy / Fully Loaded</dt>
-        <dd>{{ healthy_lakehouse_count }}</dd>
-      </div>
-      <div>
-        <dt>Need Attention</dt>
-        <dd>{{ lakehouse_needs_attention_count }}</dd>
-      </div>
-    </dl>
-    {% if lakehouse_needs_attention_rows %}
-    <h4>Lakehouse Tables Not Fully Loaded</h4>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Database</th>
-            <th>Table</th>
-            <th>Definition</th>
-            <th>Load Progress</th>
-            <th>Load Status</th>
-            <th>Load State</th>
-            <th>Recovery Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in lakehouse_needs_attention_rows %}
-          <tr class="hw-row-{{ row.health_class }}">
-            <td>{{ row.database_name }}</td>
-            <td>{{ row.table_name }}</td>
-            <td>{{ row.definition_label }}</td>
-            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
-            <td>{{ row.load_status_value }}</td>
-            <td>{{ row.load_state_label }}</td>
-            <td>{{ row.recovery_source_label }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="helper-text">All detected Lakehouse tables are fully loaded.</p>
-    {% endif %}
-  </article>
-
-  <article class="panel">
-    <div class="panel-header">
-      <h3>Secondary Engine Defined But Not Fully Loaded</h3>
-      <span class="helper-text">Tables with <code>SECONDARY_ENGINE=RAPID</code> that are not yet fully loaded. Fully loaded means tracked <code>load_progress</code> is 100%.</span>
-    </div>
-    {% if configured_secondary_engine_error %}
-    <p class="helper-text error-text">{{ configured_secondary_engine_error }}</p>
-    {% elif secondary_engine_not_loaded_rows %}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Database</th>
-            <th>Table</th>
-            <th>Rows</th>
-            <th>Load Progress</th>
-            <th>Load Status</th>
-            <th>Load State</th>
-            <th>Recovery Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in secondary_engine_not_loaded_rows %}
-          <tr class="hw-row-{{ row.health_class }}">
-            <td>{{ row.database_name }}</td>
-            <td>{{ row.table_name }}</td>
-            <td>{{ row.row_count }}</td>
-            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
-            <td>{{ row.load_status_value }}</td>
-            <td>{{ row.load_state_label }}</td>
-            <td>{{ row.recovery_source_label }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="helper-text">Every table with <code>SECONDARY_ENGINE=RAPID</code> is fully loaded.</p>
-    {% endif %}
-  </article>
+<section class="panel">
+  <div class="panel-header">
+    <h3>Secondary Engine Defined But Not Fully Loaded</h3>
+    <span class="helper-text">Tables with <code>SECONDARY_ENGINE=RAPID</code> that are not yet fully loaded. Fully loaded means tracked <code>load_progress</code> is 100%.</span>
+  </div>
+  {% if configured_secondary_engine_error %}
+  <p class="helper-text error-text">{{ configured_secondary_engine_error }}</p>
+  {% elif secondary_engine_not_loaded_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Database</th>
+          <th>Table</th>
+          <th>Rows</th>
+          <th>Load Progress</th>
+          <th>Load Status</th>
+          <th>Load State</th>
+          <th>Recovery Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in secondary_engine_not_loaded_rows %}
+        <tr class="hw-row-{{ row.health_class }}">
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.table_name }}</td>
+          <td>{{ row.row_count }}</td>
+          <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+          <td>{{ row.load_status_value }}</td>
+          <td>{{ row.load_state_label }}</td>
+          <td>{{ row.recovery_source_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="helper-text">Every table with <code>SECONDARY_ENGINE=RAPID</code> is fully loaded.</p>
+  {% endif %}
 </section>
 
 <section class="panel">
   <div class="panel-header">
     <h3>HeatWave Table Inventory</h3>
-    <span class="helper-text">Inventory rows are HeatWave-tracked tables from <code>rpd_table_id</code>/<code>rpd_tables</code>. Green rows are 100% loaded, yellow rows are partial progress, and red rows have a non-available load status.</span>
+    <span class="helper-text">Inventory rows are HeatWave-tracked tables from <code>rpd_table_id</code>/<code>rpd_tables</code>. Green rows are 100% loaded, yellow rows are partial progress, and red rows have a non-available load status. <code>AVAIL_RPDGTABSTATE</code> and <code>AVAIL_RPDSTABSTATE</code> are treated as normal.</span>
     <div class="panel-actions">
       <a class="button secondary" href="{{ url_for('hw_table_download') }}">Download CSV</a>
     </div>
@@ -272,4 +227,111 @@
   <p class="helper-text">No HeatWave inventory rows were returned.</p>
   {% endif %}
 </section>
+{% else %}
+<section class="split-layout split-layout-top">
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Lakehouse Health</h3>
+      <span class="helper-text">Lakehouse tables are counted from engine metadata that contains <code>Lakehouse</code>.</span>
+    </div>
+    {% if lakehouse_error %}
+    <p class="helper-text error-text">{{ lakehouse_error }}</p>
+    {% endif %}
+    <dl class="detail-list">
+      <div>
+        <dt>Lakehouse Tables</dt>
+        <dd>{{ lakehouse_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Healthy / Fully Loaded</dt>
+        <dd>{{ healthy_lakehouse_count }}</dd>
+      </div>
+      <div>
+        <dt>Need Attention</dt>
+        <dd>{{ lakehouse_needs_attention_count }}</dd>
+      </div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Lakehouse Tables Needing Attention</h3>
+      <span class="helper-text">Lakehouse rows that are missing from HeatWave inventory or are not fully loaded.</span>
+    </div>
+    {% if lakehouse_needs_attention_rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Definition</th>
+            <th>Load Progress</th>
+            <th>Load Status</th>
+            <th>Load State</th>
+            <th>Recovery Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in lakehouse_needs_attention_rows %}
+          <tr class="hw-row-{{ row.health_class }}">
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.definition_label }}</td>
+            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+            <td>{{ row.load_status_value }}</td>
+            <td>{{ row.load_state_label }}</td>
+            <td>{{ row.recovery_source_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="helper-text">All detected Lakehouse tables are fully loaded.</p>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Lakehouse Tables</h3>
+    <span class="helper-text">Full Lakehouse table list with HeatWave health details when the table is present in <code>rpd_table_id</code>/<code>rpd_tables</code>.</span>
+  </div>
+  {% if lakehouse_error %}
+  <p class="helper-text error-text">{{ lakehouse_error }}</p>
+  {% elif lakehouse_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Database</th>
+          <th>Table</th>
+          <th>Definition</th>
+          <th>Load Progress</th>
+          <th>Load Status</th>
+          <th>Load State</th>
+          <th>Recovery Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in lakehouse_rows %}
+        <tr class="hw-row-{{ row.health_class }}">
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.table_name }}</td>
+          <td>{{ row.definition_label }}</td>
+          <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+          <td>{{ row.load_status_value }}</td>
+          <td>{{ row.load_state_label }}</td>
+          <td>{{ row.recovery_source_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="helper-text">No Lakehouse tables were found.</p>
+  {% endif %}
+</section>
+{% endif %}
 {% endblock %}

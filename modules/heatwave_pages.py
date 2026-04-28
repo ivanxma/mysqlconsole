@@ -2,6 +2,12 @@ def _empty_report():
     return {"columns": [], "rows": [], "error": ""}
 
 
+NORMAL_LOAD_STATUSES = {
+    "AVAIL_RPDGTABSTATE",
+    "AVAIL_RPDSTABSTATE",
+}
+
+
 def _first_defined_value(row, candidate_keys):
     lowered_row = None
     for key in candidate_keys:
@@ -112,7 +118,7 @@ def _derive_load_state(row):
 
 def _derive_health_class(row, load_state, load_status_value, progress_value):
     normalized_status = load_status_value.upper()
-    if normalized_status and normalized_status != "AVAIL_RPDGTABSTATE":
+    if normalized_status and normalized_status not in NORMAL_LOAD_STATUSES:
         return "error"
     if progress_value is not None:
         if progress_value >= 99.999:
@@ -493,6 +499,7 @@ def build_heatwave_tables_context(
         "partially_loaded_count": len(partial_rows),
         "not_loaded_count": len(not_loaded_rows),
         "lakehouse_table_count": len(lakehouse_tables),
+        "lakehouse_rows": lakehouse_rows,
         "healthy_lakehouse_count": sum(1 for row in lakehouse_rows if row["is_healthy"]),
         "lakehouse_needs_attention_count": len(lakehouse_needs_attention_rows),
         "lakehouse_needs_attention_rows": lakehouse_needs_attention_rows,

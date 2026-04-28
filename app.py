@@ -4128,6 +4128,7 @@ def db_admin_download():
 @app.route("/heatwave/hw-table")
 @login_required
 def hw_table_page():
+    active_tab = "lakehouse" if str(request.args.get("tab", "")).strip().lower() == "lakehouse" else "heatwave"
     report = module_build_heatwave_tables_context(
         fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
         fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
@@ -4138,6 +4139,7 @@ def hw_table_page():
     return render_dashboard(
         "hw_table.html",
         page_title="HW Table",
+        active_tab=active_tab,
         **report,
     )
 
