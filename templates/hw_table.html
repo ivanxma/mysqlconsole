@@ -152,7 +152,7 @@
     </div>
     <div class="count-summary-grid">
       {{ render_count_link('#heatwave-inventory', 'HeatWave Tables', total_heatwave_tables, 'Tracked in rpd metadata') }}
-      {{ render_count_link('#heatwave-loaded', 'Fully Loaded', fully_loaded_count, '100% load progress') }}
+      {{ render_count_link('#heatwave-inventory', 'Fully Loaded', fully_loaded_count, '100% load progress') }}
       {{ render_count_link('#heatwave-partial', 'Partially Loaded', partially_loaded_count, 'Progress between 0% and 100%') }}
       {{ render_count_link('#heatwave-not-loaded', 'Not Loaded', not_loaded_count, '0% load progress') }}
       {{ render_count_link(url_for('hw_table_page', tab='lakehouse') ~ '#lakehouse-tables', 'Lakehouse Tables', lakehouse_table_count, 'Open Lakehouse details') }}
@@ -265,14 +265,6 @@
 </section>
 
 <section class="split-layout split-layout-top">
-  <article class="panel panel-anchor" id="heatwave-loaded">
-    <div class="panel-header">
-      <h3>Fully Loaded Details</h3>
-      <span class="helper-text">HeatWave rows with 100% load progress.</span>
-    </div>
-    {{ render_load_detail_table(loaded_rows, "No fully loaded HeatWave rows were returned.") }}
-  </article>
-
   <article class="panel panel-anchor" id="heatwave-partial">
     <div class="panel-header">
       <h3>Partially Loaded Details</h3>
@@ -325,7 +317,7 @@
       {{ render_count_link('#lakehouse-health', 'Healthy Lakehouse', healthy_lakehouse_count, 'Fully loaded Lakehouse tables') }}
       {{ render_count_link('#lakehouse-attention', 'Need Attention', lakehouse_needs_attention_count, 'Missing or not fully loaded') }}
       {{ render_count_link(url_for('hw_table_page', tab='heatwave') ~ '#heatwave-inventory', 'HeatWave Tables', total_heatwave_tables, 'Open HeatWave inventory') }}
-      {{ render_count_link(url_for('hw_table_page', tab='heatwave') ~ '#heatwave-loaded', 'Fully Loaded', fully_loaded_count, 'Open HeatWave load details') }}
+      {{ render_count_link(url_for('hw_table_page', tab='heatwave') ~ '#heatwave-inventory', 'Fully Loaded', fully_loaded_count, 'Open HeatWave inventory') }}
       {{ render_count_link(url_for('hw_table_page', tab='heatwave') ~ '#secondary-engine-not-loaded', 'Secondary Engine Not Fully Loaded', secondary_engine_not_loaded_count, 'Configured with SECONDARY_ENGINE=RAPID') }}
     </div>
   </article>

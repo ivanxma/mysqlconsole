@@ -3106,45 +3106,104 @@ def fetch_heatwave_load_distribution():
 
 def fetch_heatwave_node_memory_rows():
     column_lookup = fetch_table_column_lookup("performance_schema", "rpd_nodes")
-    label_column = _first_available_column(
-        column_lookup,
-        ["node_name", "node_id", "host_name", "hostname", "host", "address", "ip_address", "service_name"],
-    )
-    memory_column = _first_available_column(
+    node_id_column = _first_available_column(column_lookup, ["id", "node_id"])
+    ip_column = _first_available_column(column_lookup, ["ip", "ip_address", "address", "host", "hostname", "host_name"])
+    port_column = _first_available_column(column_lookup, ["port"])
+    memory_usage_column = _first_available_column(
         column_lookup,
         [
+            "memory_usage",
             "memory_used_bytes",
             "used_memory_bytes",
             "current_memory_bytes",
             "memory_bytes",
             "allocated_memory_bytes",
             "alloc_pool_memory_bytes",
-            "total_memory_bytes",
             "memory",
         ],
     )
-    if not memory_column:
-        raise ValueError("Unable to determine HeatWave node memory columns from performance_schema.rpd_nodes.")
+    memory_total_column = _first_available_column(
+        column_lookup,
+        [
+            "memory_total",
+            "total_memory_bytes",
+            "memory_total_bytes",
+            "configured_memory_bytes",
+            "node_memory_bytes",
+        ],
+    )
+    baserel_memory_usage_column = _first_available_column(
+        column_lookup,
+        [
+            "baserel_memory_usage",
+            "base_rel_memory_usage",
+        ],
+    )
+    status_column = _first_available_column(column_lookup, ["status"])
+    if not memory_usage_column:
+        raise ValueError("Unable to determine MEMORY_USAGE from performance_schema.rpd_nodes.")
 
-    selected_columns = [f"{quote_identifier(memory_column)} AS memory_value"]
-    if label_column:
-        selected_columns.append(f"{quote_identifier(label_column)} AS node_label")
+    selected_columns = []
+    if node_id_column:
+        selected_columns.append(f"{quote_identifier(node_id_column)} AS node_id_value")
+    if ip_column:
+        selected_columns.append(f"{quote_identifier(ip_column)} AS ip_value")
+    if port_column:
+        selected_columns.append(f"{quote_identifier(port_column)} AS port_value")
+    selected_columns.append(f"{quote_identifier(memory_usage_column)} AS memory_usage_value")
+    if memory_total_column:
+        selected_columns.append(f"{quote_identifier(memory_total_column)} AS memory_total_value")
+    if baserel_memory_usage_column:
+        selected_columns.append(f"{quote_identifier(baserel_memory_usage_column)} AS baserel_memory_usage_value")
+    if status_column:
+        selected_columns.append(f"{quote_identifier(status_column)} AS status_value")
+
+    order_clauses = []
+    if node_id_column:
+        order_clauses.append(quote_identifier(node_id_column))
+    if ip_column:
+        order_clauses.append(quote_identifier(ip_column))
+    if port_column:
+        order_clauses.append(quote_identifier(port_column))
+    if not order_clauses:
+        order_clauses.append(f"{quote_identifier(memory_usage_column)} DESC")
+
     rows = execute_query(
         """
         SELECT {columns}
         FROM performance_schema.rpd_nodes
-        ORDER BY {memory_column} DESC
-        LIMIT 24
+        ORDER BY {order_by}
+        LIMIT 200
         """.format(
             columns=", ".join(selected_columns),
-            memory_column=quote_identifier(memory_column),
+            order_by=", ".join(order_clauses),
         )
     )
     normalized_rows = []
     for index, row in enumerate(rows, start=1):
-        memory_value = _extract_numeric(row.get("memory_value"), 0) or 0
-        node_label = str(row.get("node_label") or f"Node {index}").strip() or f"Node {index}"
-        normalized_rows.append({"label": node_label, "value": memory_value})
+        node_id_value = _coerce_int(row.get("node_id_value"), None)
+        ip_value = str(row.get("ip_value") or "").strip()
+        port_value = _coerce_int(row.get("port_value"), None)
+        memory_usage_value = _extract_numeric(row.get("memory_usage_value"), 0) or 0
+        memory_total_value = _extract_numeric(row.get("memory_total_value"), None)
+        baserel_memory_usage_value = _extract_numeric(row.get("baserel_memory_usage_value"), None)
+        status_value = str(row.get("status_value") or "").strip()
+
+        node_label = f"Node {node_id_value}" if node_id_value is not None else f"Node {index}"
+        if ip_value and port_value is not None:
+            node_label = f"{node_label} ({ip_value}:{port_value})"
+        elif ip_value:
+            node_label = f"{node_label} ({ip_value})"
+
+        normalized_rows.append(
+            {
+                "label": node_label,
+                "memory_usage_bytes": memory_usage_value,
+                "memory_total_bytes": memory_total_value,
+                "baserel_memory_usage_bytes": baserel_memory_usage_value,
+                "status": status_value,
+            }
+        )
     return normalized_rows
 
 
@@ -3541,10 +3600,39 @@ def build_heatwave_load_state_chart_card():
 
 def build_heatwave_node_memory_chart_card():
     title = "HeatWave Node Memory"
-    subtitle = "Current memory usage by HeatWave node."
+    subtitle = "Current MEMORY_USAGE by HeatWave node from performance_schema.rpd_nodes."
     try:
         rows = fetch_heatwave_node_memory_rows()
-        total_bytes = sum(row["value"] for row in rows)
+        total_used_bytes = sum(row["memory_usage_bytes"] for row in rows)
+        total_capacity_bytes = sum((row["memory_total_bytes"] or 0) for row in rows)
+        total_baserel_bytes = sum((row["baserel_memory_usage_bytes"] or 0) for row in rows)
+        unavailable_nodes = [
+            row for row in rows if row["status"] and not str(row["status"]).strip().upper().startswith("AVAIL_")
+        ]
+        highest_node = max(rows, key=lambda item: item["memory_usage_bytes"], default=None)
+
+        details = [
+            f"Nodes returned: {_format_count(len(rows))}",
+            "Source: performance_schema.rpd_nodes",
+        ]
+        if total_capacity_bytes > 0:
+            cluster_usage_pct = (total_used_bytes / total_capacity_bytes) * 100.0
+            details.append(
+                f"Cluster memory usage: {_format_bytes(total_used_bytes)} of {_format_bytes(total_capacity_bytes)} ({cluster_usage_pct:.1f}%)"
+            )
+        else:
+            details.append(f"Cluster memory usage: {_format_bytes(total_used_bytes)}")
+        if total_baserel_bytes > 0:
+            details.append(f"Base relation memory usage: {_format_bytes(total_baserel_bytes)}")
+        if highest_node:
+            details.append(
+                f"Top node: {highest_node['label']} at {_format_bytes(highest_node['memory_usage_bytes'])}"
+            )
+        if unavailable_nodes:
+            details.append(f"Nodes with non-AVAIL status: {_format_count(len(unavailable_nodes))}")
+        else:
+            details.append("All node statuses are AVAIL_.")
+
         return _chart_card(
             "heatwave_node_memory",
             title,
@@ -3554,16 +3642,20 @@ def build_heatwave_node_memory_chart_card():
             bars=[
                 {
                     "label": row["label"],
-                    "value": row["value"],
-                    "display": _format_bytes(row["value"]),
-                    "color": "#4d908e",
+                    "value": row["memory_usage_bytes"],
+                    "display": (
+                        f"{_format_bytes(row['memory_usage_bytes'])} of {_format_bytes(row['memory_total_bytes'])} "
+                        f"({(row['memory_usage_bytes'] / row['memory_total_bytes']) * 100.0:.1f}%)"
+                        if row["memory_total_bytes"]
+                        else _format_bytes(row["memory_usage_bytes"])
+                    ),
+                    "color": "#2a9d8f"
+                    if str(row["status"]).strip().upper().startswith("AVAIL_")
+                    else "#e76f51",
                 }
-                for row in rows[:12]
+                for row in rows
             ],
-            details=[
-                f"Nodes returned: {_format_count(len(rows))}",
-                f"Total node memory: {_format_bytes(total_bytes)}",
-            ],
+            details=details,
         )
     except Exception as error:
         return _chart_card("heatwave_node_memory", title, subtitle, "bars", unit="bytes", error=str(error))
