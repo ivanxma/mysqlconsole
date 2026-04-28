@@ -1,20 +1,69 @@
 {% extends "base.html" %}
 
+{% macro render_report_table(report, empty_text="No rows returned.") %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        {% for column in report.columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report.rows %}
+      <tr>
+        {% for column in report.columns %}
+        <td>{% if row[column] is not none and row[column] != "" %}{{ row[column] }}{% else %}-{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ report.columns|length if report.columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">HeatWave</p>
   <h2>HW Table</h2>
-  <p>Review which tables are configured for HeatWave by inspecting secondary engine metadata.</p>
+  <p>Review full HeatWave inventory metadata from <code>performance_schema.rpd_table_id</code> and <code>performance_schema.rpd_tables</code>, grouped by database, with load and Lakehouse health status.</p>
 </section>
 
 <section class="info-grid">
   <article class="info-card metric-card">
-    <span class="metric-label">Configured</span>
-    <strong class="metric-value">{{ configured_count }}</strong>
+    <span class="metric-label">Tracked HeatWave Tables</span>
+    <strong class="metric-value">{{ total_heatwave_tables }}</strong>
   </article>
   <article class="info-card metric-card">
-    <span class="metric-label">Not Configured</span>
-    <strong class="metric-value">{{ unconfigured_count }}</strong>
+    <span class="metric-label">Fully Loaded</span>
+    <strong class="metric-value">{{ fully_loaded_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Partially Loaded</span>
+    <strong class="metric-value">{{ partially_loaded_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Not Loaded</span>
+    <strong class="metric-value">{{ not_loaded_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Lakehouse Tables</span>
+    <strong class="metric-value">{{ lakehouse_table_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Healthy Lakehouse Tables</span>
+    <strong class="metric-value">{{ healthy_lakehouse_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Secondary Engine Not Fully Loaded</span>
+    <strong class="metric-value">{{ secondary_engine_not_loaded_count }}</strong>
   </article>
   <article class="info-card metric-card">
     <span class="metric-label">Object Storage</span>
@@ -22,52 +71,188 @@
   </article>
 </section>
 
+<section class="split-layout split-layout-top">
+  <article class="panel">
+    <div class="panel-header">
+      <h3>HeatWave Status</h3>
+      <span class="helper-text">Global status rows filtered to <code>rapid%status</code>.</span>
+    </div>
+    {% if status_report.error %}
+    <p class="helper-text error-text">{{ status_report.error }}</p>
+    {% else %}
+    {{ render_report_table(status_report, "No HeatWave status rows returned.") }}
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Lakehouse Engine / rpd_nodes</h3>
+      <span class="helper-text">Raw <code>performance_schema.rpd_nodes</code> rows.</span>
+    </div>
+    {% if nodes_report.error %}
+    <p class="helper-text error-text">{{ nodes_report.error }}</p>
+    {% else %}
+    {{ render_report_table(nodes_report, "No HeatWave node rows returned.") }}
+    {% endif %}
+  </article>
+</section>
+
+<section class="split-layout split-layout-top">
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Lakehouse Health</h3>
+      <span class="helper-text">Lakehouse tables are inferred from <code>recovery_source</code> values that contain <code>lakehouse</code>.</span>
+    </div>
+    <dl class="detail-list">
+      <div>
+        <dt>Lakehouse Tables</dt>
+        <dd>{{ lakehouse_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Healthy / Fully Loaded</dt>
+        <dd>{{ healthy_lakehouse_count }}</dd>
+      </div>
+      <div>
+        <dt>Need Attention</dt>
+        <dd>{{ lakehouse_needs_attention_count }}</dd>
+      </div>
+    </dl>
+    {% if lakehouse_needs_attention_rows %}
+    <h4>Lakehouse Tables Not Fully Loaded</h4>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Load State</th>
+            <th>Recovery Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in lakehouse_needs_attention_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_label }}</td>
+            <td>{{ row.load_state_label }}</td>
+            <td>{{ row.recovery_source_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="helper-text">All detected Lakehouse tables are fully loaded.</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Secondary Engine Defined But Not Fully Loaded</h3>
+      <span class="helper-text">Tables with <code>SECONDARY_ENGINE=RAPID</code> that are not currently fully loaded in HeatWave metadata.</span>
+    </div>
+    {% if configured_secondary_engine_error %}
+    <p class="helper-text error-text">{{ configured_secondary_engine_error }}</p>
+    {% elif secondary_engine_not_loaded_rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Rows</th>
+            <th>Load State</th>
+            <th>Recovery Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in secondary_engine_not_loaded_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.load_state_label }}</td>
+            <td>{{ row.recovery_source_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="helper-text">Every table with <code>SECONDARY_ENGINE=RAPID</code> is fully loaded.</p>
+    {% endif %}
+  </article>
+</section>
+
 <section class="panel">
   <div class="panel-header">
     <h3>HeatWave Table Inventory</h3>
     <div class="panel-actions">
-      <form method="get" class="inline-form">
-        <label>
-          Database
-          <select name="database" onchange="this.form.submit()">
-            {% for row in database_inventory %}
-            <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </form>
-      {% if selected_database %}
-      <a class="button secondary" href="{{ url_for('hw_table_download', database=selected_database) }}">Download CSV</a>
-      {% endif %}
+      <a class="button secondary" href="{{ url_for('hw_table_download') }}">Download CSV</a>
     </div>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Table</th>
-          <th>Engine</th>
-          <th>Rows</th>
-          <th>HeatWave Secondary Engine</th>
-          <th>Create Options</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in tables %}
-        <tr>
-          <td>{{ row.table_name }}</td>
-          <td>{{ row.engine }}</td>
-          <td>{{ row.row_count }}</td>
-          <td>{{ "RAPID" if row.heatwave_configured else "-" }}</td>
-          <td><code>{{ row.create_options or "-" }}</code></td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5">No HeatWave table rows available for the selected database.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% if inventory_error %}
+  <p class="helper-text error-text">{{ inventory_error }}</p>
+  {% elif inventory_groups %}
+  <div class="accordion-list">
+    {% for group in inventory_groups %}
+    <details class="accordion-panel" {% if group.open_by_default %}open{% endif %}>
+      <summary class="accordion-summary">
+        <span class="accordion-title">{{ group.database_name }}</span>
+        <span class="accordion-count">
+          {{ group.row_count }} tables • {{ group.loaded_count }} loaded • {{ group.partial_count }} partial • {{ group.not_loaded_count }} not loaded
+        </span>
+      </summary>
+      <div class="accordion-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th rowspan="2">Table</th>
+                {% if table_id_columns %}
+                <th colspan="{{ table_id_columns|length }}">rpd_table_id</th>
+                {% endif %}
+                {% if tables_columns %}
+                <th colspan="{{ tables_columns|length }}">rpd_tables</th>
+                {% endif %}
+              </tr>
+              <tr>
+                {% for column_name in table_id_columns %}
+                <th>{{ column_name | replace("rpd_table_id__", "") }}</th>
+                {% endfor %}
+                {% for column_name in tables_columns %}
+                <th>{{ column_name | replace("rpd_tables__", "") }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in group.rows %}
+              <tr>
+                <td>
+                  <strong>{{ row.table_label }}</strong>
+                  <div class="helper-text">
+                    {{ row.load_state_label }}
+                    {% if row.is_lakehouse %} • Lakehouse{% endif %}
+                    {% if row.recovery_source_label != "-" %} • {{ row.recovery_source_label }}{% endif %}
+                  </div>
+                </td>
+                {% for column_name in table_id_columns %}
+                <td>{% if row[column_name] is not none and row[column_name] != "" %}{{ row[column_name] }}{% else %}-{% endif %}</td>
+                {% endfor %}
+                {% for column_name in tables_columns %}
+                <td>{% if row[column_name] is not none and row[column_name] != "" %}{{ row[column_name] }}{% else %}-{% endif %}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
   </div>
+  {% else %}
+  <p class="helper-text">No HeatWave inventory rows were returned.</p>
+  {% endif %}
 </section>
 {% endblock %}

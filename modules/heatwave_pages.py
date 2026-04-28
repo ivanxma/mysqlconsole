@@ -1,34 +1,331 @@
-def build_heatwave_tables_context(database_name, *, fetch_database_inventory, fetch_tables_for_database):
-    schemas = [row for row in fetch_database_inventory() if not row["is_system"]]
-    selected_database = str(database_name or "").strip()
-    if not selected_database and schemas:
-        selected_database = schemas[0]["database_name"]
-    tables = fetch_tables_for_database(selected_database) if selected_database else []
-    configured = [row for row in tables if row["heatwave_configured"]]
-    unconfigured = [row for row in tables if not row["heatwave_configured"]]
+def _empty_report():
+    return {"columns": [], "rows": [], "error": ""}
+
+
+def _first_defined_value(row, candidate_keys):
+    for key in candidate_keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def _normalize_identifier(value):
+    return str(value or "").strip().strip("`")
+
+
+def _split_qualified_name(value):
+    normalized = _normalize_identifier(value)
+    if not normalized or "." not in normalized:
+        return "", normalized
+    database_name, table_name = normalized.split(".", 1)
+    return _normalize_identifier(database_name), _normalize_identifier(table_name)
+
+
+def _normalize_progress_value(value):
+    if value in (None, ""):
+        return None
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if 0.0 <= numeric_value <= 1.0:
+        return numeric_value * 100.0
+    return numeric_value
+
+
+def _derive_load_state(row):
+    progress_value = _normalize_progress_value(
+        _first_defined_value(
+            row,
+            [
+                "rpd_tables__load_progress",
+                "rpd_tables__load_percentage",
+                "rpd_tables__load_percent",
+                "rpd_tables__percent_loaded",
+                "rpd_tables__load_pct",
+                "rpd_tables__availability_percentage",
+                "rpd_tables__availability_percent",
+            ],
+        )
+    )
+    if progress_value is not None:
+        if progress_value >= 99.999:
+            return "loaded"
+        if progress_value > 0:
+            return "partial"
+        return "not_loaded"
+
+    raw_status = str(
+        _first_defined_value(
+            row,
+            [
+                "rpd_tables__load_status",
+                "rpd_tables__status",
+                "rpd_tables__recovery_status",
+                "rpd_tables__availability_status",
+            ],
+        )
+        or ""
+    ).strip().lower()
+    numeric_status = _normalize_progress_value(raw_status)
+    if numeric_status is not None:
+        if numeric_status >= 99.999:
+            return "loaded"
+        if numeric_status > 0:
+            return "partial"
+        return "not_loaded"
+    if raw_status:
+        if any(token in raw_status for token in ("not loaded", "unloaded", "pending", "init")):
+            return "not_loaded"
+        if any(token in raw_status for token in ("partial", "loading", "recover", "progress", "sync")):
+            return "partial"
+        if any(token in raw_status for token in ("loaded", "complete", "available", "active", "healthy")):
+            return "loaded"
+
+    load_start = _first_defined_value(row, ["rpd_tables__load_start_timestamp"])
+    load_end = _first_defined_value(row, ["rpd_tables__load_end_timestamp"])
+    if load_end not in (None, ""):
+        return "loaded"
+    if load_start not in (None, ""):
+        return "partial"
+    return "not_loaded"
+
+
+def _derive_inventory_labels(row):
+    raw_name = _first_defined_value(
+        row,
+        [
+            "rpd_table_id__name",
+            "rpd_table_id__table_name",
+            "rpd_tables__name",
+            "rpd_tables__table_name",
+        ],
+    )
+    parsed_database_name, parsed_table_name = _split_qualified_name(raw_name)
+
+    database_name = _normalize_identifier(
+        _first_defined_value(
+            row,
+            [
+                "rpd_table_id__schema_name",
+                "rpd_table_id__database_name",
+                "rpd_table_id__table_schema",
+                "rpd_table_id__schema",
+                "rpd_table_id__db_name",
+                "rpd_tables__schema_name",
+                "rpd_tables__database_name",
+                "rpd_tables__table_schema",
+                "rpd_tables__schema",
+                "rpd_tables__db_name",
+            ],
+        )
+    )
+    if not database_name:
+        database_name = parsed_database_name or "Unknown"
+
+    table_name = _normalize_identifier(
+        _first_defined_value(
+            row,
+            [
+                "rpd_table_id__table_name",
+                "rpd_tables__table_name",
+            ],
+        )
+    )
+    if not table_name:
+        table_name = parsed_table_name or _normalize_identifier(raw_name)
+    if not table_name:
+        table_name = str(
+            _first_defined_value(row, ["rpd_table_id__id", "rpd_tables__id"]) or "Unknown Table"
+        ).strip()
+
+    full_table_name = f"{database_name}.{table_name}" if database_name != "Unknown" else table_name
     return {
-        "database_inventory": schemas,
-        "selected_database": selected_database,
-        "tables": tables,
-        "configured_count": len(configured),
-        "unconfigured_count": len(unconfigured),
+        "database_name": database_name,
+        "table_label": table_name,
+        "full_table_name": full_table_name,
+    }
+
+
+def _safe_report(fetcher, empty_report=None):
+    try:
+        report = fetcher()
+        report["error"] = ""
+        return report
+    except Exception as error:  # pragma: no cover - depends on server features
+        report = dict(empty_report or _empty_report())
+        report["error"] = str(error)
+        return report
+
+
+def _safe_items(fetcher):
+    try:
+        return fetcher(), ""
+    except Exception as error:  # pragma: no cover - depends on server features
+        return [], str(error)
+
+
+def _build_heatwave_inventory_rows(inventory_report):
+    load_state_labels = {
+        "loaded": "Fully Loaded",
+        "partial": "Partially Loaded",
+        "not_loaded": "Not Loaded",
+    }
+    enriched_rows = []
+    for raw_row in inventory_report["rows"]:
+        row = dict(raw_row)
+        row.update(_derive_inventory_labels(raw_row))
+        row["load_state"] = _derive_load_state(raw_row)
+        row["load_state_label"] = load_state_labels[row["load_state"]]
+        recovery_source = str(
+            _first_defined_value(raw_row, ["rpd_tables__recovery_source", "rpd_table_id__recovery_source"]) or ""
+        ).strip()
+        row["recovery_source_label"] = recovery_source or "-"
+        row["is_fully_loaded"] = row["load_state"] == "loaded"
+        row["is_lakehouse"] = "lakehouse" in recovery_source.lower()
+        row["table_key"] = row["full_table_name"].lower()
+        enriched_rows.append(row)
+
+    enriched_rows.sort(
+        key=lambda item: (
+            item["database_name"].lower(),
+            item["table_label"].lower(),
+            str(_first_defined_value(item, ["rpd_table_id__id", "rpd_tables__id"])),
+        )
+    )
+    return enriched_rows
+
+
+def _build_heatwave_inventory_groups(rows):
+    groups = []
+    current_group = None
+
+    for row in rows:
+        if current_group is None or current_group["database_name"] != row["database_name"]:
+            if current_group is not None:
+                groups.append(current_group)
+            current_group = {
+                "database_name": row["database_name"],
+                "rows": [],
+                "row_count": 0,
+                "loaded_count": 0,
+                "partial_count": 0,
+                "not_loaded_count": 0,
+                "lakehouse_count": 0,
+                "open_by_default": False,
+            }
+
+        current_group["rows"].append(row)
+        current_group["row_count"] += 1
+        if row["load_state"] == "loaded":
+            current_group["loaded_count"] += 1
+        elif row["load_state"] == "partial":
+            current_group["partial_count"] += 1
+        else:
+            current_group["not_loaded_count"] += 1
+        if row["is_lakehouse"]:
+            current_group["lakehouse_count"] += 1
+
+    if current_group is not None:
+        groups.append(current_group)
+
+    if groups:
+        groups[0]["open_by_default"] = True
+    return groups
+
+
+def _build_secondary_engine_not_loaded_rows(configured_tables, inventory_rows):
+    inventory_by_key = {row["table_key"]: row for row in inventory_rows}
+    pending_rows = []
+    for row in configured_tables:
+        table_key = f"{row['database_name']}.{row['table_name']}".lower()
+        tracked_row = inventory_by_key.get(table_key)
+        if tracked_row and tracked_row["is_fully_loaded"]:
+            continue
+        pending_rows.append(
+            {
+                "database_name": row["database_name"],
+                "table_name": row["table_name"],
+                "row_count": row["row_count"],
+                "create_options": row["create_options"],
+                "load_state_label": tracked_row["load_state_label"] if tracked_row else "Not tracked in rpd metadata",
+                "recovery_source_label": tracked_row["recovery_source_label"] if tracked_row else "-",
+                "is_lakehouse": bool(tracked_row and tracked_row["is_lakehouse"]),
+            }
+        )
+    pending_rows.sort(key=lambda item: (item["database_name"].lower(), item["table_name"].lower()))
+    return pending_rows
+
+
+def build_heatwave_tables_context(
+    *,
+    fetch_heatwave_inventory_report,
+    fetch_heatwave_status_variable_report,
+    fetch_heatwave_nodes_report,
+    fetch_heatwave_defined_secondary_engine_tables,
+):
+    inventory_report = _safe_report(
+        fetch_heatwave_inventory_report,
+        {"columns": [], "rows": [], "table_id_columns": [], "tables_columns": []},
+    )
+    status_report = _safe_report(fetch_heatwave_status_variable_report)
+    nodes_report = _safe_report(fetch_heatwave_nodes_report)
+    configured_tables, configured_secondary_engine_error = _safe_items(fetch_heatwave_defined_secondary_engine_tables)
+
+    inventory_rows = _build_heatwave_inventory_rows(inventory_report)
+    inventory_groups = _build_heatwave_inventory_groups(inventory_rows)
+    lakehouse_rows = [row for row in inventory_rows if row["is_lakehouse"]]
+    lakehouse_needs_attention_rows = [row for row in lakehouse_rows if not row["is_fully_loaded"]]
+    secondary_engine_not_loaded_rows = _build_secondary_engine_not_loaded_rows(configured_tables, inventory_rows)
+
+    export_columns = ["database_name", "table_label", "full_table_name", "load_state_label", "recovery_source_label"]
+    export_columns.extend(inventory_report.get("table_id_columns", []))
+    export_columns.extend(inventory_report.get("tables_columns", []))
+
+    export_rows = []
+    for row in inventory_rows:
+        export_row = {
+            "database_name": row["database_name"],
+            "table_label": row["table_label"],
+            "full_table_name": row["full_table_name"],
+            "load_state_label": row["load_state_label"],
+            "recovery_source_label": row["recovery_source_label"],
+        }
+        for column_name in inventory_report.get("table_id_columns", []):
+            export_row[column_name] = row.get(column_name)
+        for column_name in inventory_report.get("tables_columns", []):
+            export_row[column_name] = row.get(column_name)
+        export_rows.append(export_row)
+
+    return {
+        "inventory_groups": inventory_groups,
+        "table_id_columns": inventory_report.get("table_id_columns", []),
+        "tables_columns": inventory_report.get("tables_columns", []),
+        "inventory_error": inventory_report.get("error", ""),
+        "status_report": status_report,
+        "nodes_report": nodes_report,
+        "total_heatwave_tables": len(inventory_rows),
+        "fully_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "loaded"),
+        "partially_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "partial"),
+        "not_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "not_loaded"),
+        "lakehouse_table_count": len(lakehouse_rows),
+        "healthy_lakehouse_count": sum(1 for row in lakehouse_rows if row["is_fully_loaded"]),
+        "lakehouse_needs_attention_count": len(lakehouse_needs_attention_rows),
+        "lakehouse_needs_attention_rows": lakehouse_needs_attention_rows,
+        "secondary_engine_not_loaded_count": len(secondary_engine_not_loaded_rows),
+        "secondary_engine_not_loaded_rows": secondary_engine_not_loaded_rows,
+        "configured_secondary_engine_error": configured_secondary_engine_error,
+        "export_columns": export_columns,
+        "export_rows": export_rows,
     }
 
 
 def build_heatwave_tables_export(report):
     return {
-        "filename": f"{report['selected_database'] or 'heatwave'}-tables.csv",
-        "columns": ["table_name", "engine", "row_count", "heatwave_configured", "create_options"],
-        "rows": [
-            {
-                "table_name": row["table_name"],
-                "engine": row["engine"],
-                "row_count": row["row_count"],
-                "heatwave_configured": "yes" if row["heatwave_configured"] else "no",
-                "create_options": row["create_options"],
-            }
-            for row in report["tables"]
-        ],
+        "filename": "heatwave-table-inventory.csv",
+        "columns": report["export_columns"],
+        "rows": report["export_rows"],
     }
 
 

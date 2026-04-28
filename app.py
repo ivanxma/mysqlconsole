@@ -436,6 +436,147 @@ def fetch_tables_for_database(database_name):
     return tables
 
 
+def fetch_full_table_report(schema_name, table_name, *, order_by_candidates=None, limit=None):
+    column_names = fetch_table_column_names(schema_name, table_name)
+    if not column_names:
+        raise ValueError(f"No columns found for {schema_name}.{table_name}.")
+
+    column_lookup = {column_name.lower(): column_name for column_name in column_names}
+    selected_columns = [
+        f"{quote_identifier(column_name)} AS {quote_identifier(column_name)}"
+        for column_name in column_names
+    ]
+    sql = (
+        f"SELECT {', '.join(selected_columns)} "
+        f"FROM {quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    )
+
+    order_clauses = []
+    for candidate in order_by_candidates or []:
+        actual_name = column_lookup.get(str(candidate or "").strip().lower())
+        if actual_name:
+            order_clauses.append(quote_identifier(actual_name))
+    if order_clauses:
+        sql += " ORDER BY " + ", ".join(order_clauses)
+    if limit is not None:
+        sql += f" LIMIT {int(limit)}"
+    return run_report_query(sql)
+
+
+def fetch_heatwave_status_variable_report():
+    report = run_report_query("SHOW GLOBAL STATUS LIKE 'rapid%status%'")
+    if report["rows"]:
+        return report
+    return run_report_query("SHOW GLOBAL STATUS LIKE 'rapid%'")
+
+
+def fetch_heatwave_nodes_report():
+    return fetch_full_table_report(
+        "performance_schema",
+        "rpd_nodes",
+        order_by_candidates=[
+            "node_name",
+            "node_id",
+            "host_name",
+            "hostname",
+            "host",
+            "address",
+            "ip_address",
+        ],
+        limit=200,
+    )
+
+
+def fetch_heatwave_inventory_report():
+    table_id_columns = fetch_table_column_names("performance_schema", "rpd_table_id")
+    tables_columns = fetch_table_column_names("performance_schema", "rpd_tables")
+    if not table_id_columns:
+        raise ValueError("No columns found for performance_schema.rpd_table_id.")
+    if not tables_columns:
+        raise ValueError("No columns found for performance_schema.rpd_tables.")
+
+    table_id_lookup = {column_name.lower(): column_name for column_name in table_id_columns}
+    tables_lookup = {column_name.lower(): column_name for column_name in tables_columns}
+    join_pairs = [
+        ("id", "id"),
+        ("table_id", "table_id"),
+        ("name", "name"),
+    ]
+    join_pair = next(
+        (
+            (table_id_lookup[left_name], tables_lookup[right_name])
+            for left_name, right_name in join_pairs
+            if left_name in table_id_lookup and right_name in tables_lookup
+        ),
+        None,
+    )
+    if join_pair is None:
+        raise ValueError("Unable to determine a join key between performance_schema.rpd_table_id and performance_schema.rpd_tables.")
+
+    selected_columns = []
+    table_id_aliases = []
+    tables_aliases = []
+
+    for column_name in table_id_columns:
+        alias = f"rpd_table_id__{column_name}"
+        selected_columns.append(f"tid.{quote_identifier(column_name)} AS {quote_identifier(alias)}")
+        table_id_aliases.append(alias)
+
+    for column_name in tables_columns:
+        alias = f"rpd_tables__{column_name}"
+        selected_columns.append(f"rt.{quote_identifier(column_name)} AS {quote_identifier(alias)}")
+        tables_aliases.append(alias)
+
+    sql = """
+        SELECT {columns}
+        FROM performance_schema.rpd_table_id AS tid
+        LEFT JOIN performance_schema.rpd_tables AS rt
+          ON tid.{table_id_key} = rt.{tables_key}
+    """.format(
+        columns=", ".join(selected_columns),
+        table_id_key=quote_identifier(join_pair[0]),
+        tables_key=quote_identifier(join_pair[1]),
+    )
+
+    order_clauses = []
+    for candidate in ("schema_name", "database_name", "table_schema", "name", "table_name", "id"):
+        actual_name = table_id_lookup.get(candidate)
+        if actual_name:
+            order_clauses.append(f"tid.{quote_identifier(actual_name)}")
+    if order_clauses:
+        sql += " ORDER BY " + ", ".join(order_clauses)
+
+    report = run_report_query(sql)
+    report["table_id_columns"] = table_id_aliases
+    report["tables_columns"] = tables_aliases
+    return report
+
+
+def fetch_heatwave_defined_secondary_engine_tables():
+    rows = execute_query(
+        """
+        SELECT
+          table_schema AS database_name_value,
+          table_name AS table_name_value,
+          table_rows AS row_count_value,
+          create_options AS create_options_value
+        FROM information_schema.tables
+        WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND UPPER(COALESCE(create_options, '')) LIKE '%%SECONDARY_ENGINE=RAPID%%'
+        ORDER BY table_schema, table_name
+        """
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "table_name": row["table_name_value"],
+            "row_count": row["row_count_value"] if row["row_count_value"] is not None else "-",
+            "create_options": row["create_options_value"] or "",
+        }
+        for row in rows
+    ]
+
+
 def fetch_table_columns(database_name, table_name):
     if not database_name or not table_name:
         return []
@@ -3673,11 +3814,11 @@ def db_admin_download():
 @app.route("/heatwave/hw-table")
 @login_required
 def hw_table_page():
-    selected_database = str(request.args.get("database", "")).strip()
     report = module_build_heatwave_tables_context(
-        selected_database,
-        fetch_database_inventory=fetch_database_inventory,
-        fetch_tables_for_database=fetch_tables_for_database,
+        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
+        fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
+        fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
+        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
     )
     return render_dashboard(
         "hw_table.html",
@@ -3689,11 +3830,11 @@ def hw_table_page():
 @app.route("/heatwave/hw-table/download")
 @login_required
 def hw_table_download():
-    selected_database = str(request.args.get("database", "")).strip()
     report = module_build_heatwave_tables_context(
-        selected_database,
-        fetch_database_inventory=fetch_database_inventory,
-        fetch_tables_for_database=fetch_tables_for_database,
+        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
+        fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
+        fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
+        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
     )
     export_payload = module_build_heatwave_tables_export(report)
     return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])

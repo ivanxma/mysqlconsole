@@ -1,0 +1,86 @@
+<section class="panel chart-toolbar-panel" data-monitoring-refresh>
+  <div class="chart-toolbar">
+    <div class="chart-toolbar-controls">
+      <button class="button secondary" data-monitoring-refresh-button type="button">Refresh</button>
+      <label class="chart-period-field">
+        <span>Auto Refresh</span>
+        <select data-monitoring-refresh-period>
+          <option value="5">5s</option>
+          <option value="15">15s</option>
+          <option value="30">30s</option>
+          <option value="60">60s</option>
+        </select>
+      </label>
+    </div>
+    <div class="chart-toolbar-status">
+      <strong data-monitoring-refresh-updated>-</strong>
+      <span class="helper-text" data-monitoring-refresh-status>Auto-refresh every 15s.</span>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const panel = document.querySelector("[data-monitoring-refresh]");
+    if (!panel) {
+      return;
+    }
+
+    const storageKey = "dbconsole-monitoring-page-refresh-period";
+    const allowedPeriods = [5, 15, 30, 60];
+    const elements = {
+      button: panel.querySelector("[data-monitoring-refresh-button]"),
+      period: panel.querySelector("[data-monitoring-refresh-period]"),
+      updated: panel.querySelector("[data-monitoring-refresh-updated]"),
+      status: panel.querySelector("[data-monitoring-refresh-status]")
+    };
+    let timerId = null;
+
+    function loadRefreshPeriod() {
+      try {
+        const storedValue = JSON.parse(window.localStorage.getItem(storageKey));
+        const numericValue = Number(storedValue);
+        return allowedPeriods.includes(numericValue) ? numericValue : 15;
+      } catch (_) {
+        return 15;
+      }
+    }
+
+    function saveRefreshPeriod(value) {
+      window.localStorage.setItem(storageKey, JSON.stringify(value));
+    }
+
+    function setStatus(message, isError = false) {
+      elements.status.textContent = message;
+      elements.status.classList.toggle("error-text", isError);
+    }
+
+    function updateTimestamp() {
+      elements.updated.textContent = new Date().toLocaleTimeString();
+    }
+
+    function scheduleRefresh() {
+      window.clearTimeout(timerId);
+      setStatus(`Auto-refresh every ${elements.period.value}s.`);
+      timerId = window.setTimeout(() => {
+        setStatus("Refreshing page...");
+        window.location.reload();
+      }, Number(elements.period.value) * 1000);
+    }
+
+    elements.button.addEventListener("click", () => {
+      setStatus("Refreshing page...");
+      window.location.reload();
+    });
+
+    elements.period.value = String(loadRefreshPeriod());
+    elements.period.addEventListener("change", () => {
+      saveRefreshPeriod(Number(elements.period.value));
+      scheduleRefresh();
+    });
+
+    updateTimestamp();
+    scheduleRefresh();
+    window.addEventListener("beforeunload", () => window.clearTimeout(timerId));
+  })();
+</script>

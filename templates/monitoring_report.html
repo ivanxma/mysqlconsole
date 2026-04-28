@@ -7,6 +7,8 @@
   <p>{{ report_description }}</p>
 </section>
 
+{% include "_monitoring_auto_refresh.html" %}
+
 {% if error_message %}
 <section class="panel">
   <h3>Monitoring Error</h3>
