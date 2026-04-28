@@ -7,61 +7,94 @@
   <p>Create databases, inspect table definitions, and browse live rows from the connected server.</p>
 </section>
 
-<section class="split-layout split-layout-top">
-  <article class="panel">
-    <h3>Create Database</h3>
-    <form method="post" class="form-grid">
-      <input type="hidden" name="db_action" value="create_database">
-      <label>
-        Database Name
-        <input name="database_name" type="text" placeholder="example_db">
-      </label>
-      <div class="form-actions">
-        <button class="button primary" type="submit">Create Database</button>
-      </div>
-    </form>
-  </article>
-
-  <article class="panel">
-    <h3>Select Database and Table</h3>
-    <form method="get" class="form-grid compact-form">
-      <label>
-        Database
-        <select name="database" onchange="this.form.submit()">
-          <option value="">Choose a database</option>
-          {% for row in database_inventory %}
-          <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
-            {{ row.database_name }}{% if row.is_system %} (system){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        Table
-        <select name="table" onchange="this.form.submit()">
-          <option value="">Choose a table</option>
-          {% for row in tables %}
-          <option value="{{ row.table_name }}" {% if row.table_name == selected_table %}selected{% endif %}>{{ row.table_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    </form>
-
-    {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
-    <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
-      <input type="hidden" name="db_action" value="drop_database">
-      <input type="hidden" name="database_name" value="{{ selected_database }}">
-      <button class="button secondary danger" type="submit">Drop Selected Database</button>
-    </form>
-    {% endif %}
-  </article>
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="DB Admin tabs">
+    <a
+      class="tab-link {% if db_admin_tab == 'create' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'create' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='create', database=selected_database, table=selected_table) }}"
+    >
+      Create Database
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'select' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'select' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table) }}"
+    >
+      Select Database and Table
+    </a>
+  </div>
 </section>
 
+<section class="panel">
+  {% if db_admin_tab == 'create' %}
+  <div class="panel-header">
+    <div>
+      <h3>Create Database</h3>
+      <span class="helper-text">Create a new schema on the connected MySQL server.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="db_admin_tab" value="create">
+    <input type="hidden" name="db_action" value="create_database">
+    <label>
+      Database Name
+      <input name="database_name" type="text" placeholder="example_db">
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Create Database</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="panel-header">
+    <div>
+      <h3>Select Database and Table</h3>
+      <span class="helper-text">Choose a database and table to inspect metadata, preview rows, and manage column definitions.</span>
+    </div>
+  </div>
+  <form method="get" class="form-grid compact-form">
+    <input type="hidden" name="db_admin_tab" value="select">
+    <label>
+      Database
+      <select name="database" onchange="this.form.submit()">
+        <option value="">Choose a database</option>
+        {% for row in database_inventory %}
+        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
+          {{ row.database_name }}{% if row.is_system %} (system){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Table
+      <select name="table" onchange="this.form.submit()">
+        <option value="">Choose a table</option>
+        {% for row in tables %}
+        <option value="{{ row.table_name }}" {% if row.table_name == selected_table %}selected{% endif %}>{{ row.table_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
+  <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
+    <input type="hidden" name="db_admin_tab" value="select">
+    <input type="hidden" name="db_action" value="drop_database">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <button class="button secondary danger" type="submit">Drop Selected Database</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+
+{% if db_admin_tab == 'select' %}
 <section class="panel">
   <div class="panel-header">
     <h3>Tables{% if selected_database %} in {{ selected_database }}{% endif %}</h3>
     {% if selected_database %}
-    <a class="button secondary" href="{{ url_for('db_admin_download', database=selected_database) }}">Download CSV</a>
+    <a class="button secondary" href="{{ url_for('db_admin_download', database=selected_database, db_admin_tab='select') }}">Download CSV</a>
     {% endif %}
   </div>
   <div class="table-wrap">
@@ -81,7 +114,7 @@
           <td>
             <a
               class="table-select-link"
-              href="{{ url_for('db_admin_page', database=selected_database, table=row.table_name) }}"
+              href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}"
             >
               {{ row.table_name }}
             </a>
@@ -90,8 +123,8 @@
           <td>{{ row.row_count }}</td>
           <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
           <td class="table-action-cell">
-            <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=row.table_name) }}">Select</a>
-            <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=row.table_name, dialog='modify-columns') }}">Modify</a>
+            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}">Select</a>
+            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name, dialog='modify-columns') }}">Modify</a>
           </td>
         </tr>
         {% else %}
@@ -288,11 +321,11 @@
   {% if selected_database and selected_table %}
   <div class="pager">
     {% if preview.has_previous %}
-    <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=selected_table, page=preview.page - 1) }}">Previous</a>
+    <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, page=preview.page - 1) }}">Previous</a>
     {% endif %}
     <span>Page {{ preview.page }}</span>
     {% if preview.has_next %}
-    <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=selected_table, page=preview.page + 1) }}">Next</a>
+    <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, page=preview.page + 1) }}">Next</a>
     {% endif %}
   </div>
   {% endif %}
@@ -314,6 +347,7 @@
     {% endif %}
     {% set modifiable_column_rows = column_edit_rows|selectattr('supports_modify')|list %}
     <form method="post" class="form-grid">
+      <input type="hidden" name="db_admin_tab" value="select">
       <input type="hidden" name="db_action" value="modify_table_columns">
       <input type="hidden" name="database_name" value="{{ selected_database }}">
       <input type="hidden" name="table_name" value="{{ selected_table }}">
@@ -362,11 +396,12 @@
         <button class="button secondary" type="button" data-dialog-close="modify-columns-dialog">Cancel</button>
       </div>
     </form>
-    {% else %}
+  {% else %}
     <p class="helper-text">Choose a database and table before modifying column definitions.</p>
     {% endif %}
   </div>
 </dialog>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

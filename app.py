@@ -4658,6 +4658,9 @@ def mysql_import_page():
 @app.route("/mysql/db-admin", methods=["GET", "POST"])
 @login_required
 def db_admin_page():
+    db_admin_tab = str(request.values.get("db_admin_tab", "select")).strip().lower()
+    if db_admin_tab not in {"create", "select"}:
+        db_admin_tab = "select"
     selected_database = str(request.values.get("database", "")).strip()
     selected_table = str(request.values.get("table", "")).strip()
     preview_page = normalize_page_number(request.args.get("page", "1"))
@@ -4666,6 +4669,9 @@ def db_admin_page():
 
     if request.method == "POST":
         action = str(request.form.get("db_action", "")).strip()
+        db_admin_tab = str(request.form.get("db_admin_tab", db_admin_tab)).strip().lower()
+        if db_admin_tab not in {"create", "select"}:
+            db_admin_tab = "select"
         selected_database = str(request.form.get("database_name", selected_database)).strip()
         selected_table = str(request.form.get("table_name", selected_table)).strip()
         try:
@@ -4681,7 +4687,9 @@ def db_admin_page():
                 fetch_table_columns=fetch_table_columns,
             )
             flash(action_result["flash_message"], action_result["flash_category"])
-            return redirect(url_for(action_result["redirect_endpoint"], **action_result["redirect_values"]))
+            redirect_values = dict(action_result["redirect_values"])
+            redirect_values.setdefault("db_admin_tab", "select")
+            return redirect(url_for(action_result["redirect_endpoint"], **redirect_values))
         except Exception as error:
             flash(str(error), "error")
             if action == "modify_table_columns":
@@ -4704,12 +4712,15 @@ def db_admin_page():
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])
-        return redirect(url_for(page_context["redirect_endpoint"], **page_context["redirect_values"]))
+        redirect_values = dict(page_context["redirect_values"])
+        redirect_values.setdefault("db_admin_tab", "select")
+        return redirect(url_for(page_context["redirect_endpoint"], **redirect_values))
 
     return render_dashboard(
         "db_admin.html",
         page_title="DB Admin",
         db_open_dialog=db_open_dialog,
+        db_admin_tab=db_admin_tab,
         **page_context,
     )
 

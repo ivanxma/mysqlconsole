@@ -38,51 +38,54 @@
 
 <section class="panel">
   <form method="post" class="form-grid">
-    <div class="panel-header">
-      <div class="panel-title">
-        <span class="panel-title-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M5 6.5h14"></path>
-            <path d="M5 12h14"></path>
-            <path d="M5 17.5h8"></path>
-            <path d="M16.5 15.5l2 2 3-4"></path>
-          </svg>
-        </span>
-        <div class="panel-title-copy">
-          <h3>SQL Painter</h3>
-          <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan. `use_secondary_engine` defaults to <code>ON</code>.</span>
-        </div>
+    <div class="panel-header workspace-toolbar full-span">
+      <div class="workspace-toolbar-group">
+        <span class="workspace-toolbar-tag">USE_SECONDARY_ENGINE</span>
+        <select name="use_secondary_engine" class="workspace-toolbar-select">
+          {% for mode in secondary_engine_modes %}
+          <option value="{{ mode }}" {% if use_secondary_engine == mode %}selected{% endif %}>{{ mode }}</option>
+          {% endfor %}
+        </select>
       </div>
-      <div class="panel-actions">
-        <div class="workspace-engine-shell">
-          <span class="metric-label">use_secondary_engine</span>
-          <div class="workspace-engine-list" role="group" aria-label="use_secondary_engine mode">
-            {% for mode in secondary_engine_modes %}
-            <label class="workspace-engine-option">
-              <input
-                type="radio"
-                name="use_secondary_engine"
-                value="{{ mode }}"
-                {% if use_secondary_engine == mode %}checked{% endif %}
-              >
-              <span>{{ mode }}</span>
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-        <button class="button primary" type="submit" name="workspace_action" value="execute">Execute</button>
-        <button class="button secondary" type="submit" name="workspace_action" value="explain">Explain</button>
+      <div class="workspace-toolbar-group">
+        <span class="workspace-toolbar-tag">DB</span>
+        <select name="database" class="workspace-toolbar-select workspace-db-select">
+          <option value="">Profile Default</option>
+          {% for row in database_inventory %}
+          <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="workspace-toolbar-actions">
+        <button
+          class="panel-icon-button workspace-action-button primary"
+          type="submit"
+          name="workspace_action"
+          value="execute"
+          title="Execute"
+          aria-label="Execute"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 6.5v11l8-5.5z"></path>
+          </svg>
+        </button>
+        <button
+          class="panel-icon-button workspace-action-button"
+          type="submit"
+          name="workspace_action"
+          value="explain"
+          title="Explain"
+          aria-label="Explain"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 10.5a2 2 0 1 1 4 0c0 1.2-.86 1.72-1.6 2.18-.74.45-1.4.9-1.4 1.82"></path>
+            <path d="M12 17.5h.01"></path>
+            <circle cx="12" cy="12" r="8"></circle>
+          </svg>
+        </button>
       </div>
     </div>
-    <label>
-      Database
-      <select name="database">
-        <option value="">Profile Default</option>
-        {% for row in database_inventory %}
-        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    <p class="helper-text workspace-toolbar-note">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan. `use_secondary_engine` defaults to <code>ON</code>.</p>
     <label class="full-span">
       SQL Statement
       <textarea name="sql_text" rows="14" class="sql-workspace-editor" placeholder="SELECT * FROM your_table LIMIT 10;">{{ sql_text }}</textarea>
