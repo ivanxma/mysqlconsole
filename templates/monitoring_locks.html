@@ -39,16 +39,20 @@
 {% include "_monitoring_auto_refresh.html" %}
 
 <section class="tab-shell">
-  <div class="tab-strip" role="tablist" aria-label="Locks tabs">
+  <div class="tab-bar" role="tablist" aria-label="Locks tabs">
     <a
       href="{{ url_for('monitoring_locks_page', lock_focus='row') }}"
       class="tab-link {% if lock_focus == 'row' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if lock_focus == 'row' else 'false' }}"
     >
       Row Locks
     </a>
     <a
       href="{{ url_for('monitoring_locks_page', lock_focus='meta') }}"
       class="tab-link {% if lock_focus == 'meta' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if lock_focus == 'meta' else 'false' }}"
     >
       Meta Locks
     </a>

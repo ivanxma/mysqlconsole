@@ -37,7 +37,7 @@
 </section>
 
 <section class="tab-shell">
-  <div class="tab-strip" role="tablist" aria-label="HeatWave admin tabs">
+  <div class="tab-bar" role="tablist" aria-label="HeatWave admin tabs">
     <button
       class="tab-link {% if active_tab == 'db' %}active{% endif %}"
       type="button"
@@ -224,11 +224,11 @@
       <button class="button secondary" type="button" data-dialog-close="database-status-dialog">Close</button>
     </div>
     {% if selected_database %}
-    <div class="tab-strip" role="tablist">
-      <button class="tab-link active" type="button" data-popup-tab-group="database-status" data-popup-tab-button="info">Info</button>
-      <button class="tab-link" type="button" data-popup-tab-group="database-status" data-popup-tab-button="tables">Tables</button>
+    <div class="tab-bar" role="tablist" aria-label="Database status tabs">
+      <button class="tab-link active" type="button" role="tab" aria-selected="true" data-popup-tab-group="database-status" data-popup-tab-button="info">Info</button>
+      <button class="tab-link" type="button" role="tab" aria-selected="false" data-popup-tab-group="database-status" data-popup-tab-button="tables">Tables</button>
     </div>
-    <section class="management-popup-panel active" data-popup-tab-group="database-status" data-popup-tab-panel="info">
+    <section class="management-popup-panel active" role="tabpanel" data-popup-tab-group="database-status" data-popup-tab-panel="info">
       {% if database_status.error %}
       <p class="helper-text error-text">{{ database_status.error }}</p>
       {% endif %}
@@ -238,7 +238,7 @@
         <p class="management-friendly-message">Load summary: <strong>{{ database_status.summary.loaded_count }}</strong> loaded, <strong>{{ database_status.summary.partial_count }}</strong> partial, and <strong>{{ database_status.summary.not_loaded_count }}</strong> not loaded.</p>
       </div>
     </section>
-    <section class="management-popup-panel" data-popup-tab-group="database-status" data-popup-tab-panel="tables" hidden>
+    <section class="management-popup-panel" role="tabpanel" data-popup-tab-group="database-status" data-popup-tab-panel="tables" hidden>
       <div class="table-wrap">
         <table>
           <thead>
@@ -333,11 +333,13 @@
       <button class="button secondary" type="button" data-dialog-close="procedure-result-dialog">Close</button>
     </div>
     {% if management_popup_result %}
-    <div class="tab-strip" role="tablist">
+    <div class="tab-bar" role="tablist" aria-label="HeatWave procedure result tabs">
       {% for tab in management_popup_result.tabs %}
       <button
         class="tab-link {% if loop.first %}active{% endif %}"
         type="button"
+        role="tab"
+        aria-selected="{{ 'true' if loop.first else 'false' }}"
         data-popup-tab-group="procedure-result"
         data-popup-tab-button="{{ tab.key }}"
       >
@@ -348,6 +350,7 @@
     {% for tab in management_popup_result.tabs %}
     <section
       class="management-popup-panel {% if loop.first %}active{% endif %}"
+      role="tabpanel"
       data-popup-tab-group="procedure-result"
       data-popup-tab-panel="{{ tab.key }}"
       {% if not loop.first %}hidden{% endif %}
@@ -422,7 +425,9 @@
 
     const activatePopupTab = (groupName, tabName) => {
       document.querySelectorAll(`[data-popup-tab-group="${groupName}"][data-popup-tab-button]`).forEach((button) => {
-        button.classList.toggle("active", button.dataset.popupTabButton === tabName);
+        const isActive = button.dataset.popupTabButton === tabName;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
       });
       document.querySelectorAll(`[data-popup-tab-group="${groupName}"][data-popup-tab-panel]`).forEach((panel) => {
         const isActive = panel.dataset.popupTabPanel === tabName;

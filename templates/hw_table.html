@@ -115,15 +115,19 @@
 </section>
 
 <section class="tab-shell">
-  <div class="tab-strip">
+  <div class="tab-bar" role="tablist" aria-label="HeatWave table tabs">
     <a
       class="tab-link {% if active_tab == 'heatwave' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'heatwave' else 'false' }}"
       href="{{ url_for('hw_table_page', tab='heatwave') }}"
     >
       HeatWave
     </a>
     <a
       class="tab-link {% if active_tab == 'lakehouse' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'lakehouse' else 'false' }}"
       href="{{ url_for('hw_table_page', tab='lakehouse') }}"
     >
       Lakehouse

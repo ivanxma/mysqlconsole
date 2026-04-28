@@ -8,15 +8,19 @@
 </section>
 
 <section class="tab-shell">
-  <div class="tab-strip">
+  <div class="tab-bar" role="tablist" aria-label="Status and Variables tabs">
     <a
       class="tab-link {% if active_tab == 'status' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'status' else 'false' }}"
       href="{{ url_for('admin_status_variables_page', tab='status') }}"
     >
       Status
     </a>
     <a
       class="tab-link {% if active_tab == 'variables' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'variables' else 'false' }}"
       href="{{ url_for('admin_status_variables_page', tab='variables') }}"
     >
       Variables

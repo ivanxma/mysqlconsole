@@ -91,10 +91,12 @@
       </div>
     </div>
   </div>
-  <div class="tab-strip workspace-tab-strip" role="tablist">
+  <div class="tab-bar workspace-tab-bar" role="tablist" aria-label="SQL workspace output tabs">
     <button
       class="tab-link {% if workspace_output_tab == 'execution-result' %}active{% endif %}"
       type="button"
+      role="tab"
+      aria-selected="{{ 'true' if workspace_output_tab == 'execution-result' else 'false' }}"
       data-workspace-tab-group="workspace-output"
       data-workspace-tab-button="execution-result"
     >
@@ -103,6 +105,8 @@
     <button
       class="tab-link {% if workspace_output_tab == 'history' %}active{% endif %}"
       type="button"
+      role="tab"
+      aria-selected="{{ 'true' if workspace_output_tab == 'history' else 'false' }}"
       data-workspace-tab-group="workspace-output"
       data-workspace-tab-button="history"
     >
@@ -111,6 +115,7 @@
   </div>
   <section
     class="workspace-tab-panel {% if workspace_output_tab == 'execution-result' %}active{% endif %}"
+    role="tabpanel"
     data-workspace-tab-group="workspace-output"
     data-workspace-tab-panel="execution-result"
     {% if workspace_output_tab != 'execution-result' %}hidden{% endif %}
@@ -124,11 +129,13 @@
       </div>
       {% endfor %}
     </dl>
-    <div class="tab-strip workspace-tab-strip" role="tablist">
+    <div class="tab-bar workspace-tab-bar" role="tablist" aria-label="Last SQL result tabs">
       {% for tab in last_result.tabs %}
       <button
         class="tab-link {% if loop.first %}active{% endif %}"
         type="button"
+        role="tab"
+        aria-selected="{{ 'true' if loop.first else 'false' }}"
         data-workspace-tab-group="last-result"
         data-workspace-tab-button="{{ tab.key }}"
       >
@@ -139,6 +146,7 @@
     {% for tab in last_result.tabs %}
     <section
       class="workspace-tab-panel {% if loop.first %}active{% endif %}"
+      role="tabpanel"
       data-workspace-tab-group="last-result"
       data-workspace-tab-panel="{{ tab.key }}"
       {% if not loop.first %}hidden{% endif %}
@@ -164,6 +172,7 @@
   </section>
   <section
     class="workspace-tab-panel {% if workspace_output_tab == 'history' %}active{% endif %}"
+    role="tabpanel"
     data-workspace-tab-group="workspace-output"
     data-workspace-tab-panel="history"
     {% if workspace_output_tab != 'history' %}hidden{% endif %}
@@ -248,7 +257,9 @@
   (() => {
     const activateWorkspaceTab = (groupName, tabName) => {
       document.querySelectorAll(`[data-workspace-tab-group="${groupName}"][data-workspace-tab-button]`).forEach((button) => {
-        button.classList.toggle("active", button.dataset.workspaceTabButton === tabName);
+        const isActive = button.dataset.workspaceTabButton === tabName;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
       });
       document.querySelectorAll(`[data-workspace-tab-group="${groupName}"][data-workspace-tab-panel]`).forEach((panel) => {
         const isActive = panel.dataset.workspaceTabPanel === tabName;

@@ -160,10 +160,12 @@
       <span class="helper-text">Compact tabbed view for component inventory, security features, and the last 24 hours of <code>performance_schema.error_log</code>.</span>
     </div>
   </div>
-  <div class="tab-strip" role="tablist">
+  <div class="tab-bar" role="tablist" aria-label="Security and diagnostics tabs">
     <button
       class="tab-link {% if dashboard_tab == 'security' %}active{% endif %}"
       type="button"
+      role="tab"
+      aria-selected="{{ 'true' if dashboard_tab == 'security' else 'false' }}"
       data-dashboard-tab-group="security-diagnostics"
       data-dashboard-tab-button="security"
     >
@@ -172,6 +174,8 @@
     <button
       class="tab-link {% if dashboard_tab == 'error-log' %}active{% endif %}"
       type="button"
+      role="tab"
+      aria-selected="{{ 'true' if dashboard_tab == 'error-log' else 'false' }}"
       data-dashboard-tab-group="security-diagnostics"
       data-dashboard-tab-button="error-log"
     >
@@ -180,6 +184,7 @@
   </div>
   <section
     class="dashboard-tab-panel {% if dashboard_tab == 'security' %}active{% endif %}"
+    role="tabpanel"
     data-dashboard-tab-group="security-diagnostics"
     data-dashboard-tab-panel="security"
     {% if dashboard_tab != 'security' %}hidden{% endif %}
@@ -273,6 +278,7 @@
   </section>
   <section
     class="dashboard-tab-panel {% if dashboard_tab == 'error-log' %}active{% endif %}"
+    role="tabpanel"
     data-dashboard-tab-group="security-diagnostics"
     data-dashboard-tab-panel="error-log"
     {% if dashboard_tab != 'error-log' %}hidden{% endif %}
@@ -427,7 +433,9 @@
   (() => {
     const activateDashboardTab = (groupName, tabName) => {
       document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-button]`).forEach((button) => {
-        button.classList.toggle("active", button.dataset.dashboardTabButton === tabName);
+        const isActive = button.dataset.dashboardTabButton === tabName;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
       });
       document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-panel]`).forEach((panel) => {
         const isActive = panel.dataset.dashboardTabPanel === tabName;

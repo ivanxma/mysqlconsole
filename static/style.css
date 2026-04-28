@@ -240,30 +240,53 @@ textarea {
 }
 
 .tab-shell {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
+.tab-bar,
 .tab-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  align-items: flex-end;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 8px;
 }
 
 .tab-link {
+  position: relative;
+  top: 1px;
   padding: 12px 18px;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  color: var(--muted);
-  background: rgba(239, 231, 220, 0.75);
+  border-bottom-color: transparent;
+  border-radius: 14px 14px 0 0;
+  color: var(--accent-dark);
+  background: rgba(244, 232, 222, 0.92);
   font-weight: 700;
   font: inherit;
   text-decoration: none;
   cursor: pointer;
+  appearance: none;
 }
 
 .tab-link.active {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: var(--accent-dark);
+  background: var(--panel);
+  border-color: var(--line);
+  border-bottom-color: var(--panel);
+  box-shadow: 0 -8px 20px rgba(67, 42, 15, 0.05);
+}
+
+.tab-link:hover,
+.tab-link:focus-visible {
+  color: var(--accent-dark);
+  background: rgba(251, 242, 235, 0.98);
+}
+
+.tab-link.active:hover,
+.tab-link.active:focus-visible {
+  background: var(--panel);
 }
 
 .panel-title {
@@ -518,6 +541,7 @@ dialog.management-dialog::backdrop {
   line-height: 1.5;
 }
 
+.workspace-tab-bar,
 .workspace-tab-strip {
   margin-top: 18px;
 }
