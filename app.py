@@ -102,6 +102,11 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
+MONITORING_CHART_TAB_OPTIONS = (
+    ("general", "General"),
+    ("heatwave", "HeatWave"),
+    ("replication", "Replication"),
+)
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
     "DOUBLE",
@@ -510,7 +515,7 @@ def fetch_database_inventory():
           COALESCE(table_stats.data_bytes, 0) AS data_bytes_value,
           COALESCE(table_stats.index_bytes, 0) AS index_bytes_value,
           COALESCE(table_stats.total_bytes, 0) AS total_bytes_value,
-          COALESCE(routine_stats.procedure_count, 0) AS procedure_count_value
+          COALESCE(routine_stats.routine_count, 0) AS routine_count_value
         FROM information_schema.schemata AS s
         LEFT JOIN (
           SELECT
@@ -529,7 +534,7 @@ def fetch_database_inventory():
         LEFT JOIN (
           SELECT
             routine_schema,
-            SUM(CASE WHEN routine_type = 'PROCEDURE' THEN 1 ELSE 0 END) AS procedure_count
+            SUM(CASE WHEN routine_type IN ('PROCEDURE', 'FUNCTION') THEN 1 ELSE 0 END) AS routine_count
           FROM information_schema.routines
           GROUP BY routine_schema
         ) AS routine_stats
@@ -549,7 +554,8 @@ def fetch_database_inventory():
                 "base_table_count": row["base_table_count_value"] or 0,
                 "innodb_table_count": row["innodb_table_count_value"] or 0,
                 "view_count": row["view_count_value"] or 0,
-                "procedure_count": row["procedure_count_value"] or 0,
+                "routine_count": row["routine_count_value"] or 0,
+                "procedure_count": row["routine_count_value"] or 0,
                 "data_bytes": row["data_bytes_value"] or 0,
                 "index_bytes": row["index_bytes_value"] or 0,
                 "total_bytes": total_bytes,
@@ -558,6 +564,78 @@ def fetch_database_inventory():
             }
         )
     return inventory
+
+
+def fetch_dashboard_innodb_table_rows():
+    rows = execute_query(
+        """
+        SELECT
+          table_schema AS database_name_value,
+          table_name AS table_name_value,
+          engine AS engine_value,
+          table_rows AS table_rows_value
+        FROM information_schema.tables
+        WHERE table_type = 'BASE TABLE'
+          AND UPPER(COALESCE(engine, '')) = 'INNODB'
+          AND table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND table_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+        ORDER BY table_schema, table_name
+        """
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "table_name": row["table_name_value"],
+            "engine": row["engine_value"] or "InnoDB",
+            "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
+        }
+        for row in rows
+    ]
+
+
+def fetch_dashboard_view_rows():
+    rows = execute_query(
+        """
+        SELECT
+          table_schema AS database_name_value,
+          table_name AS view_name_value
+        FROM information_schema.views
+        WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND table_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+        ORDER BY table_schema, table_name
+        """
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "view_name": row["view_name_value"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_dashboard_routine_rows():
+    rows = execute_query(
+        """
+        SELECT
+          routine_schema AS database_name_value,
+          routine_type AS routine_type_value,
+          routine_name AS routine_name_value
+        FROM information_schema.routines
+        WHERE routine_type IN ('PROCEDURE', 'FUNCTION')
+          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+        ORDER BY routine_schema, routine_type, routine_name
+        """
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "routine_type": row["routine_type_value"] or "-",
+            "routine_name": row["routine_name_value"],
+        }
+        for row in rows
+    ]
 
 
 def fetch_tables_for_database(database_name):
@@ -1770,8 +1848,6 @@ def fetch_server_overview(recent_error_log_priorities=None):
         """
         SELECT
           COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN 1 ELSE 0 END), 0) AS base_table_count_value,
-          COALESCE(SUM(CASE WHEN UPPER(COALESCE(engine, '')) = 'INNODB' THEN 1 ELSE 0 END), 0) AS innodb_table_count_value,
-          COALESCE(SUM(CASE WHEN table_type = 'VIEW' THEN 1 ELSE 0 END), 0) AS view_count_value,
           COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length ELSE 0 END), 0) AS data_bytes_value,
           COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN index_length ELSE 0 END), 0) AS index_bytes_value,
           COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length + index_length ELSE 0 END), 0) AS total_bytes_value
@@ -1782,16 +1858,9 @@ def fetch_server_overview(recent_error_log_priorities=None):
     )
     table_totals = table_totals[0] if table_totals else {}
     total_size_bytes = table_totals.get("total_bytes_value") or 0
-    procedure_count = fetch_scalar(
-        """
-        SELECT COUNT(*) AS procedure_count_value
-        FROM information_schema.routines
-        WHERE routine_type = 'PROCEDURE'
-          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
-        """,
-        default=0,
-    )
+    innodb_table_rows = fetch_dashboard_innodb_table_rows()
+    view_rows = fetch_dashboard_view_rows()
+    routine_rows = fetch_dashboard_routine_rows()
     try:
         rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%status'")
     except Exception as error:  # pragma: no cover - depends on server features
@@ -1852,13 +1921,17 @@ def fetch_server_overview(recent_error_log_priorities=None):
         "current_connection_count": current_connection_count,
         "database_count": database_count,
         "table_count": table_totals.get("base_table_count_value") or 0,
-        "innodb_table_count": table_totals.get("innodb_table_count_value") or 0,
-        "view_count": table_totals.get("view_count_value") or 0,
-        "procedure_count": procedure_count or 0,
+        "innodb_table_count": len(innodb_table_rows),
+        "view_count": len(view_rows),
+        "routine_count": len(routine_rows),
+        "procedure_count": len(routine_rows),
         "data_bytes": table_totals.get("data_bytes_value") or 0,
         "index_bytes": table_totals.get("index_bytes_value") or 0,
         "total_size_bytes": total_size_bytes,
         "total_size_label": _format_bytes(total_size_bytes),
+        "innodb_table_rows": innodb_table_rows,
+        "view_rows": view_rows,
+        "routine_rows": routine_rows,
         "rapid_status_rows": rapid_status_rows[:10],
         "installed_components": installed_components,
         "installed_components_error": installed_components_error,
@@ -3995,20 +4068,35 @@ def build_heatwave_query_timing_chart_card():
 
 
 def build_monitoring_chart_snapshot():
+    tab_key_by_id = {
+        "connections": "general",
+        "locks": "general",
+        "storage": "general",
+        "innodb_memory": "general",
+        "temp_space": "general",
+        "binlog_relay": "replication",
+        "replication_latency": "replication",
+        "heatwave_load_state": "heatwave",
+        "heatwave_node_memory": "heatwave",
+        "heatwave_query_timing": "heatwave",
+    }
+    cards = [
+        build_monitoring_connections_chart_card(),
+        build_monitoring_locks_chart_card(),
+        build_monitoring_storage_chart_card(),
+        build_monitoring_innodb_memory_chart_card(),
+        build_monitoring_temp_space_chart_card(),
+        build_monitoring_binlog_relay_chart_card(),
+        build_monitoring_replication_latency_chart_card(),
+        build_heatwave_load_state_chart_card(),
+        build_heatwave_node_memory_chart_card(),
+        build_heatwave_query_timing_chart_card(),
+    ]
+    for card in cards:
+        card["tab_key"] = tab_key_by_id.get(card.get("id"), "general")
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "cards": [
-            build_monitoring_connections_chart_card(),
-            build_monitoring_locks_chart_card(),
-            build_monitoring_storage_chart_card(),
-            build_monitoring_innodb_memory_chart_card(),
-            build_monitoring_temp_space_chart_card(),
-            build_monitoring_binlog_relay_chart_card(),
-            build_monitoring_replication_latency_chart_card(),
-            build_heatwave_load_state_chart_card(),
-            build_heatwave_node_memory_chart_card(),
-            build_heatwave_query_timing_chart_card(),
-        ],
+        "cards": cards,
     }
 
 
@@ -4454,6 +4542,7 @@ def sql_workspace_page():
                         selected_database,
                         normalized_statement,
                         duration_ms,
+                        use_secondary_engine=use_secondary_engine,
                         status="success" if not json_error else "partial",
                         error_message=json_error,
                     ),
@@ -4476,6 +4565,7 @@ def sql_workspace_page():
                         selected_database,
                         normalized_statement,
                         duration_ms,
+                        use_secondary_engine=use_secondary_engine,
                         status="error",
                         error_message=str(error),
                     ),
@@ -4506,6 +4596,7 @@ def sql_workspace_page():
                         selected_database,
                         normalized_statement,
                         duration_ms,
+                        use_secondary_engine=use_secondary_engine,
                         status="success",
                     ),
                 )
@@ -4527,6 +4618,7 @@ def sql_workspace_page():
                         selected_database,
                         normalized_statement,
                         duration_ms,
+                        use_secondary_engine=use_secondary_engine,
                         status="error",
                         error_message=str(error),
                     ),
@@ -4845,9 +4937,15 @@ def monitoring_dashboard_page():
 @app.route("/monitoring/charts")
 @login_required
 def monitoring_charts_page():
+    monitoring_chart_tab = str(request.args.get("chart_tab", "general")).strip().lower()
+    allowed_chart_tabs = {option[0] for option in MONITORING_CHART_TAB_OPTIONS}
+    if monitoring_chart_tab not in allowed_chart_tabs:
+        monitoring_chart_tab = "general"
     return render_dashboard(
         "monitoring_charts.html",
         page_title="Monitoring Charts",
+        monitoring_chart_tab=monitoring_chart_tab,
+        monitoring_chart_tabs=[{"key": key, "label": label} for key, label in MONITORING_CHART_TAB_OPTIONS],
         **module_build_monitoring_charts_page_context(
             build_monitoring_chart_snapshot=build_monitoring_chart_snapshot,
             charts_data_url=url_for("monitoring_charts_data"),

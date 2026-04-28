@@ -553,11 +553,21 @@ def build_sql_workspace_explain_result(
     }
 
 
-def build_sql_workspace_history_entry(action_label, selected_database, sql_text, duration_ms, *, status, error_message=""):
+def build_sql_workspace_history_entry(
+    action_label,
+    selected_database,
+    sql_text,
+    duration_ms,
+    *,
+    use_secondary_engine="",
+    status,
+    error_message="",
+):
     return {
         "executed_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "action_label": action_label,
         "database_name": selected_database or "Profile Default",
+        "use_secondary_engine": str(use_secondary_engine or "").strip().upper(),
         "status": status,
         "duration_label": _format_duration_label(duration_ms),
         "query_preview": _summarize_sql_text(sql_text),

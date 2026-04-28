@@ -239,6 +239,7 @@
             <th>Executed</th>
             <th>Action</th>
             <th>Database</th>
+            <th>use_secondary_engine</th>
             <th>Status</th>
             <th>Duration</th>
             <th>SQL</th>
@@ -250,6 +251,7 @@
             <td>{{ row.executed_at }}</td>
             <td>{{ row.action_label }}</td>
             <td>{{ row.database_name }}</td>
+            <td>{{ row.use_secondary_engine or "-" }}</td>
             <td>{{ row.status }}</td>
             <td>{{ row.duration_label }}</td>
             <td>
@@ -261,7 +263,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="6">No SQL has been executed in this session.</td>
+            <td colspan="7">No SQL has been executed in this session.</td>
           </tr>
           {% endfor %}
         </tbody>

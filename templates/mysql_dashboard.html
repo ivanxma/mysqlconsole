@@ -10,7 +10,7 @@
 <section class="info-grid">
   <article class="info-card metric-card">
     <span class="metric-label">Endpoint</span>
-    <strong class="metric-value">{{ server_overview.connection_endpoint }}</strong>
+    <strong class="metric-value metric-value-compact">{{ server_overview.connection_endpoint }}</strong>
   </article>
   <article class="info-card metric-card">
     <span class="metric-label">User Databases</span>
@@ -20,19 +20,145 @@
     <span class="metric-label">Total DB Size</span>
     <strong class="metric-value">{{ server_overview.total_size_label }}</strong>
   </article>
-  <article class="info-card metric-card">
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-innodb-dialog"
+  >
     <span class="metric-label">InnoDB Tables</span>
     <strong class="metric-value">{{ server_overview.innodb_table_count }}</strong>
   </article>
-  <article class="info-card metric-card">
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-view-dialog"
+  >
     <span class="metric-label">Views</span>
     <strong class="metric-value">{{ server_overview.view_count }}</strong>
   </article>
-  <article class="info-card metric-card">
-    <span class="metric-label">Stored Procedures</span>
-    <strong class="metric-value">{{ server_overview.procedure_count }}</strong>
+  <article
+    class="info-card metric-card metric-card-clickable"
+    role="button"
+    tabindex="0"
+    aria-haspopup="dialog"
+    data-open-dialog="dashboard-routine-dialog"
+  >
+    <span class="metric-label">Stored Procedures / Functions</span>
+    <strong class="metric-value">{{ server_overview.routine_count }}</strong>
   </article>
 </section>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-innodb-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>InnoDB Tables</h3>
+        <span class="helper-text">User-schema base tables currently using the InnoDB engine.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-innodb-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.innodb_table_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4">No user-schema InnoDB tables were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-view-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Views</h3>
+        <span class="helper-text">User-schema views returned from <code>information_schema.views</code>.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-view-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>View</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.view_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.view_name }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="2">No user-schema views were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="management-dialog management-dialog-wide" id="dashboard-routine-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Stored Procedures / Functions</h3>
+        <span class="helper-text">User-schema routines from <code>information_schema.routines</code>, including procedures and functions.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="dashboard-routine-dialog">Close</button>
+    </div>
+    <div class="table-wrap dashboard-dialog-table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Type</th>
+            <th>Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.routine_rows %}
+          <tr>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.routine_type }}</td>
+            <td>{{ row.routine_name }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="3">No user-schema stored procedures or functions were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</dialog>
 
 <section class="split-layout">
   <article class="panel">
@@ -189,7 +315,7 @@
     data-dashboard-tab-panel="security"
     {% if dashboard_tab != 'security' %}hidden{% endif %}
   >
-    <section class="split-layout split-layout-compact">
+    <div class="dashboard-security-stack">
       <article class="dashboard-compact-card">
         <h4>Security Overview</h4>
         <dl class="detail-list dashboard-detail-list">
@@ -218,62 +344,67 @@
         {% endif %}
       </article>
 
-      <article class="dashboard-compact-card">
-        <h4>Security Components and Plugins</h4>
-        <div class="table-wrap">
-          <table class="dashboard-compact-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Enabled</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in server_overview.security_features %}
-              <tr>
-                <td>{{ row.feature_type }}</td>
-                <td>{{ row.feature_name }}</td>
-                <td>{{ row.status_label }}</td>
-                <td>{{ "Yes" if row.is_enabled else "No" }}</td>
-                <td>{{ row.details }}</td>
-              </tr>
-              {% else %}
-              <tr>
-                <td colspan="5">No security-related components or plugins were detected.</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </section>
+      <section class="split-layout split-layout-compact">
+        <article class="dashboard-compact-card">
+          <h4>Security Components and Plugins</h4>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Enabled</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.security_features %}
+                <tr>
+                  <td>{{ row.feature_type }}</td>
+                  <td>{{ row.feature_name }}</td>
+                  <td>{{ row.status_label }}</td>
+                  <td>{{ "Yes" if row.is_enabled else "No" }}</td>
+                  <td>{{ row.details }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="5">No security-related components or plugins were detected.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
 
-    <div class="table-wrap">
-      <table class="dashboard-compact-table">
-        <thead>
-          <tr>
-            <th>Component</th>
-            <th>URN</th>
-            <th>Security Related</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in server_overview.installed_components %}
-          <tr>
-            <td>{{ row.component_name }}</td>
-            <td>{{ row.component_urn }}</td>
-            <td>{{ "Yes" if row.is_security_related else "No" }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="3">No installed components returned.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        <article class="dashboard-compact-card">
+          <h4>Component List</h4>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>URN</th>
+                  <th>Security Related</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.installed_components %}
+                <tr>
+                  <td>{{ row.component_name }}</td>
+                  <td>{{ row.component_urn }}</td>
+                  <td>{{ "Yes" if row.is_security_related else "No" }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="3">No installed components returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
     </div>
   </section>
   <section
@@ -396,7 +527,7 @@
           <th>Base Tables</th>
           <th>InnoDB</th>
           <th>Views</th>
-          <th>Stored Procedures</th>
+          <th>Stored Procedures / Functions</th>
           <th>HeatWave Tables</th>
           <th>Loaded 100%</th>
           <th>Partial</th>
@@ -411,7 +542,7 @@
           <td>{{ row.base_table_count }}</td>
           <td>{{ row.innodb_table_count }}</td>
           <td>{{ row.view_count }}</td>
-          <td>{{ row.procedure_count }}</td>
+          <td>{{ row.routine_count }}</td>
           <td>{{ row.heatwave_table_count }}</td>
           <td>{{ row.heatwave_loaded_count }}</td>
           <td>{{ row.heatwave_partial_count }}</td>
@@ -431,6 +562,30 @@
 {% block scripts %}
 <script>
   (() => {
+    const openDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) {
+          dialog.showModal();
+        }
+        return;
+      }
+      dialog.setAttribute("open", "open");
+    };
+
+    const closeDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute("open");
+    };
+
     const activateDashboardTab = (groupName, tabName) => {
       document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-button]`).forEach((button) => {
         const isActive = button.dataset.dashboardTabButton === tabName;
@@ -447,6 +602,36 @@
     document.querySelectorAll("[data-dashboard-tab-button]").forEach((button) => {
       button.addEventListener("click", () => {
         activateDashboardTab(button.dataset.dashboardTabGroup, button.dataset.dashboardTabButton);
+      });
+    });
+
+    document.querySelectorAll("[data-open-dialog]").forEach((trigger) => {
+      const showLinkedDialog = () => {
+        openDialog(document.getElementById(trigger.dataset.openDialog));
+      };
+      trigger.addEventListener("click", showLinkedDialog);
+      if (trigger.getAttribute("role") === "button") {
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
+          event.preventDefault();
+          showLinkedDialog();
+        });
+      }
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeDialog(document.getElementById(button.dataset.dialogClose) || button.closest("dialog"));
+      });
+    });
+
+    document.querySelectorAll("dialog.management-dialog").forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog(dialog);
+        }
       });
     });
   })();

@@ -7,6 +7,21 @@
   <p>Live monitoring cards for MySQL, replication, and HeatWave activity. Cards can be refreshed, closed, reordered, downloaded, and popped out.</p>
 </section>
 
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="Monitoring chart tabs">
+    {% for tab in monitoring_chart_tabs %}
+    <a
+      class="tab-link {% if monitoring_chart_tab == tab.key %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if monitoring_chart_tab == tab.key else 'false' }}"
+      href="{{ url_for('monitoring_charts_page', chart_tab=tab.key) }}"
+    >
+      {{ tab.label }}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
 <section class="panel chart-toolbar-panel">
   <div class="chart-toolbar">
     <div class="chart-toolbar-controls">
@@ -42,6 +57,7 @@
   (() => {
     const initialSnapshot = {{ chart_snapshot | tojson }};
     const dataUrl = {{ charts_data_url | tojson }};
+    const activeChartTab = {{ monitoring_chart_tab | tojson }};
     const storageKeys = {
       hidden: "dbconsole-monitoring-chart-hidden",
       order: "dbconsole-monitoring-chart-order",
@@ -410,7 +426,9 @@
     }
 
     function renderHiddenCharts(cards) {
-      const hiddenCards = sortedCards(cards).filter((card) => state.hidden.has(card.id));
+      const hiddenCards = sortedCards(cards).filter(
+        (card) => card.tab_key === activeChartTab && state.hidden.has(card.id)
+      );
       if (!hiddenCards.length) {
         elements.hiddenPanel.hidden = true;
         elements.hiddenActions.innerHTML = "";
@@ -426,10 +444,12 @@
       ensureCardOrder(state.snapshot.cards);
       updateHistories(state.snapshot);
       updateLastUpdated(state.snapshot);
-      const visibleCards = sortedCards(state.snapshot.cards).filter((card) => !state.hidden.has(card.id));
+      const visibleCards = sortedCards(state.snapshot.cards).filter(
+        (card) => card.tab_key === activeChartTab && !state.hidden.has(card.id)
+      );
       elements.grid.innerHTML = visibleCards.length
         ? visibleCards.map(renderCard).join("")
-        : `<article class="panel empty-chart-panel"><p>All charts are hidden. Restore a chart to continue.</p></article>`;
+        : `<article class="panel empty-chart-panel"><p>All charts in this tab are hidden. Restore a chart to continue.</p></article>`;
       renderHiddenCharts(state.snapshot.cards);
     }
 
@@ -439,8 +459,8 @@
 
     function saveOrderFromDom() {
       const visibleOrder = Array.from(elements.grid.querySelectorAll(".chart-card")).map((cardElement) => cardElement.dataset.cardId);
-      const hiddenOrder = state.order.filter((cardId) => state.hidden.has(cardId));
-      state.order = [...visibleOrder, ...hiddenOrder.filter((cardId) => !visibleOrder.includes(cardId))];
+      const remainingOrder = state.order.filter((cardId) => !visibleOrder.includes(cardId));
+      state.order = [...visibleOrder, ...remainingOrder];
       saveJson(storageKeys.order, state.order);
     }
 
@@ -622,7 +642,11 @@
     });
 
     elements.restoreAll.addEventListener("click", () => {
-      state.hidden.clear();
+      state.snapshot.cards.forEach((card) => {
+        if (card.tab_key === activeChartTab) {
+          state.hidden.delete(card.id);
+        }
+      });
       saveHiddenCards();
       renderCharts();
     });
