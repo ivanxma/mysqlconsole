@@ -365,14 +365,20 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
 def execute_query(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(sql, params or [])
+            if params is None:
+                cursor.execute(sql)
+            else:
+                cursor.execute(sql, params)
             return cursor.fetchall()
 
 
 def execute_statement(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(sql, params or [])
+            if params is None:
+                cursor.execute(sql)
+            else:
+                cursor.execute(sql, params)
             return cursor.rowcount
 
 
@@ -2062,7 +2068,10 @@ def fetch_grouped_status_variables(active_tab):
 def run_report_query(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(sql, params or [])
+            if params is None:
+                cursor.execute(sql)
+            else:
+                cursor.execute(sql, params)
             rows = cursor.fetchall()
             columns = [item[0] for item in cursor.description] if cursor.description else []
     return {"columns": columns, "rows": rows}
