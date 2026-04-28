@@ -160,123 +160,85 @@
   </div>
 </dialog>
 
-<section class="split-layout">
-  <article class="panel">
-    <h3>Connection Details</h3>
-    <dl class="detail-list dashboard-detail-list">
-      <div>
-        <dt>Version</dt>
-        <dd>{{ server_overview.server_version }}</dd>
-      </div>
-      <div>
-        <dt>Current User</dt>
-        <dd>{{ server_overview.current_user }}</dd>
-      </div>
-      <div>
-        <dt>Profile</dt>
-        <dd>{{ current_profile_name or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Default DB</dt>
-        <dd>{{ server_overview.default_database }}</dd>
-      </div>
-      <div>
-        <dt>Object Storage</dt>
-        <dd>{{ setup_status.summary }}</dd>
-      </div>
-      <div>
-        <dt>Installed Components</dt>
-        <dd>{{ server_overview.installed_component_count }}</dd>
-      </div>
-      <div>
-        <dt>Security Features</dt>
-        <dd>{{ server_overview.enabled_security_feature_count }} active of {{ server_overview.security_feature_count }}</dd>
-      </div>
-      <div>
-        <dt>Global Time Zone</dt>
-        <dd>{{ server_overview.global_time_zone }}</dd>
-      </div>
-      <div>
-        <dt>Session Time Zone</dt>
-        <dd>{{ server_overview.session_time_zone }}</dd>
-      </div>
-      <div>
-        <dt>System Time Zone</dt>
-        <dd>{{ server_overview.system_time_zone }}</dd>
-      </div>
-      <div>
-        <dt>Time Zone Tables</dt>
-        <dd>{{ server_overview.time_zone_tables_label }}</dd>
-      </div>
-      <div>
-        <dt>Time Zone Table Rows</dt>
-        <dd>{{ server_overview.time_zone_table_row_count }}</dd>
-      </div>
-      <div>
-        <dt>Server Charset</dt>
-        <dd>{{ server_overview.server_charset }}</dd>
-      </div>
-      <div>
-        <dt>Server Collation</dt>
-        <dd>{{ server_overview.server_collation }}</dd>
-      </div>
-      <div>
-        <dt>Global SQL Mode</dt>
-        <dd><code>{{ server_overview.global_sql_mode or "-" }}</code></dd>
-      </div>
-      <div>
-        <dt>Session SQL Mode</dt>
-        <dd><code>{{ server_overview.session_sql_mode or "-" }}</code></dd>
-      </div>
-      <div>
-        <dt>Current Connections</dt>
-        <dd>{{ server_overview.current_connection_count }}</dd>
-      </div>
-      <div>
-        <dt>Max Connections</dt>
-        <dd>{{ server_overview.max_connections }}</dd>
-      </div>
-    </dl>
-    {% if server_overview.time_zone_tables_error %}
-    <p class="helper-text error-text">{{ server_overview.time_zone_tables_error }}</p>
-    {% endif %}
-  </article>
-
-  <article class="panel">
-    <div class="panel-header">
-      <h3>HeatWave Summary</h3>
-      <span class="helper-text">HeatWave tables use <code>secondary_engine=rapid</code>, Lakehouse tables use <code>engine=lakehouse</code>, with load state from current <code>performance_schema.rpd_*</code> tracking.</span>
+<section class="panel">
+  <h3>Connection Details</h3>
+  <dl class="detail-list dashboard-detail-list">
+    <div>
+      <dt>Version</dt>
+      <dd>{{ server_overview.server_version }}</dd>
     </div>
-    {% if heatwave_summary.error %}
-    <p class="helper-text error-text">{{ heatwave_summary.error }}</p>
-    {% endif %}
-    <dl class="detail-list dashboard-detail-list">
-      <div>
-        <dt>HeatWave Tables</dt>
-        <dd>{{ heatwave_summary.totals.configured_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Tracked in rpd metadata</dt>
-        <dd>{{ heatwave_summary.totals.tracked_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Lakehouse Tables</dt>
-        <dd>{{ heatwave_summary.totals.lakehouse_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Loaded 100%</dt>
-        <dd>{{ heatwave_summary.totals.loaded_count }}</dd>
-      </div>
-      <div>
-        <dt>Partial</dt>
-        <dd>{{ heatwave_summary.totals.partial_count }}</dd>
-      </div>
-      <div>
-        <dt>None</dt>
-        <dd>{{ heatwave_summary.totals.not_loaded_count }}</dd>
-      </div>
-    </dl>
-  </article>
+    <div>
+      <dt>Current User</dt>
+      <dd>{{ server_overview.current_user }}</dd>
+    </div>
+    <div>
+      <dt>Profile</dt>
+      <dd>{{ current_profile_name or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Default DB</dt>
+      <dd>{{ server_overview.default_database }}</dd>
+    </div>
+    <div>
+      <dt>Object Storage</dt>
+      <dd>{{ setup_status.summary }}</dd>
+    </div>
+    <div>
+      <dt>Installed Components</dt>
+      <dd>{{ server_overview.installed_component_count }}</dd>
+    </div>
+    <div>
+      <dt>Security Features</dt>
+      <dd>{{ server_overview.enabled_security_feature_count }} active of {{ server_overview.security_feature_count }}</dd>
+    </div>
+    <div>
+      <dt>Global Time Zone</dt>
+      <dd>{{ server_overview.global_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>Session Time Zone</dt>
+      <dd>{{ server_overview.session_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>System Time Zone</dt>
+      <dd>{{ server_overview.system_time_zone }}</dd>
+    </div>
+    <div>
+      <dt>Time Zone Tables</dt>
+      <dd>{{ server_overview.time_zone_tables_label }}</dd>
+    </div>
+    <div>
+      <dt>Time Zone Table Rows</dt>
+      <dd>{{ server_overview.time_zone_table_row_count }}</dd>
+    </div>
+    <div>
+      <dt>Server Charset</dt>
+      <dd>{{ server_overview.server_charset }}</dd>
+    </div>
+    <div>
+      <dt>Server Collation</dt>
+      <dd>{{ server_overview.server_collation }}</dd>
+    </div>
+    <div>
+      <dt>Global SQL Mode</dt>
+      <dd><code>{{ server_overview.global_sql_mode or "-" }}</code></dd>
+    </div>
+    <div>
+      <dt>Session SQL Mode</dt>
+      <dd><code>{{ server_overview.session_sql_mode or "-" }}</code></dd>
+    </div>
+    <div>
+      <dt>Current Connections</dt>
+      <dd>{{ server_overview.current_connection_count }}</dd>
+    </div>
+    <div>
+      <dt>Max Connections</dt>
+      <dd>{{ server_overview.max_connections }}</dd>
+    </div>
+  </dl>
+  {% if server_overview.time_zone_tables_error %}
+  <p class="helper-text error-text">{{ server_overview.time_zone_tables_error }}</p>
+  {% endif %}
 </section>
 
 <section class="panel">
