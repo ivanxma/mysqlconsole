@@ -20,42 +20,44 @@
     </div>
     <form method="post" enctype="multipart/form-data" class="form-grid" data-import-toggle-form>
       <input type="hidden" name="import_action" value="preview">
-      <label class="checkbox-field">
-        <input
-          type="checkbox"
-          name="create_database"
-          value="1"
-          {% if import_page.create_database %}checked{% endif %}
-          data-create-db-toggle
-        >
-        <span>Create DB</span>
-      </label>
-      <label>
-        Database
-        <select
-          name="selected_database"
-          data-existing-db-field
-          {% if import_page.create_database %}disabled{% endif %}
-        >
-          <option value="">Choose a database</option>
-          {% for row in import_page.database_inventory %}
-          <option value="{{ row.database_name }}" {% if row.database_name == import_page.selected_database %}selected{% endif %}>
-            {{ row.database_name }}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        New Database Name
-        <input
-          name="new_database_name"
-          type="text"
-          value="{{ import_page.new_database_name }}"
-          placeholder="example_import_db"
-          data-new-db-field
-          {% if not import_page.create_database %}disabled{% endif %}
-        >
-      </label>
+      <div class="import-target-row">
+        <label class="checkbox-field import-target-toggle">
+          <input
+            type="checkbox"
+            name="create_database"
+            value="1"
+            {% if import_page.create_database %}checked{% endif %}
+            data-create-db-toggle
+          >
+          <span>Create DB</span>
+        </label>
+        <label>
+          Database
+          <select
+            name="selected_database"
+            data-existing-db-field
+            {% if import_page.create_database %}disabled{% endif %}
+          >
+            <option value="">Choose a database</option>
+            {% for row in import_page.database_inventory %}
+            <option value="{{ row.database_name }}" {% if row.database_name == import_page.selected_database %}selected{% endif %}>
+              {{ row.database_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          New Database Name
+          <input
+            name="new_database_name"
+            type="text"
+            value="{{ import_page.new_database_name }}"
+            placeholder="example_import_db"
+            data-new-db-field
+            {% if not import_page.create_database %}disabled{% endif %}
+          >
+        </label>
+      </div>
       <label class="full-span">
         Upload File
         <input name="import_file" type="file" accept=".csv,.json,text/csv,application/json">
@@ -130,42 +132,44 @@
   {% endif %}
   <form method="post" class="form-grid" data-import-toggle-form data-import-run-form>
     <input type="hidden" name="import_action" value="import">
-    <label class="checkbox-field">
-      <input
-        type="checkbox"
-        name="create_database"
-        value="1"
-        {% if import_page.create_database %}checked{% endif %}
-        data-create-db-toggle
-      >
-      <span>Create DB</span>
-    </label>
-    <label>
-      Database
-      <select
-        name="selected_database"
-        data-existing-db-field
-        {% if import_page.create_database %}disabled{% endif %}
-      >
-        <option value="">Choose a database</option>
-        {% for row in import_page.database_inventory %}
-        <option value="{{ row.database_name }}" {% if row.database_name == import_page.selected_database %}selected{% endif %}>
-          {{ row.database_name }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      New Database Name
-      <input
-        name="new_database_name"
-        type="text"
-        value="{{ import_page.new_database_name }}"
-        placeholder="example_import_db"
-        data-new-db-field
-        {% if not import_page.create_database %}disabled{% endif %}
-      >
-    </label>
+    <div class="import-target-row">
+      <label class="checkbox-field import-target-toggle">
+        <input
+          type="checkbox"
+          name="create_database"
+          value="1"
+          {% if import_page.create_database %}checked{% endif %}
+          data-create-db-toggle
+        >
+        <span>Create DB</span>
+      </label>
+      <label>
+        Database
+        <select
+          name="selected_database"
+          data-existing-db-field
+          {% if import_page.create_database %}disabled{% endif %}
+        >
+          <option value="">Choose a database</option>
+          {% for row in import_page.database_inventory %}
+          <option value="{{ row.database_name }}" {% if row.database_name == import_page.selected_database %}selected{% endif %}>
+            {{ row.database_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        New Database Name
+        <input
+          name="new_database_name"
+          type="text"
+          value="{{ import_page.new_database_name }}"
+          placeholder="example_import_db"
+          data-new-db-field
+          {% if not import_page.create_database %}disabled{% endif %}
+        >
+      </label>
+    </div>
     <label>
       Table Name
       <input name="table_name" type="text" value="{{ import_page.table_name }}" placeholder="import_table">

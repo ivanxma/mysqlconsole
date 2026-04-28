@@ -34,8 +34,8 @@ def _normalize_progress_value(value):
     return numeric_value
 
 
-def _derive_load_state(row):
-    progress_value = _normalize_progress_value(
+def _extract_progress_value(row):
+    return _normalize_progress_value(
         _first_defined_value(
             row,
             [
@@ -49,14 +49,10 @@ def _derive_load_state(row):
             ],
         )
     )
-    if progress_value is not None:
-        if progress_value >= 99.999:
-            return "loaded"
-        if progress_value > 0:
-            return "partial"
-        return "not_loaded"
 
-    raw_status = str(
+
+def _extract_load_status_value(row):
+    return str(
         _first_defined_value(
             row,
             [
@@ -67,20 +63,36 @@ def _derive_load_state(row):
             ],
         )
         or ""
-    ).strip().lower()
+    ).strip()
+
+
+def _format_progress_value(progress_value):
+    if progress_value is None:
+        return "-"
+    rounded_value = round(progress_value, 3)
+    if abs(rounded_value - round(rounded_value)) < 0.0001:
+        return f"{int(round(rounded_value))}%"
+    return f"{rounded_value:.3f}%"
+
+
+def _derive_load_state(row):
+    progress_value = _extract_progress_value(row)
+    if progress_value is not None:
+        if progress_value >= 99.999:
+            return "loaded"
+        if progress_value > 0:
+            return "partial"
+        return "not_loaded"
+
+    raw_status = _extract_load_status_value(row).lower()
     numeric_status = _normalize_progress_value(raw_status)
     if numeric_status is not None:
         if numeric_status >= 99.999:
             return "loaded"
         if numeric_status > 0:
             return "partial"
-        return "not_loaded"
-    if raw_status:
-        if any(token in raw_status for token in ("not loaded", "unloaded", "pending", "init")):
-            return "not_loaded"
-        if any(token in raw_status for token in ("partial", "loading", "recover", "progress", "sync")):
-            return "partial"
-        if any(token in raw_status for token in ("loaded", "complete", "available", "active", "healthy")):
+        return "partial"
+    if raw_status and any(token in raw_status for token in ("loaded", "complete", "available", "active", "healthy")):
             return "loaded"
 
     load_start = _first_defined_value(row, ["rpd_tables__load_start_timestamp"])
@@ -89,7 +101,24 @@ def _derive_load_state(row):
         return "loaded"
     if load_start not in (None, ""):
         return "partial"
-    return "not_loaded"
+    return "partial"
+
+
+def _derive_health_class(row, load_state, load_status_value, progress_value):
+    normalized_status = load_status_value.upper()
+    if normalized_status and normalized_status != "AVAIL_RPDGTABSTATE":
+        return "error"
+    if progress_value is not None:
+        if progress_value >= 99.999:
+            return "loaded"
+        if progress_value > 0:
+            return "progress"
+        return "error"
+    if load_state == "loaded":
+        return "loaded"
+    if load_state == "partial":
+        return "progress"
+    return "error"
 
 
 def _derive_inventory_labels(row):
@@ -176,14 +205,20 @@ def _build_heatwave_inventory_rows(inventory_report):
     for raw_row in inventory_report["rows"]:
         row = dict(raw_row)
         row.update(_derive_inventory_labels(raw_row))
+        progress_value = _extract_progress_value(raw_row)
+        load_status_value = _extract_load_status_value(raw_row)
         row["load_state"] = _derive_load_state(raw_row)
         row["load_state_label"] = load_state_labels[row["load_state"]]
+        row["load_progress_value"] = progress_value
+        row["load_progress_label"] = _format_progress_value(progress_value)
+        row["load_status_value"] = load_status_value or "-"
         recovery_source = str(
             _first_defined_value(raw_row, ["rpd_tables__recovery_source", "rpd_table_id__recovery_source"]) or ""
         ).strip()
         row["recovery_source_label"] = recovery_source or "-"
         row["is_fully_loaded"] = row["load_state"] == "loaded"
         row["is_lakehouse"] = "lakehouse" in recovery_source.lower()
+        row["health_class"] = _derive_health_class(raw_row, row["load_state"], load_status_value, progress_value)
         row["table_key"] = row["full_table_name"].lower()
         enriched_rows.append(row)
 
@@ -275,8 +310,11 @@ def build_heatwave_tables_context(
 
     inventory_rows = _build_heatwave_inventory_rows(inventory_report)
     inventory_groups = _build_heatwave_inventory_groups(inventory_rows)
+    loaded_rows = [row for row in inventory_rows if row["load_state"] == "loaded"]
+    partial_rows = [row for row in inventory_rows if row["load_state"] == "partial"]
+    not_loaded_rows = [row for row in inventory_rows if row["load_state"] == "not_loaded"]
     lakehouse_rows = [row for row in inventory_rows if row["is_lakehouse"]]
-    lakehouse_needs_attention_rows = [row for row in lakehouse_rows if not row["is_fully_loaded"]]
+    lakehouse_needs_attention_rows = [row for row in lakehouse_rows if row["health_class"] != "loaded"]
     secondary_engine_not_loaded_rows = _build_secondary_engine_not_loaded_rows(configured_tables, inventory_rows)
 
     export_columns = ["database_name", "table_label", "full_table_name", "load_state_label", "recovery_source_label"]
@@ -306,11 +344,14 @@ def build_heatwave_tables_context(
         "status_report": status_report,
         "nodes_report": nodes_report,
         "total_heatwave_tables": len(inventory_rows),
-        "fully_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "loaded"),
-        "partially_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "partial"),
-        "not_loaded_count": sum(1 for row in inventory_rows if row["load_state"] == "not_loaded"),
+        "loaded_rows": loaded_rows,
+        "partial_rows": partial_rows,
+        "not_loaded_rows": not_loaded_rows,
+        "fully_loaded_count": len(loaded_rows),
+        "partially_loaded_count": len(partial_rows),
+        "not_loaded_count": len(not_loaded_rows),
         "lakehouse_table_count": len(lakehouse_rows),
-        "healthy_lakehouse_count": sum(1 for row in lakehouse_rows if row["is_fully_loaded"]),
+        "healthy_lakehouse_count": sum(1 for row in lakehouse_rows if row["health_class"] == "loaded"),
         "lakehouse_needs_attention_count": len(lakehouse_needs_attention_rows),
         "lakehouse_needs_attention_rows": lakehouse_needs_attention_rows,
         "secondary_engine_not_loaded_count": len(secondary_engine_not_loaded_rows),

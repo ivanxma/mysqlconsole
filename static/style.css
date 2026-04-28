@@ -696,6 +696,26 @@ h4 {
   align-items: end;
 }
 
+.import-target-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.import-target-row label {
+  min-width: 0;
+}
+
+.import-target-toggle {
+  grid-column: auto;
+  align-self: end;
+  min-height: 48px;
+  padding-bottom: 10px;
+  white-space: nowrap;
+}
+
 .checkbox-field {
   display: flex;
   gap: 10px;
@@ -817,6 +837,15 @@ code {
 
   .field-row {
     grid-template-columns: 1fr;
+  }
+
+  .import-target-row {
+    grid-template-columns: 1fr;
+  }
+
+  .import-target-toggle {
+    min-height: 0;
+    padding-bottom: 0;
   }
 
   .chart-toolbar-status {

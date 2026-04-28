@@ -161,6 +161,11 @@ def ensure_import_cache_dir():
     IMPORT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def is_system_schema_name(schema_name):
+    normalized_name = str(schema_name or "").strip().lower()
+    return normalized_name in SYSTEM_SCHEMAS or normalized_name.startswith("mysql_")
+
+
 def _normalize_int(value, default, minimum=None):
     try:
         normalized = int(value)
@@ -383,22 +388,58 @@ def fetch_database_inventory():
         """
         SELECT
           s.schema_name AS database_name_value,
-          COUNT(t.table_name) AS table_count_value
+          COALESCE(table_stats.object_count, 0) AS object_count_value,
+          COALESCE(table_stats.base_table_count, 0) AS base_table_count_value,
+          COALESCE(table_stats.innodb_table_count, 0) AS innodb_table_count_value,
+          COALESCE(table_stats.view_count, 0) AS view_count_value,
+          COALESCE(table_stats.data_bytes, 0) AS data_bytes_value,
+          COALESCE(table_stats.index_bytes, 0) AS index_bytes_value,
+          COALESCE(table_stats.total_bytes, 0) AS total_bytes_value,
+          COALESCE(routine_stats.procedure_count, 0) AS procedure_count_value
         FROM information_schema.schemata AS s
-        LEFT JOIN information_schema.tables AS t
-          ON t.table_schema = s.schema_name
-        GROUP BY s.schema_name
+        LEFT JOIN (
+          SELECT
+            table_schema,
+            COUNT(*) AS object_count,
+            SUM(CASE WHEN table_type = 'BASE TABLE' THEN 1 ELSE 0 END) AS base_table_count,
+            SUM(CASE WHEN UPPER(COALESCE(engine, '')) = 'INNODB' THEN 1 ELSE 0 END) AS innodb_table_count,
+            SUM(CASE WHEN table_type = 'VIEW' THEN 1 ELSE 0 END) AS view_count,
+            COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length ELSE 0 END), 0) AS data_bytes,
+            COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN index_length ELSE 0 END), 0) AS index_bytes,
+            COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length + index_length ELSE 0 END), 0) AS total_bytes
+          FROM information_schema.tables
+          GROUP BY table_schema
+        ) AS table_stats
+          ON table_stats.table_schema = s.schema_name
+        LEFT JOIN (
+          SELECT
+            routine_schema,
+            SUM(CASE WHEN routine_type = 'PROCEDURE' THEN 1 ELSE 0 END) AS procedure_count
+          FROM information_schema.routines
+          GROUP BY routine_schema
+        ) AS routine_stats
+          ON routine_stats.routine_schema = s.schema_name
         ORDER BY s.schema_name
         """
     )
     inventory = []
     for row in rows:
         database_name = row["database_name_value"]
+        total_bytes = row["total_bytes_value"] or 0
         inventory.append(
             {
                 "database_name": database_name,
-                "table_count": row["table_count_value"],
-                "is_system": database_name in SYSTEM_SCHEMAS,
+                "table_count": row["object_count_value"] or 0,
+                "object_count": row["object_count_value"] or 0,
+                "base_table_count": row["base_table_count_value"] or 0,
+                "innodb_table_count": row["innodb_table_count_value"] or 0,
+                "view_count": row["view_count_value"] or 0,
+                "procedure_count": row["procedure_count_value"] or 0,
+                "data_bytes": row["data_bytes_value"] or 0,
+                "index_bytes": row["index_bytes_value"] or 0,
+                "total_bytes": total_bytes,
+                "db_size_label": _format_bytes(total_bytes),
+                "is_system": is_system_schema_name(database_name),
             }
         )
     return inventory
@@ -464,10 +505,7 @@ def fetch_full_table_report(schema_name, table_name, *, order_by_candidates=None
 
 
 def fetch_heatwave_status_variable_report():
-    report = run_report_query("SHOW GLOBAL STATUS LIKE 'rapid%status%'")
-    if report["rows"]:
-        return report
-    return run_report_query("SHOW GLOBAL STATUS LIKE 'rapid%'")
+    return run_report_query("SHOW GLOBAL STATUS LIKE 'rapid%status'")
 
 
 def fetch_heatwave_nodes_report():
@@ -575,6 +613,246 @@ def fetch_heatwave_defined_secondary_engine_tables():
         }
         for row in rows
     ]
+
+
+def fetch_lakehouse_engine_tables():
+    rows = execute_query(
+        """
+        SELECT
+          table_schema AS database_name_value,
+          table_name AS table_name_value,
+          engine AS engine_value,
+          create_options AS create_options_value
+        FROM information_schema.tables
+        WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND (
+            UPPER(COALESCE(engine, '')) LIKE '%%LAKEHOUSE%%'
+            OR UPPER(COALESCE(create_options, '')) LIKE '%%LAKEHOUSE%%'
+          )
+        ORDER BY table_schema, table_name
+        """
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "table_name": row["table_name_value"],
+            "engine": row["engine_value"] or "-",
+            "create_options": row["create_options_value"] or "",
+        }
+        for row in rows
+    ]
+
+
+def _dashboard_first_defined_value(row, candidate_keys):
+    for key in candidate_keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def _normalize_dashboard_identifier(value):
+    return str(value or "").strip().strip("`")
+
+
+def _split_dashboard_qualified_name(value):
+    normalized_value = _normalize_dashboard_identifier(value)
+    if not normalized_value or "." not in normalized_value:
+        return "", normalized_value
+    database_name, table_name = normalized_value.split(".", 1)
+    return _normalize_dashboard_identifier(database_name), _normalize_dashboard_identifier(table_name)
+
+
+def _normalize_dashboard_heatwave_progress(value):
+    numeric_value = _extract_numeric(value, None)
+    if numeric_value is None:
+        return None
+    if 0.0 <= numeric_value <= 1.0:
+        return numeric_value * 100.0
+    return numeric_value
+
+
+def _extract_dashboard_heatwave_inventory_labels(row):
+    raw_name = _dashboard_first_defined_value(
+        row,
+        [
+            "rpd_table_id__name",
+            "rpd_table_id__table_name",
+            "rpd_tables__name",
+            "rpd_tables__table_name",
+        ],
+    )
+    parsed_database_name, parsed_table_name = _split_dashboard_qualified_name(raw_name)
+
+    database_name = _normalize_dashboard_identifier(
+        _dashboard_first_defined_value(
+            row,
+            [
+                "rpd_table_id__schema_name",
+                "rpd_table_id__database_name",
+                "rpd_table_id__table_schema",
+                "rpd_table_id__schema",
+                "rpd_table_id__db_name",
+                "rpd_tables__schema_name",
+                "rpd_tables__database_name",
+                "rpd_tables__table_schema",
+                "rpd_tables__schema",
+                "rpd_tables__db_name",
+            ],
+        )
+    )
+    table_name = _normalize_dashboard_identifier(
+        _dashboard_first_defined_value(
+            row,
+            [
+                "rpd_table_id__table_name",
+                "rpd_tables__table_name",
+            ],
+        )
+    )
+
+    if not database_name:
+        database_name = parsed_database_name
+    if not table_name:
+        table_name = parsed_table_name or _normalize_dashboard_identifier(raw_name)
+
+    return {
+        "database_name": database_name,
+        "table_name": table_name,
+    }
+
+
+def _derive_dashboard_heatwave_load_state(row):
+    progress_value = _normalize_dashboard_heatwave_progress(
+        _dashboard_first_defined_value(
+            row,
+            [
+                "rpd_tables__load_progress",
+                "rpd_tables__load_percentage",
+                "rpd_tables__load_percent",
+                "rpd_tables__percent_loaded",
+                "rpd_tables__load_pct",
+                "rpd_tables__availability_percentage",
+                "rpd_tables__availability_percent",
+            ],
+        )
+    )
+    if progress_value is not None:
+        if progress_value >= 99.999:
+            return "loaded"
+        if progress_value > 0:
+            return "partial"
+        return "not_loaded"
+
+    raw_status = str(
+        _dashboard_first_defined_value(
+            row,
+            [
+                "rpd_tables__load_status",
+                "rpd_tables__status",
+                "rpd_tables__recovery_status",
+                "rpd_tables__availability_status",
+            ],
+        )
+        or ""
+    ).strip().lower()
+    numeric_status = _normalize_dashboard_heatwave_progress(raw_status)
+    if numeric_status is not None:
+        if numeric_status >= 99.999:
+            return "loaded"
+        if numeric_status > 0:
+            return "partial"
+        return "partial"
+    if raw_status and any(token in raw_status for token in ("loaded", "complete", "available", "active", "healthy")):
+        return "loaded"
+
+    load_start = _dashboard_first_defined_value(row, ["rpd_tables__load_start_timestamp"])
+    load_end = _dashboard_first_defined_value(row, ["rpd_tables__load_end_timestamp"])
+    if load_end not in (None, ""):
+        return "loaded"
+    if load_start not in (None, ""):
+        return "partial"
+    return "partial"
+
+
+def fetch_dashboard_heatwave_summary():
+    errors = []
+    try:
+        configured_rows = fetch_heatwave_defined_secondary_engine_tables()
+    except Exception as error:  # pragma: no cover - depends on server features
+        configured_rows = []
+        errors.append(str(error))
+
+    try:
+        inventory_report = fetch_heatwave_inventory_report()
+        inventory_rows = inventory_report.get("rows", [])
+    except Exception as error:  # pragma: no cover - depends on server features
+        inventory_rows = []
+        errors.append(str(error))
+
+    configured_keys_by_db = {}
+    tracked_keys_by_db = {}
+    tracked_states_by_key = {}
+
+    for row in configured_rows:
+        database_name = str(row.get("database_name") or "").strip()
+        table_name = str(row.get("table_name") or "").strip()
+        if not database_name or not table_name or is_system_schema_name(database_name):
+            continue
+        configured_keys_by_db.setdefault(database_name, set()).add(f"{database_name}.{table_name}".lower())
+
+    for raw_row in inventory_rows:
+        labels = _extract_dashboard_heatwave_inventory_labels(raw_row)
+        database_name = labels["database_name"]
+        table_name = labels["table_name"]
+        if not database_name or not table_name or is_system_schema_name(database_name):
+            continue
+        table_key = f"{database_name}.{table_name}".lower()
+        tracked_keys_by_db.setdefault(database_name, set()).add(table_key)
+        tracked_states_by_key[table_key] = _derive_dashboard_heatwave_load_state(raw_row)
+
+    totals = {
+        "configured_table_count": 0,
+        "tracked_table_count": 0,
+        "heatwave_table_count": 0,
+        "loaded_count": 0,
+        "partial_count": 0,
+        "not_loaded_count": 0,
+    }
+    database_rows = []
+    all_databases = sorted(set(configured_keys_by_db) | set(tracked_keys_by_db), key=str.lower)
+
+    for database_name in all_databases:
+        configured_keys = configured_keys_by_db.get(database_name, set())
+        tracked_keys = tracked_keys_by_db.get(database_name, set())
+        combined_keys = configured_keys | tracked_keys
+        summary_row = {
+            "database_name": database_name,
+            "configured_table_count": len(configured_keys),
+            "tracked_table_count": len(tracked_keys),
+            "heatwave_table_count": len(combined_keys),
+            "loaded_count": 0,
+            "partial_count": 0,
+            "not_loaded_count": 0,
+        }
+        for table_key in combined_keys:
+            load_state = tracked_states_by_key.get(table_key, "not_loaded")
+            if load_state == "loaded":
+                summary_row["loaded_count"] += 1
+            elif load_state == "partial":
+                summary_row["partial_count"] += 1
+            else:
+                summary_row["not_loaded_count"] += 1
+
+        for metric_name in totals:
+            totals[metric_name] += summary_row[metric_name]
+        database_rows.append(summary_row)
+
+    return {
+        "database_rows": database_rows,
+        "totals": totals,
+        "error": " | ".join(errors),
+    }
 
 
 def fetch_table_columns(database_name, table_name):
@@ -1395,19 +1673,38 @@ def fetch_server_overview():
         SELECT COUNT(*) AS database_count_value
         FROM information_schema.schemata
         WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND schema_name NOT LIKE 'mysql@_%' ESCAPE '@'
         """,
         default=0,
     )
-    table_count = fetch_scalar(
+    table_totals = execute_query(
         """
-        SELECT COUNT(*) AS table_count_value
+        SELECT
+          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN 1 ELSE 0 END), 0) AS base_table_count_value,
+          COALESCE(SUM(CASE WHEN UPPER(COALESCE(engine, '')) = 'INNODB' THEN 1 ELSE 0 END), 0) AS innodb_table_count_value,
+          COALESCE(SUM(CASE WHEN table_type = 'VIEW' THEN 1 ELSE 0 END), 0) AS view_count_value,
+          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length ELSE 0 END), 0) AS data_bytes_value,
+          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN index_length ELSE 0 END), 0) AS index_bytes_value,
+          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length + index_length ELSE 0 END), 0) AS total_bytes_value
         FROM information_schema.tables
         WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND table_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+        """,
+    )
+    table_totals = table_totals[0] if table_totals else {}
+    total_size_bytes = table_totals.get("total_bytes_value") or 0
+    procedure_count = fetch_scalar(
+        """
+        SELECT COUNT(*) AS procedure_count_value
+        FROM information_schema.routines
+        WHERE routine_type = 'PROCEDURE'
+          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
         """,
         default=0,
     )
     try:
-        rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%%'")
+        rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%status'")
     except Exception as error:  # pragma: no cover - depends on server features
         rapid_status_rows = [{"Variable_name": "rapid_status_error", "Value": str(error)}]
 
@@ -1416,7 +1713,14 @@ def fetch_server_overview():
         "current_user": current_user,
         "default_database": default_database,
         "database_count": database_count,
-        "table_count": table_count,
+        "table_count": table_totals.get("base_table_count_value") or 0,
+        "innodb_table_count": table_totals.get("innodb_table_count_value") or 0,
+        "view_count": table_totals.get("view_count_value") or 0,
+        "procedure_count": procedure_count or 0,
+        "data_bytes": table_totals.get("data_bytes_value") or 0,
+        "index_bytes": table_totals.get("index_bytes_value") or 0,
+        "total_size_bytes": total_size_bytes,
+        "total_size_label": _format_bytes(total_size_bytes),
         "rapid_status_rows": rapid_status_rows[:10],
         "connection_endpoint": f"{get_session_profile()['host']}:{get_session_profile()['port']}",
     }
@@ -3647,6 +3951,7 @@ def mysql_dashboard_page():
         **module_build_mysql_dashboard_context(
             fetch_server_overview=fetch_server_overview,
             fetch_database_inventory=fetch_database_inventory,
+            fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
         ),
     )
 

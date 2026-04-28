@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">MySQL</p>
   <h2>Admin Dashboard</h2>
-  <p>Review the connected server, schema inventory, and HeatWave-related status indicators.</p>
+  <p>Review the connected server, user-schema inventory, storage footprint, and HeatWave-related status indicators.</p>
 </section>
 
 <section class="info-grid">
@@ -13,16 +13,24 @@
     <strong class="metric-value">{{ server_overview.connection_endpoint }}</strong>
   </article>
   <article class="info-card metric-card">
-    <span class="metric-label">Databases</span>
+    <span class="metric-label">User Databases</span>
     <strong class="metric-value">{{ server_overview.database_count }}</strong>
   </article>
   <article class="info-card metric-card">
-    <span class="metric-label">Tables</span>
-    <strong class="metric-value">{{ server_overview.table_count }}</strong>
+    <span class="metric-label">Total DB Size</span>
+    <strong class="metric-value">{{ server_overview.total_size_label }}</strong>
   </article>
   <article class="info-card metric-card">
-    <span class="metric-label">Default DB</span>
-    <strong class="metric-value">{{ server_overview.default_database }}</strong>
+    <span class="metric-label">InnoDB Tables</span>
+    <strong class="metric-value">{{ server_overview.innodb_table_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Views</span>
+    <strong class="metric-value">{{ server_overview.view_count }}</strong>
+  </article>
+  <article class="info-card metric-card">
+    <span class="metric-label">Stored Procedures</span>
+    <strong class="metric-value">{{ server_overview.procedure_count }}</strong>
   </article>
 </section>
 
@@ -43,6 +51,10 @@
         <dd>{{ current_profile_name or "-" }}</dd>
       </div>
       <div>
+        <dt>Default DB</dt>
+        <dd>{{ server_overview.default_database }}</dd>
+      </div>
+      <div>
         <dt>Object Storage</dt>
         <dd>{{ setup_status.summary }}</dd>
       </div>
@@ -50,53 +62,112 @@
   </article>
 
   <article class="panel">
-    <h3>HeatWave Status Variables</h3>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in server_overview.rapid_status_rows %}
-          <tr>
-            <td>{{ row.Variable_name or row.variable_name or row.name or "-" }}</td>
-            <td>{{ row.Value or row.value or "-" }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="2">No HeatWave status rows returned.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="panel-header">
+      <h3>HeatWave Summary</h3>
+      <span class="helper-text">Configured tables plus current <code>performance_schema.rpd_*</code> tracking.</span>
     </div>
+    {% if heatwave_summary.error %}
+    <p class="helper-text error-text">{{ heatwave_summary.error }}</p>
+    {% endif %}
+    <dl class="detail-list">
+      <div>
+        <dt>Configured HeatWave Tables</dt>
+        <dd>{{ heatwave_summary.totals.configured_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Tracked in rpd metadata</dt>
+        <dd>{{ heatwave_summary.totals.tracked_table_count }}</dd>
+      </div>
+      <div>
+        <dt>HeatWave Tables</dt>
+        <dd>{{ heatwave_summary.totals.heatwave_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Loaded 100%</dt>
+        <dd>{{ heatwave_summary.totals.loaded_count }}</dd>
+      </div>
+      <div>
+        <dt>Partial</dt>
+        <dd>{{ heatwave_summary.totals.partial_count }}</dd>
+      </div>
+      <div>
+        <dt>None</dt>
+        <dd>{{ heatwave_summary.totals.not_loaded_count }}</dd>
+      </div>
+    </dl>
   </article>
 </section>
 
 <section class="panel">
-  <h3>Database Inventory</h3>
+  <div class="panel-header">
+    <h3>HeatWave Status</h3>
+    <span class="helper-text">Global status rows filtered to <code>rapid%status</code>.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in server_overview.rapid_status_rows %}
+        <tr>
+          <td>{{ row.Variable_name or row.variable_name or row.name or "-" }}</td>
+          <td>{{ row.Value or row.value or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="2">No HeatWave status rows returned.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Database Inventory</h3>
+    <span class="helper-text">System schemas like <code>mysql</code>, <code>mysql_*</code>, <code>information_schema</code>, <code>performance_schema</code>, and <code>sys</code> are excluded.</span>
+  </div>
+  {% if heatwave_summary.error %}
+  <p class="helper-text error-text">HeatWave load counts fall back to available metadata only because the full inventory query returned an error.</p>
+  {% endif %}
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
           <th>Database</th>
-          <th>Tables</th>
-          <th>Scope</th>
+          <th>DB Size</th>
+          <th>Base Tables</th>
+          <th>InnoDB</th>
+          <th>Views</th>
+          <th>Stored Procedures</th>
+          <th>HeatWave Tables</th>
+          <th>Loaded 100%</th>
+          <th>Partial</th>
+          <th>None</th>
         </tr>
       </thead>
       <tbody>
         {% for row in database_inventory %}
         <tr>
           <td>{{ row.database_name }}</td>
-          <td>{{ row.table_count }}</td>
-          <td>{{ "System" if row.is_system else "User" }}</td>
+          <td>{{ row.db_size_label }}</td>
+          <td>{{ row.base_table_count }}</td>
+          <td>{{ row.innodb_table_count }}</td>
+          <td>{{ row.view_count }}</td>
+          <td>{{ row.procedure_count }}</td>
+          <td>{{ row.heatwave_table_count }}</td>
+          <td>{{ row.heatwave_loaded_count }}</td>
+          <td>{{ row.heatwave_partial_count }}</td>
+          <td>{{ row.heatwave_not_loaded_count }}</td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="3">No database metadata available.</td>
+          <td colspan="10">No database metadata available.</td>
         </tr>
         {% endfor %}
       </tbody>

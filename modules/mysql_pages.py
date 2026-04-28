@@ -1,13 +1,60 @@
 import pymysql
 
 
-def build_mysql_dashboard_context(*, fetch_server_overview, fetch_database_inventory):
+def _empty_heatwave_summary():
+    return {
+        "database_rows": [],
+        "totals": {
+            "configured_table_count": 0,
+            "tracked_table_count": 0,
+            "heatwave_table_count": 0,
+            "loaded_count": 0,
+            "partial_count": 0,
+            "not_loaded_count": 0,
+        },
+        "error": "",
+    }
+
+
+def build_mysql_dashboard_context(*, fetch_server_overview, fetch_database_inventory, fetch_dashboard_heatwave_summary):
     overview = fetch_server_overview()
-    inventory = fetch_database_inventory()
+    inventory = [row for row in fetch_database_inventory() if not row["is_system"]]
+    try:
+        heatwave_summary = fetch_dashboard_heatwave_summary()
+    except Exception as error:  # pragma: no cover - depends on server features
+        heatwave_summary = _empty_heatwave_summary()
+        heatwave_summary["error"] = str(error)
+
+    heatwave_by_database = {
+        row["database_name"].lower(): row
+        for row in heatwave_summary.get("database_rows", [])
+    }
+    merged_inventory = []
+    for row in inventory:
+        heatwave_row = heatwave_by_database.get(row["database_name"].lower(), {})
+        merged_row = dict(row)
+        merged_row["configured_heatwave_table_count"] = heatwave_row.get("configured_table_count", 0)
+        merged_row["tracked_heatwave_table_count"] = heatwave_row.get("tracked_table_count", 0)
+        merged_row["heatwave_table_count"] = heatwave_row.get("heatwave_table_count", 0)
+        merged_row["heatwave_loaded_count"] = heatwave_row.get("loaded_count", 0)
+        merged_row["heatwave_partial_count"] = heatwave_row.get("partial_count", 0)
+        merged_row["heatwave_not_loaded_count"] = heatwave_row.get("not_loaded_count", 0)
+        if merged_row["heatwave_table_count"]:
+            merged_row["heatwave_summary_label"] = (
+                f"{merged_row['heatwave_table_count']} total | "
+                f"{merged_row['heatwave_loaded_count']} loaded | "
+                f"{merged_row['heatwave_partial_count']} partial | "
+                f"{merged_row['heatwave_not_loaded_count']} none"
+            )
+        else:
+            merged_row["heatwave_summary_label"] = "-"
+        merged_inventory.append(merged_row)
+
     return {
         "server_overview": overview,
-        "database_inventory": inventory,
-        "non_system_databases": [row for row in inventory if not row["is_system"]],
+        "database_inventory": merged_inventory,
+        "non_system_databases": merged_inventory,
+        "heatwave_summary": heatwave_summary,
     }
 
 
