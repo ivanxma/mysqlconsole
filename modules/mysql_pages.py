@@ -189,6 +189,72 @@ def _build_db_admin_change_column_clauses(change_requests, *, quote_identifier):
     return clauses
 
 
+def _empty_missing_primary_key_report():
+    return {
+        "rows": [],
+        "error": "",
+        "table_count": 0,
+        "fixable_table_count": 0,
+        "auto_increment_fix_count": 0,
+        "invisible_row_id_fix_count": 0,
+        "manual_review_count": 0,
+    }
+
+
+def _build_missing_primary_key_report(raw_rows):
+    report = _empty_missing_primary_key_report()
+    for raw_row in raw_rows or []:
+        database_name = str(raw_row.get("database_name") or "").strip()
+        table_name = str(raw_row.get("table_name") or "").strip()
+        auto_increment_column_name = str(raw_row.get("auto_increment_column_name") or "").strip()
+        has_my_row_id = bool(raw_row.get("has_my_row_id"))
+
+        fix_method = "add_invisible_my_row_id"
+        fix_method_label = "Add invisible `my_row_id` AUTO_INCREMENT primary key"
+        is_fixable = True
+        if auto_increment_column_name:
+            fix_method = "use_auto_increment"
+            fix_method_label = f"Add PRIMARY KEY on existing AUTO_INCREMENT column `{auto_increment_column_name}`"
+        elif has_my_row_id:
+            fix_method = "manual_review"
+            fix_method_label = "Manual review required because `my_row_id` already exists"
+            is_fixable = False
+
+        report_row = {
+            "database_name": database_name,
+            "table_name": table_name,
+            "full_table_name": f"{database_name}.{table_name}" if database_name and table_name else table_name,
+            "engine": raw_row.get("engine") or "-",
+            "row_count": raw_row.get("row_count") if raw_row.get("row_count") not in (None, "") else "-",
+            "auto_increment_column_name": auto_increment_column_name,
+            "has_my_row_id": has_my_row_id,
+            "fix_method": fix_method,
+            "fix_method_label": fix_method_label,
+            "is_fixable": is_fixable,
+        }
+        report["rows"].append(report_row)
+        report["table_count"] += 1
+        if fix_method == "use_auto_increment":
+            report["fixable_table_count"] += 1
+            report["auto_increment_fix_count"] += 1
+        elif fix_method == "add_invisible_my_row_id":
+            report["fixable_table_count"] += 1
+            report["invisible_row_id_fix_count"] += 1
+        else:
+            report["manual_review_count"] += 1
+    return report
+
+
+def _summarize_name_list(items, *, max_items=3):
+    normalized_items = [str(item or "").strip() for item in items if str(item or "").strip()]
+    if not normalized_items:
+        return ""
+    if len(normalized_items) <= max_items:
+        return ", ".join(normalized_items)
+    remaining_count = len(normalized_items) - max_items
+    return ", ".join(normalized_items[:max_items]) + f", and {remaining_count} more"
+
+
 def handle_db_admin_action(
     action,
     database_name,
@@ -200,6 +266,8 @@ def handle_db_admin_action(
     system_schemas,
     fetch_create_table_statement=None,
     fetch_table_columns=None,
+    fetch_missing_primary_key_rows=None,
+    fix_missing_primary_key_table=None,
 ):
     normalized_action = str(action or "").strip()
     normalized_name = str(database_name or "").strip()
@@ -259,6 +327,102 @@ def handle_db_admin_action(
             "redirect_values": {"database": normalized_name, "table": normalized_table},
         }
 
+    if normalized_action == "fix_missing_primary_key":
+        if not normalized_name or not normalized_table:
+            raise ValueError("Choose both a database and table before applying the primary key fix.")
+        if fix_missing_primary_key_table is None:
+            raise ValueError("Primary key repair helper is not available.")
+
+        fix_result = fix_missing_primary_key_table(normalized_name, normalized_table)
+        flash_category = "success" if fix_result.get("status") in {"fixed", "already_has_primary_key"} else "error"
+        return {
+            "flash_category": flash_category,
+            "flash_message": fix_result.get("message") or f"Processed `{normalized_name}.{normalized_table}`.",
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {
+                "db_admin_tab": "missing-primary-key",
+                "database": normalized_name,
+                "table": normalized_table,
+            },
+        }
+
+    if normalized_action == "fix_missing_primary_key_all":
+        if fetch_missing_primary_key_rows is None or fix_missing_primary_key_table is None:
+            raise ValueError("Primary key repair helpers are not available.")
+
+        report = _build_missing_primary_key_report(fetch_missing_primary_key_rows())
+        if not report["table_count"]:
+            return {
+                "flash_category": "success",
+                "flash_message": "All non-system base tables already have a primary key.",
+                "redirect_endpoint": "db_admin_page",
+                "redirect_values": {"db_admin_tab": "missing-primary-key"},
+            }
+
+        fixed_with_auto_increment = []
+        fixed_with_row_id = []
+        already_fixed = []
+        manual_review = [row["full_table_name"] for row in report["rows"] if not row["is_fixable"]]
+        failures = []
+
+        for row in report["rows"]:
+            if not row["is_fixable"]:
+                continue
+            try:
+                fix_result = fix_missing_primary_key_table(row["database_name"], row["table_name"])
+            except Exception as error:
+                failures.append(f"{row['full_table_name']}: {error}")
+                continue
+
+            status = str(fix_result.get("status") or "").strip().lower()
+            strategy = str(fix_result.get("strategy") or "").strip().lower()
+            if status == "already_has_primary_key":
+                already_fixed.append(row["full_table_name"])
+                continue
+            if strategy == "use_auto_increment":
+                fixed_with_auto_increment.append(row["full_table_name"])
+            else:
+                fixed_with_row_id.append(row["full_table_name"])
+
+        message_parts = []
+        fixed_count = len(fixed_with_auto_increment) + len(fixed_with_row_id)
+        if fixed_count:
+            detail_parts = []
+            if fixed_with_auto_increment:
+                detail_parts.append(f"{len(fixed_with_auto_increment)} reused an AUTO_INCREMENT column")
+            if fixed_with_row_id:
+                detail_parts.append(f"{len(fixed_with_row_id)} added invisible `my_row_id`")
+            message = f"Fixed {fixed_count} table(s)"
+            if detail_parts:
+                message += f": {'; '.join(detail_parts)}."
+            else:
+                message += "."
+            message_parts.append(message)
+        if already_fixed:
+            message_parts.append(
+                f"{len(already_fixed)} already had a primary key by the time the fix ran."
+            )
+        if manual_review:
+            message_parts.append(
+                f"{len(manual_review)} require manual review: {_summarize_name_list(manual_review)}."
+            )
+        if failures:
+            message_parts.append(
+                f"{len(failures)} failed: {_summarize_name_list(failures)}."
+            )
+        if not message_parts:
+            message_parts.append("No primary key fixes were applied.")
+
+        flash_category = "success"
+        if failures or (manual_review and not fixed_count and not already_fixed):
+            flash_category = "error"
+        return {
+            "flash_category": flash_category,
+            "flash_message": " ".join(message_parts),
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {"db_admin_tab": "missing-primary-key"},
+        }
+
     raise ValueError("Unsupported DB Admin action.")
 
 
@@ -279,6 +443,7 @@ def build_db_admin_context(
     selected_table,
     preview_page,
     *,
+    db_admin_tab="select",
     fetch_database_inventory,
     fetch_tables_for_database,
     empty_table_preview,
@@ -287,30 +452,37 @@ def build_db_admin_context(
     fetch_table_columns,
     fetch_table_indexes,
     fetch_table_partitions,
+    fetch_missing_primary_key_rows=None,
     column_edit_payload=None,
 ):
     inventory = fetch_database_inventory()
     available_database_names = {row["database_name"] for row in inventory}
     normalized_database = str(selected_database or "").strip()
     normalized_table = str(selected_table or "").strip()
+    missing_primary_key_report = _empty_missing_primary_key_report()
 
     if normalized_database and normalized_database not in available_database_names:
-        return {
-            "redirect_endpoint": "db_admin_page",
-            "redirect_values": {},
-            "flash_category": "error",
-            "flash_message": f"Database `{normalized_database}` was not found.",
-        }
+        if db_admin_tab == "select":
+            return {
+                "redirect_endpoint": "db_admin_page",
+                "redirect_values": {},
+                "flash_category": "error",
+                "flash_message": f"Database `{normalized_database}` was not found.",
+            }
+        normalized_database = ""
+        normalized_table = ""
 
     available_tables = fetch_tables_for_database(normalized_database) if normalized_database else []
     available_table_names = {row["table_name"] for row in available_tables}
     if normalized_table and normalized_table not in available_table_names:
-        return {
-            "redirect_endpoint": "db_admin_page",
-            "redirect_values": {"database": normalized_database},
-            "flash_category": "error",
-            "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
-        }
+        if db_admin_tab == "select":
+            return {
+                "redirect_endpoint": "db_admin_page",
+                "redirect_values": {"database": normalized_database},
+                "flash_category": "error",
+                "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+            }
+        normalized_table = ""
 
     preview = empty_table_preview()
     ddl_statement = ""
@@ -320,7 +492,16 @@ def build_db_admin_context(
     column_edit_rows = []
     column_edit_unsupported_columns = []
 
-    if normalized_table:
+    if db_admin_tab == "missing-primary-key":
+        try:
+            missing_primary_key_report = _build_missing_primary_key_report(
+                fetch_missing_primary_key_rows() if fetch_missing_primary_key_rows is not None else []
+            )
+        except Exception as error:  # pragma: no cover - depends on server features
+            missing_primary_key_report = _empty_missing_primary_key_report()
+            missing_primary_key_report["error"] = str(error)
+
+    if db_admin_tab == "select" and normalized_table:
         try:
             preview = fetch_table_preview(normalized_database, normalized_table, page=preview_page)
             ddl_statement = fetch_create_table_statement(normalized_database, normalized_table)
@@ -354,10 +535,49 @@ def build_db_admin_context(
         "column_edit_unsupported_columns": column_edit_unsupported_columns,
         "indexes": indexes,
         "partitions": partitions,
+        "missing_primary_key_report": missing_primary_key_report,
     }
 
 
-def build_db_admin_export(selected_database, *, fetch_tables_for_database):
+def build_db_admin_export(
+    selected_database,
+    *,
+    db_admin_tab="select",
+    fetch_tables_for_database,
+    fetch_missing_primary_key_rows=None,
+):
+    if db_admin_tab == "missing-primary-key":
+        report = _build_missing_primary_key_report(
+            fetch_missing_primary_key_rows() if fetch_missing_primary_key_rows is not None else []
+        )
+        export_rows = [
+            {
+                "database_name": row["database_name"],
+                "table_name": row["table_name"],
+                "engine": row["engine"],
+                "row_count": row["row_count"],
+                "auto_increment_column_name": row["auto_increment_column_name"] or "",
+                "fix_method": row["fix_method"],
+                "fix_method_label": row["fix_method_label"],
+                "can_auto_fix": "yes" if row["is_fixable"] else "no",
+            }
+            for row in report["rows"]
+        ]
+        return {
+            "filename": "tables-without-primary-key.csv",
+            "columns": [
+                "database_name",
+                "table_name",
+                "engine",
+                "row_count",
+                "auto_increment_column_name",
+                "fix_method",
+                "fix_method_label",
+                "can_auto_fix",
+            ],
+            "rows": export_rows,
+        }
+
     normalized_database = str(selected_database or "").strip()
     rows = fetch_tables_for_database(normalized_database)
     export_rows = [

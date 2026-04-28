@@ -102,6 +102,8 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
+DB_ADMIN_TABS = {"create", "select", "missing-primary-key"}
+DB_ADMIN_DEFAULT_TAB = "select"
 MONITORING_CHART_TAB_OPTIONS = (
     ("general", "General"),
     ("heatwave", "HeatWave"),
@@ -375,6 +377,13 @@ def quote_identifier(identifier):
 
 def normalize_page_number(value):
     return _normalize_int(value, 1, minimum=1)
+
+
+def normalize_db_admin_tab(value):
+    normalized = str(value or "").strip().lower()
+    if normalized not in DB_ADMIN_TABS:
+        return DB_ADMIN_DEFAULT_TAB
+    return normalized
 
 
 def normalize_sql_workspace_secondary_engine(value):
@@ -695,6 +704,155 @@ def fetch_tables_for_database(database_name):
             }
         )
     return tables
+
+
+def _fetch_primary_key_status_rows(*, database_name="", table_name="", only_missing_primary_key):
+    sql = """
+        SELECT
+          t.table_schema AS database_name_value,
+          t.table_name AS table_name_value,
+          t.engine AS engine_value,
+          t.table_rows AS table_rows_value,
+          COALESCE(primary_keys.has_primary_key, 0) AS has_primary_key_value,
+          COALESCE(auto_increment_columns.auto_increment_column_name, '') AS auto_increment_column_name_value,
+          COALESCE(row_id_columns.has_my_row_id, 0) AS has_my_row_id_value
+        FROM information_schema.tables AS t
+        LEFT JOIN (
+          SELECT
+            table_schema,
+            table_name,
+            1 AS has_primary_key
+          FROM information_schema.statistics
+          WHERE index_name = 'PRIMARY'
+          GROUP BY table_schema, table_name
+        ) AS primary_keys
+          ON primary_keys.table_schema = t.table_schema
+         AND primary_keys.table_name = t.table_name
+        LEFT JOIN (
+          SELECT
+            table_schema,
+            table_name,
+            MIN(column_name) AS auto_increment_column_name
+          FROM information_schema.columns
+          WHERE LOWER(COALESCE(extra, '')) LIKE '%%auto_increment%%'
+          GROUP BY table_schema, table_name
+        ) AS auto_increment_columns
+          ON auto_increment_columns.table_schema = t.table_schema
+         AND auto_increment_columns.table_name = t.table_name
+        LEFT JOIN (
+          SELECT
+            table_schema,
+            table_name,
+            MAX(CASE WHEN LOWER(column_name) = 'my_row_id' THEN 1 ELSE 0 END) AS has_my_row_id
+          FROM information_schema.columns
+          GROUP BY table_schema, table_name
+        ) AS row_id_columns
+          ON row_id_columns.table_schema = t.table_schema
+         AND row_id_columns.table_name = t.table_name
+        WHERE t.table_type = 'BASE TABLE'
+          AND t.table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND t.table_schema NOT LIKE 'mysql@_%%' ESCAPE '@'
+    """
+    params = []
+    normalized_database = str(database_name or "").strip()
+    normalized_table = str(table_name or "").strip()
+    if normalized_database:
+        sql += " AND t.table_schema = %s"
+        params.append(normalized_database)
+    if normalized_table:
+        sql += " AND t.table_name = %s"
+        params.append(normalized_table)
+    if only_missing_primary_key:
+        sql += " AND COALESCE(primary_keys.has_primary_key, 0) = 0"
+    sql += " ORDER BY t.table_schema, t.table_name"
+
+    rows = execute_query(sql, params or None)
+    normalized_rows = []
+    for row in rows:
+        normalized_rows.append(
+            {
+                "database_name": row["database_name_value"],
+                "table_name": row["table_name_value"],
+                "engine": row["engine_value"] or "-",
+                "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
+                "has_primary_key": bool(row["has_primary_key_value"]),
+                "auto_increment_column_name": row["auto_increment_column_name_value"] or "",
+                "has_my_row_id": bool(row["has_my_row_id_value"]),
+            }
+        )
+    return normalized_rows
+
+
+def fetch_tables_without_primary_key():
+    return _fetch_primary_key_status_rows(only_missing_primary_key=True)
+
+
+def fetch_table_primary_key_status(database_name, table_name):
+    rows = _fetch_primary_key_status_rows(
+        database_name=database_name,
+        table_name=table_name,
+        only_missing_primary_key=False,
+    )
+    if not rows:
+        return None
+    return rows[0]
+
+
+def fix_table_without_primary_key(database_name, table_name):
+    normalized_database = str(database_name or "").strip()
+    normalized_table = str(table_name or "").strip()
+    if not normalized_database or not normalized_table:
+        raise ValueError("Choose both a database and table before applying the primary key fix.")
+    if is_system_schema_name(normalized_database):
+        raise ValueError("System schemas cannot be changed here.")
+
+    primary_key_status = fetch_table_primary_key_status(normalized_database, normalized_table)
+    if primary_key_status is None:
+        raise ValueError(f"Table `{normalized_database}.{normalized_table}` was not found.")
+    if primary_key_status["has_primary_key"]:
+        return {
+            "status": "already_has_primary_key",
+            "strategy": "none",
+            "message": f"Table `{normalized_database}.{normalized_table}` already has a primary key.",
+        }
+
+    safe_database = quote_identifier(normalized_database)
+    safe_table = quote_identifier(normalized_table)
+    auto_increment_column_name = primary_key_status["auto_increment_column_name"]
+    if auto_increment_column_name:
+        execute_statement(
+            f"ALTER TABLE {safe_database}.{safe_table} "
+            f"ADD PRIMARY KEY ({quote_identifier(auto_increment_column_name)})"
+        )
+        return {
+            "status": "fixed",
+            "strategy": "use_auto_increment",
+            "message": (
+                f"Added PRIMARY KEY on `{normalized_database}.{normalized_table}` "
+                f"using existing AUTO_INCREMENT column `{auto_increment_column_name}`."
+            ),
+        }
+
+    row_id_column = quote_identifier("my_row_id")
+    if primary_key_status["has_my_row_id"]:
+        raise ValueError(
+            f"Table `{normalized_database}.{normalized_table}` already contains `my_row_id`, "
+            "so the automatic invisible-column fix cannot be applied."
+        )
+
+    execute_statement(
+        f"ALTER TABLE {safe_database}.{safe_table} "
+        f"ADD COLUMN {row_id_column} BIGINT UNSIGNED NOT NULL AUTO_INCREMENT INVISIBLE, "
+        f"ADD PRIMARY KEY ({row_id_column})"
+    )
+    return {
+        "status": "fixed",
+        "strategy": "add_invisible_my_row_id",
+        "message": (
+            f"Added invisible AUTO_INCREMENT column `my_row_id` and PRIMARY KEY on "
+            f"`{normalized_database}.{normalized_table}`."
+        ),
+    }
 
 
 def fetch_full_table_report(schema_name, table_name, *, order_by_candidates=None, limit=None):
@@ -4788,9 +4946,7 @@ def mysql_import_page():
 @app.route("/mysql/db-admin", methods=["GET", "POST"])
 @login_required
 def db_admin_page():
-    db_admin_tab = str(request.values.get("db_admin_tab", "select")).strip().lower()
-    if db_admin_tab not in {"create", "select"}:
-        db_admin_tab = "select"
+    db_admin_tab = normalize_db_admin_tab(request.values.get("db_admin_tab", DB_ADMIN_DEFAULT_TAB))
     selected_database = str(request.values.get("database", "")).strip()
     selected_table = str(request.values.get("table", "")).strip()
     preview_page = normalize_page_number(request.args.get("page", "1"))
@@ -4799,9 +4955,7 @@ def db_admin_page():
 
     if request.method == "POST":
         action = str(request.form.get("db_action", "")).strip()
-        db_admin_tab = str(request.form.get("db_admin_tab", db_admin_tab)).strip().lower()
-        if db_admin_tab not in {"create", "select"}:
-            db_admin_tab = "select"
+        db_admin_tab = normalize_db_admin_tab(request.form.get("db_admin_tab", db_admin_tab))
         selected_database = str(request.form.get("database_name", selected_database)).strip()
         selected_table = str(request.form.get("table_name", selected_table)).strip()
         try:
@@ -4815,10 +4969,12 @@ def db_admin_page():
                 system_schemas=SYSTEM_SCHEMAS,
                 fetch_create_table_statement=fetch_create_table_statement,
                 fetch_table_columns=fetch_table_columns,
+                fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
+                fix_missing_primary_key_table=fix_table_without_primary_key,
             )
             flash(action_result["flash_message"], action_result["flash_category"])
             redirect_values = dict(action_result["redirect_values"])
-            redirect_values.setdefault("db_admin_tab", "select")
+            redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
             return redirect(url_for(action_result["redirect_endpoint"], **redirect_values))
         except Exception as error:
             flash(str(error), "error")
@@ -4830,6 +4986,7 @@ def db_admin_page():
         selected_database,
         selected_table,
         preview_page,
+        db_admin_tab=db_admin_tab,
         fetch_database_inventory=fetch_database_inventory,
         fetch_tables_for_database=fetch_tables_for_database,
         empty_table_preview=empty_table_preview,
@@ -4838,12 +4995,13 @@ def db_admin_page():
         fetch_table_columns=fetch_table_columns,
         fetch_table_indexes=fetch_table_indexes,
         fetch_table_partitions=fetch_table_partitions,
+        fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
         column_edit_payload=db_admin_edit_payload,
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])
         redirect_values = dict(page_context["redirect_values"])
-        redirect_values.setdefault("db_admin_tab", "select")
+        redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
         return redirect(url_for(page_context["redirect_endpoint"], **redirect_values))
 
     return render_dashboard(
@@ -4859,9 +5017,12 @@ def db_admin_page():
 @login_required
 def db_admin_download():
     selected_database = str(request.args.get("database", "")).strip()
+    db_admin_tab = normalize_db_admin_tab(request.args.get("db_admin_tab", DB_ADMIN_DEFAULT_TAB))
     export_payload = module_build_db_admin_export(
         selected_database,
+        db_admin_tab=db_admin_tab,
         fetch_tables_for_database=fetch_tables_for_database,
+        fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
     )
     return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
 

@@ -25,6 +25,14 @@
     >
       Select Database and Table
     </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'missing-primary-key' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'missing-primary-key' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='missing-primary-key', database=selected_database, table=selected_table) }}"
+    >
+      Tables Without Primary Key
+    </a>
   </div>
 </section>
 
@@ -47,6 +55,89 @@
       <button class="button primary" type="submit">Create Database</button>
     </div>
   </form>
+  {% elif db_admin_tab == 'missing-primary-key' %}
+  <div class="panel-header">
+    <div>
+      <h3>Tables Without Primary Key</h3>
+      <span class="helper-text">Review non-system base tables that do not currently expose a PRIMARY KEY and apply the requested repair strategy.</span>
+    </div>
+    <div class="panel-actions">
+      <a class="button secondary" href="{{ url_for('db_admin_download', db_admin_tab='missing-primary-key') }}">Download CSV</a>
+      <form method="post" onsubmit="return confirm('Apply the primary-key fix to every eligible table listed here?');">
+        <input type="hidden" name="db_admin_tab" value="missing-primary-key">
+        <input type="hidden" name="db_action" value="fix_missing_primary_key_all">
+        <button class="button primary" type="submit" {% if missing_primary_key_report.error or not missing_primary_key_report.fixable_table_count %}disabled{% endif %}>Apply Fix to All</button>
+      </form>
+    </div>
+  </div>
+  <div class="count-summary-grid">
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.table_count }}</span>
+      <span class="count-link-helper">Tables without PRIMARY KEY</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.auto_increment_fix_count }}</span>
+      <span class="count-link-helper">Reuse existing AUTO_INCREMENT</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.invisible_row_id_fix_count }}</span>
+      <span class="count-link-helper">Add invisible <code>my_row_id</code></span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ missing_primary_key_report.manual_review_count }}</span>
+      <span class="count-link-helper">Manual review required</span>
+    </article>
+  </div>
+  {% if missing_primary_key_report.error %}
+  <p class="helper-text error-text">{{ missing_primary_key_report.error }}</p>
+  {% else %}
+  <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Database</th>
+          <th>Table</th>
+          <th>Engine</th>
+          <th>Rows</th>
+          <th>AUTO_INCREMENT Column</th>
+          <th>Fix Plan</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in missing_primary_key_report.rows %}
+        <tr>
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.table_name }}</td>
+          <td>{{ row.engine }}</td>
+          <td>{{ row.row_count }}</td>
+          <td>{{ row.auto_increment_column_name or '-' }}</td>
+          <td>{{ row.fix_method_label }}</td>
+          <td class="table-action-cell">
+            {% if row.is_fixable %}
+            <form method="post" onsubmit="return confirm('Apply the primary-key fix to {{ row.full_table_name }}?');">
+              <input type="hidden" name="db_admin_tab" value="missing-primary-key">
+              <input type="hidden" name="db_action" value="fix_missing_primary_key">
+              <input type="hidden" name="database_name" value="{{ row.database_name }}">
+              <input type="hidden" name="table_name" value="{{ row.table_name }}">
+              <button class="button secondary" type="submit">Apply Fix</button>
+            </form>
+            {% else %}
+            <button class="button secondary" type="button" disabled>Manual Review</button>
+            {% endif %}
+            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=row.database_name, table=row.table_name) }}">Inspect</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">Every non-system base table already has a PRIMARY KEY.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   {% else %}
   <div class="panel-header">
     <div>

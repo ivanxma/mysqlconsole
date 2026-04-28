@@ -173,6 +173,7 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 `DB Admin` supports:
 
 - tabbed create-database and select-database/table views
+- tabbed report for tables without a primary key
 - create and drop database
 - select database and table from dropdowns or table list
 - view column metadata
@@ -180,6 +181,8 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 - view index metadata
 - view partition metadata for partitioned tables
 - modify column definitions including rename and full type/length parameter edits
+- add a primary key for tables that already have an `AUTO_INCREMENT` column
+- bulk-fix or single-fix tables without a primary key by adding invisible `my_row_id` when needed
 - page through preview rows
 
 ## SQL Workspace
