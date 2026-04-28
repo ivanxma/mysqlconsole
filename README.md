@@ -87,7 +87,7 @@ Examples:
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
 - save default HTTP and HTTPS ports in `.runtime.env`
-- when run interactively without explicit port arguments, prompt for HTTP and HTTPS port changes
+- when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, ports, TLS paths, and service user/group when applicable
 - open the selected HTTP/HTTPS TCP ports when the platform tooling supports it
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
 - enable and start the systemd service that matches the selected deploy mode

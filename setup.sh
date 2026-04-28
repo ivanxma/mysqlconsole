@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
 RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-$SCRIPT_DIR/.runtime.env}"
 OS_FAMILY_INPUT="${OS_FAMILY:-}"
-DEPLOY_MODE_INPUT="${DEPLOY_MODE:-http}"
+DEPLOY_MODE_INPUT="${DEPLOY_MODE:-}"
 HTTP_PORT_INPUT="${HTTP_PORT:-}"
 HTTPS_PORT_INPUT="${HTTPS_PORT:-}"
 HOST_INPUT="${HOST:-}"
@@ -207,6 +207,71 @@ resolve_value() {
   else
     echo "$fallback"
   fi
+}
+
+display_prompt_value() {
+  local value="$1"
+  if [[ -n "$value" ]]; then
+    printf '%s' "$value"
+  else
+    printf '<empty>'
+  fi
+}
+
+prompt_for_normalized_value() {
+  local label="$1"
+  local current_value="$2"
+  local normalizer="$3"
+  local help_text="$4"
+  local entered_value
+  local normalized_value
+
+  while true; do
+    printf '%s [%s]: ' "$label" "$(display_prompt_value "$current_value")" >&2
+    if ! read -r entered_value; then
+      echo >&2
+      echo "$current_value"
+      return 0
+    fi
+    if [[ -z "$entered_value" ]]; then
+      echo "$current_value"
+      return 0
+    fi
+
+    if normalized_value="$("$normalizer" "$entered_value" 2>/dev/null)"; then
+      echo "$normalized_value"
+      return 0
+    fi
+
+    echo "$help_text" >&2
+  done
+}
+
+prompt_for_text_value() {
+  local label="$1"
+  local current_value="$2"
+  local allow_empty="$3"
+  local entered_value
+
+  while true; do
+    printf '%s [%s]: ' "$label" "$(display_prompt_value "$current_value")" >&2
+    if ! read -r entered_value; then
+      echo >&2
+      echo "$current_value"
+      return 0
+    fi
+    if [[ -z "$entered_value" ]]; then
+      if [[ "$allow_empty" == "yes" || -n "$current_value" ]]; then
+        echo "$current_value"
+        return 0
+      fi
+      echo "$label cannot be empty." >&2
+      continue
+    fi
+
+    echo "$entered_value"
+    return 0
+  done
 }
 
 prompt_for_port_value() {
@@ -447,12 +512,33 @@ setup_systemd_services() {
 
 run_mysqlsh_installer() {
   local os_family="$1"
-  local installer="$SCRIPT_DIR/${os_family}/install_mysql_shell_innovation.sh"
+  local platform_dir
+  local installer
+
+  platform_dir="$(resolve_platform_dir "$os_family")" || return 1
+  installer="$platform_dir/install_mysql_shell_innovation.sh"
   if [[ ! -x "$installer" ]]; then
     echo "Installer script not found or not executable: $installer" >&2
     return 1
   fi
   "$installer"
+}
+
+resolve_platform_dir() {
+  local os_family="$1"
+  local candidate
+  local lowercase_dir="$SCRIPT_DIR/$os_family"
+  local uppercase_dir="$SCRIPT_DIR/$(printf '%s' "$os_family" | tr '[:lower:]' '[:upper:]')"
+
+  for candidate in "$lowercase_dir" "$uppercase_dir"; do
+    if [[ -d "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Platform directory not found for '$os_family'. Checked: $lowercase_dir and $uppercase_dir" >&2
+  return 1
 }
 
 ensure_python() {
@@ -470,6 +556,8 @@ main() {
   local https_port
   local ssl_cert_file
   local ssl_key_file
+  local service_user
+  local service_group
   local prompted_ports
 
   load_existing_runtime_env
@@ -480,18 +568,61 @@ main() {
 
   if [[ -z "$os_family" ]]; then
     os_family="$(detect_os_family)"
+    if is_interactive_terminal; then
+      os_family="$(prompt_for_normalized_value "OS family" "$os_family" normalize_os_family "Enter one of: ol8, ol9, ubuntu, macos.")"
+    fi
   else
     os_family="$(normalize_os_family "$os_family")"
   fi
-  deploy_mode="$(normalize_deploy_mode "$DEPLOY_MODE_INPUT")"
+
+  if [[ -z "$DEPLOY_MODE_INPUT" ]]; then
+    deploy_mode="http"
+    if is_interactive_terminal; then
+      deploy_mode="$(prompt_for_normalized_value "Deploy mode" "$deploy_mode" normalize_deploy_mode "Enter one of: http, https, both, none.")"
+    fi
+  else
+    deploy_mode="$(normalize_deploy_mode "$DEPLOY_MODE_INPUT")"
+  fi
+
   host_value="$(resolve_value "$HOST_INPUT" "$EXISTING_HOST" "0.0.0.0")"
+  if is_interactive_terminal && [[ -z "$HOST_INPUT" ]]; then
+    host_value="$(prompt_for_text_value "Host bind address" "$host_value" "no")"
+  fi
+
   http_port="$(normalize_port "HTTP" "$(resolve_value "$HTTP_PORT_INPUT" "$EXISTING_DEFAULT_HTTP_PORT" "80")")"
   https_port="$(normalize_port "HTTPS" "$(resolve_value "$HTTPS_PORT_INPUT" "$EXISTING_DEFAULT_HTTPS_PORT" "443")")"
   prompted_ports="$(prompt_for_ports_if_needed "$http_port" "$https_port")"
   http_port="$(printf '%s\n' "$prompted_ports" | sed -n '1p')"
   https_port="$(printf '%s\n' "$prompted_ports" | sed -n '2p')"
+
   ssl_cert_file="$(resolve_value "$SSL_CERT_FILE_INPUT" "$EXISTING_SSL_CERT_FILE" "")"
   ssl_key_file="$(resolve_value "$SSL_KEY_FILE_INPUT" "$EXISTING_SSL_KEY_FILE" "")"
+  case "$deploy_mode" in
+    https|both)
+      if is_interactive_terminal && [[ -z "$SSL_CERT_FILE_INPUT" ]]; then
+        ssl_cert_file="$(prompt_for_text_value "SSL certificate file" "$ssl_cert_file" "yes")"
+      fi
+      if is_interactive_terminal && [[ -z "$SSL_KEY_FILE_INPUT" ]]; then
+        ssl_key_file="$(prompt_for_text_value "SSL private key file" "$ssl_key_file" "yes")"
+      fi
+      ;;
+  esac
+
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      service_user="$(resolve_service_user)"
+      if is_interactive_terminal && [[ -z "$SERVICE_USER_INPUT" ]]; then
+        service_user="$(prompt_for_text_value "Systemd service user" "$service_user" "no")"
+      fi
+      SERVICE_USER_INPUT="$service_user"
+
+      service_group="$(resolve_service_group "$service_user")"
+      if is_interactive_terminal && [[ -z "$SERVICE_GROUP_INPUT" ]]; then
+        service_group="$(prompt_for_text_value "Systemd service group" "$service_group" "no")"
+      fi
+      SERVICE_GROUP_INPUT="$service_group"
+      ;;
+  esac
 
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
