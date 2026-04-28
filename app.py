@@ -3207,78 +3207,108 @@ def fetch_heatwave_node_memory_rows():
     return normalized_rows
 
 
-def fetch_heatwave_exec_timing_summary():
-    column_lookup = fetch_table_column_lookup("performance_schema", "rpd_exec_stats")
-    order_column = _first_available_column(
-        column_lookup,
-        ["query_id", "query_start_time", "start_time", "event_time", "sample_time", "created_at"],
+def fetch_heatwave_query_timing_summary():
+    rows = execute_query(
+        """
+        SELECT
+          QUERY_ID AS query_id_value,
+          QUERY_TEXT AS query_text_value,
+          STR_TO_DATE(
+            JSON_UNQUOTE(JSON_EXTRACT(QEXEC_TEXT->>"$**.queryStartTime", '$[0]')),
+            '%Y-%m-%d %H:%i:%s.%f'
+          ) AS query_start_value,
+          STR_TO_DATE(
+            JSON_UNQUOTE(JSON_EXTRACT(QEXEC_TEXT->>"$**.qexecStartTime", '$[0]')),
+            '%Y-%m-%d %H:%i:%s.%f'
+          ) AS rpd_start_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.timeBetweenMakePushedJoinAndRpdExecMsec", '$[0]') AS queue_wait_ms_value,
+          STR_TO_DATE(
+            JSON_UNQUOTE(JSON_EXTRACT(QEXEC_TEXT->>"$**.queryEndTime", '$[0]')),
+            '%Y-%m-%d %H:%i:%s.%f'
+          ) AS query_end_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.changePropagationSync.msec", '$[0]') AS change_propagation_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.totalQueryTimeBreakdown.waitTime", '$[0]') AS total_wait_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.totalQueryTimeBreakdown.executionTime", '$[0]') AS total_exec_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.totalQueryTimeBreakdown.optimizationTime", '$[0]') AS total_opt_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.rpdExec.msec", '$[0]') AS rpd_exec_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.getResults.msec", '$[0]') AS get_result_ms_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.sessionId", '$[0]') AS connection_id_value,
+          JSON_EXTRACT(QEXEC_TEXT->>"$**.qkrnActualRows[*].actRows", '$[0]') AS act_rows_value
+        FROM performance_schema.rpd_query_stats
+        WHERE query_text NOT LIKE 'ML_%'
+        ORDER BY query_id DESC
+        LIMIT 60
+        """
     )
-    query_id_column = _first_available_column(column_lookup, ["query_id", "queryid", "statement_id"])
-    execution_column = _first_available_column(
-        column_lookup,
-        [
-            "execution_time_ms",
-            "execution_time_msec",
-            "exec_time_ms",
-            "execution_ms",
-            "total_execution_time_ms",
-            "elapsed_time_ms",
-            "duration_ms",
-            "execution_time_us",
-            "execution_time_ns",
-        ],
-    )
-    wait_column = _first_available_column(
-        column_lookup,
-        [
-            "wait_time_ms",
-            "wait_time_msec",
-            "queue_wait_ms",
-            "queue_wait_time_ms",
-            "queued_time_ms",
-            "wait_ms",
-            "wait_time_us",
-            "wait_time_ns",
-        ],
-    )
-    if not execution_column and not wait_column:
-        raise ValueError("Unable to determine execution or wait timing columns from performance_schema.rpd_exec_stats.")
 
-    selected_columns = []
-    if order_column:
-        selected_columns.append(f"{quote_identifier(order_column)} AS order_value")
-    if query_id_column:
-        selected_columns.append(f"{quote_identifier(query_id_column)} AS query_id_value")
-    if execution_column:
-        selected_columns.append(f"{quote_identifier(execution_column)} AS execution_value")
-    if wait_column:
-        selected_columns.append(f"{quote_identifier(wait_column)} AS wait_value")
+    metric_values = {
+        "queue_wait_ms": [],
+        "total_wait_ms": [],
+        "total_exec_ms": [],
+        "total_opt_ms": [],
+        "rpd_exec_ms": [],
+        "get_result_ms": [],
+        "change_propagation_ms": [],
+    }
 
-    sql = "SELECT {columns} FROM performance_schema.rpd_exec_stats".format(columns=", ".join(selected_columns))
-    if order_column:
-        sql += f" ORDER BY {quote_identifier(order_column)} DESC"
-    sql += " LIMIT 60"
-
-    rows = execute_query(sql)
-    execution_values = []
-    wait_values = []
     for row in rows:
-        if execution_column:
-            execution_ms = _duration_value_to_ms(execution_column, row.get("execution_value"))
-            if execution_ms is not None:
-                execution_values.append(execution_ms)
-        if wait_column:
-            wait_ms = _duration_value_to_ms(wait_column, row.get("wait_value"))
-            if wait_ms is not None:
-                wait_values.append(wait_ms)
+        for metric_name in metric_values:
+            value = _extract_numeric(row.get(f"{metric_name}_value"), None)
+            if value is not None:
+                metric_values[metric_name].append(value)
+
+    latest_row = rows[0] if rows else {}
+    latest_query_text = " ".join(str(latest_row.get("query_text_value") or "").split())
+    if len(latest_query_text) > 120:
+        latest_query_text = latest_query_text[:117].rstrip() + "..."
+
+    latest_query_start = latest_row.get("query_start_value")
+    latest_query_end = latest_row.get("query_end_value")
+    latest_elapsed_ms = None
+    if latest_query_start and latest_query_end:
+        try:
+            latest_elapsed_ms = max((latest_query_end - latest_query_start).total_seconds() * 1000.0, 0.0)
+        except TypeError:
+            latest_elapsed_ms = None
 
     return {
         "sample_count": len(rows),
-        "avg_execution_ms": sum(execution_values) / len(execution_values) if execution_values else 0,
-        "avg_wait_ms": sum(wait_values) / len(wait_values) if wait_values else 0,
-        "max_execution_ms": max(execution_values) if execution_values else 0,
-        "max_wait_ms": max(wait_values) if wait_values else 0,
-        "latest_query_id": rows[0].get("query_id_value") if rows and query_id_column else "",
+        "latest_query_id": latest_row.get("query_id_value", ""),
+        "latest_connection_id": _extract_numeric(latest_row.get("connection_id_value"), None),
+        "latest_query_text": latest_query_text,
+        "latest_act_rows": _extract_numeric(latest_row.get("act_rows_value"), None),
+        "latest_elapsed_ms": latest_elapsed_ms,
+        "avg_queue_wait_ms": sum(metric_values["queue_wait_ms"]) / len(metric_values["queue_wait_ms"])
+        if metric_values["queue_wait_ms"]
+        else 0,
+        "avg_total_wait_ms": sum(metric_values["total_wait_ms"]) / len(metric_values["total_wait_ms"])
+        if metric_values["total_wait_ms"]
+        else 0,
+        "avg_total_exec_ms": sum(metric_values["total_exec_ms"]) / len(metric_values["total_exec_ms"])
+        if metric_values["total_exec_ms"]
+        else 0,
+        "avg_total_opt_ms": sum(metric_values["total_opt_ms"]) / len(metric_values["total_opt_ms"])
+        if metric_values["total_opt_ms"]
+        else 0,
+        "avg_rpd_exec_ms": sum(metric_values["rpd_exec_ms"]) / len(metric_values["rpd_exec_ms"])
+        if metric_values["rpd_exec_ms"]
+        else 0,
+        "avg_get_result_ms": sum(metric_values["get_result_ms"]) / len(metric_values["get_result_ms"])
+        if metric_values["get_result_ms"]
+        else 0,
+        "avg_change_propagation_ms": sum(metric_values["change_propagation_ms"])
+        / len(metric_values["change_propagation_ms"])
+        if metric_values["change_propagation_ms"]
+        else 0,
+        "max_queue_wait_ms": max(metric_values["queue_wait_ms"]) if metric_values["queue_wait_ms"] else 0,
+        "max_total_wait_ms": max(metric_values["total_wait_ms"]) if metric_values["total_wait_ms"] else 0,
+        "max_total_exec_ms": max(metric_values["total_exec_ms"]) if metric_values["total_exec_ms"] else 0,
+        "max_total_opt_ms": max(metric_values["total_opt_ms"]) if metric_values["total_opt_ms"] else 0,
+        "max_rpd_exec_ms": max(metric_values["rpd_exec_ms"]) if metric_values["rpd_exec_ms"] else 0,
+        "max_get_result_ms": max(metric_values["get_result_ms"]) if metric_values["get_result_ms"] else 0,
+        "max_change_propagation_ms": max(metric_values["change_propagation_ms"])
+        if metric_values["change_propagation_ms"]
+        else 0,
     }
 
 
@@ -3663,14 +3693,32 @@ def build_heatwave_node_memory_chart_card():
 
 def build_heatwave_query_timing_chart_card():
     title = "HeatWave Query Timing"
-    subtitle = "Average execution and wait timings from performance_schema.rpd_exec_stats."
+    subtitle = "Recent queue, execution, wait, and RPD timings from performance_schema.rpd_query_stats."
     try:
-        summary = fetch_heatwave_exec_timing_summary()
-        details = [f"Recent samples: {_format_count(summary['sample_count'])}"]
+        summary = fetch_heatwave_query_timing_summary()
+        details = [
+            f"Recent samples: {_format_count(summary['sample_count'])}",
+            "Source: performance_schema.rpd_query_stats",
+        ]
         if summary["latest_query_id"] not in (None, ""):
             details.append(f"Latest query id: {summary['latest_query_id']}")
-        details.append(f"Peak execution: {_format_milliseconds(summary['max_execution_ms'])}")
-        details.append(f"Peak wait: {_format_milliseconds(summary['max_wait_ms'])}")
+        if summary["latest_connection_id"] is not None:
+            details.append(f"Latest connection id: {_format_count(summary['latest_connection_id'])}")
+        if summary["latest_query_text"]:
+            details.append(f"Latest query: {summary['latest_query_text']}")
+        if summary["latest_act_rows"] is not None:
+            details.append(f"Latest actual rows: {_format_count(summary['latest_act_rows'])}")
+        if summary["latest_elapsed_ms"] is not None:
+            details.append(f"Latest end-to-end: {_format_milliseconds(summary['latest_elapsed_ms'])}")
+        details.append(f"Avg change propagation: {_format_milliseconds(summary['avg_change_propagation_ms'])}")
+        details.append(f"Avg get results: {_format_milliseconds(summary['avg_get_result_ms'])}")
+        details.append(f"Peak queue wait: {_format_milliseconds(summary['max_queue_wait_ms'])}")
+        details.append(f"Peak total execution: {_format_milliseconds(summary['max_total_exec_ms'])}")
+        details.append(f"Peak total wait: {_format_milliseconds(summary['max_total_wait_ms'])}")
+        details.append(f"Peak RPD execution: {_format_milliseconds(summary['max_rpd_exec_ms'])}")
+        details.append(f"Peak optimization: {_format_milliseconds(summary['max_total_opt_ms'])}")
+        details.append(f"Peak get results: {_format_milliseconds(summary['max_get_result_ms'])}")
+        details.append(f"Peak change propagation: {_format_milliseconds(summary['max_change_propagation_ms'])}")
         return _chart_card(
             "heatwave_query_timing",
             title,
@@ -3679,18 +3727,39 @@ def build_heatwave_query_timing_chart_card():
             unit="ms",
             series=[
                 {
-                    "key": "avg_execution_ms",
-                    "label": "Avg Execution",
-                    "color": "#b56576",
-                    "value": summary["avg_execution_ms"],
-                    "display": _format_milliseconds(summary["avg_execution_ms"]),
+                    "key": "avg_queue_wait_ms",
+                    "label": "Avg Queue Wait",
+                    "color": "#6d597a",
+                    "value": summary["avg_queue_wait_ms"],
+                    "display": _format_milliseconds(summary["avg_queue_wait_ms"]),
                 },
                 {
-                    "key": "avg_wait_ms",
-                    "label": "Avg Wait",
-                    "color": "#6d597a",
-                    "value": summary["avg_wait_ms"],
-                    "display": _format_milliseconds(summary["avg_wait_ms"]),
+                    "key": "avg_total_exec_ms",
+                    "label": "Avg Total Exec",
+                    "color": "#b56576",
+                    "value": summary["avg_total_exec_ms"],
+                    "display": _format_milliseconds(summary["avg_total_exec_ms"]),
+                },
+                {
+                    "key": "avg_total_wait_ms",
+                    "label": "Avg Total Wait",
+                    "color": "#355070",
+                    "value": summary["avg_total_wait_ms"],
+                    "display": _format_milliseconds(summary["avg_total_wait_ms"]),
+                },
+                {
+                    "key": "avg_total_opt_ms",
+                    "label": "Avg Optimization",
+                    "color": "#a68a64",
+                    "value": summary["avg_total_opt_ms"],
+                    "display": _format_milliseconds(summary["avg_total_opt_ms"]),
+                },
+                {
+                    "key": "avg_rpd_exec_ms",
+                    "label": "Avg RPD Exec",
+                    "color": "#2a9d8f",
+                    "value": summary["avg_rpd_exec_ms"],
+                    "display": _format_milliseconds(summary["avg_rpd_exec_ms"]),
                 },
             ],
             details=details,
