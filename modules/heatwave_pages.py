@@ -12,6 +12,7 @@ def _empty_dashboard_summary():
             "configured_table_count": 0,
             "tracked_table_count": 0,
             "heatwave_table_count": 0,
+            "lakehouse_table_count": 0,
             "loaded_count": 0,
             "partial_count": 0,
             "not_loaded_count": 0,
@@ -449,6 +450,7 @@ def build_dashboard_heatwave_summary(
     *,
     fetch_heatwave_inventory_report,
     fetch_heatwave_defined_secondary_engine_tables,
+    fetch_lakehouse_engine_tables,
     is_system_schema_name,
 ):
     summary = _empty_dashboard_summary()
@@ -458,9 +460,12 @@ def build_dashboard_heatwave_summary(
     )
     configured_tables, configured_error = _safe_items(fetch_heatwave_defined_secondary_engine_tables)
     configured_tables, _ = _build_secondary_engine_lookup(configured_tables)
+    lakehouse_tables, lakehouse_error = _safe_items(fetch_lakehouse_engine_tables)
+    lakehouse_tables, _ = _build_lakehouse_lookup(lakehouse_tables)
     inventory_rows = _build_heatwave_inventory_rows(inventory_report)
 
     configured_keys_by_db = {}
+    lakehouse_keys_by_db = {}
     tracked_keys_by_db = {}
     tracked_states_by_key = {}
 
@@ -470,6 +475,13 @@ def build_dashboard_heatwave_summary(
         if not database_name or not table_key or is_system_schema_name(database_name):
             continue
         configured_keys_by_db.setdefault(database_name, set()).add(table_key)
+
+    for row in lakehouse_tables:
+        database_name = row["database_name"]
+        table_key = row["table_key"]
+        if not database_name or not table_key or is_system_schema_name(database_name):
+            continue
+        lakehouse_keys_by_db.setdefault(database_name, set()).add(table_key)
 
     for row in inventory_rows:
         database_name = row["database_name"]
@@ -485,9 +497,13 @@ def build_dashboard_heatwave_summary(
         tracked_states_by_key[table_key] = row["load_state"]
 
     totals = summary["totals"]
-    all_databases = sorted(set(configured_keys_by_db) | set(tracked_keys_by_db), key=str.lower)
+    all_databases = sorted(
+        set(configured_keys_by_db) | set(lakehouse_keys_by_db) | set(tracked_keys_by_db),
+        key=str.lower,
+    )
     for database_name in all_databases:
         configured_keys = configured_keys_by_db.get(database_name, set())
+        lakehouse_keys = lakehouse_keys_by_db.get(database_name, set())
         tracked_keys = tracked_keys_by_db.get(database_name, set())
         combined_keys = configured_keys | tracked_keys
         summary_row = {
@@ -495,6 +511,7 @@ def build_dashboard_heatwave_summary(
             "configured_table_count": len(configured_keys),
             "tracked_table_count": len(tracked_keys),
             "heatwave_table_count": len(combined_keys),
+            "lakehouse_table_count": len(lakehouse_keys),
             "loaded_count": 0,
             "partial_count": 0,
             "not_loaded_count": 0,
@@ -514,7 +531,7 @@ def build_dashboard_heatwave_summary(
 
     summary["error"] = " | ".join(
         error_message
-        for error_message in (configured_error, inventory_report.get("error", ""))
+        for error_message in (configured_error, lakehouse_error, inventory_report.get("error", ""))
         if error_message
     )
     return summary
