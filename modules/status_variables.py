@@ -121,7 +121,8 @@ def _classify_status_variable(name):
         return "performance_schema"
     if lowered.startswith(
         (
-            "audit_",
+            "audit",
+            "admin",
             "ssl_",
             "tls_",
             "admin_ssl_",
@@ -129,6 +130,7 @@ def _classify_status_variable(name):
             "validate_password",
             "caching_sha2_password",
             "sha256_password",
+            "sha256",
             "authentication_",
             "keyring_",
             "component_keyring_",
@@ -152,8 +154,10 @@ def _classify_status_variable(name):
         for token in (
             "audit",
             "password",
+            "_sha2",
             "ssl",
             "tls",
+            "encryption",
             "keyring",
             "wallet",
             "tde",
@@ -178,12 +182,12 @@ def _classify_status_variable(name):
         ("rapid_", "heatwave_", "secondary_engine", "use_secondary_engine", "lakehouse_", "lakehouse")
     ) or "lakehouse" in lowered:
         return "heatwave_rapid"
-    if lowered.startswith(("group_replication_", "gr_")):
+    if lowered.startswith(("group_replication", "gr_")):
         return "replication"
     if lowered.startswith(
         (
-            "replica_",
-            "slave_",
+            "replica",
+            "slave",
             "source_",
             "replication_",
             "rpl_",
@@ -191,7 +195,7 @@ def _classify_status_variable(name):
             "log_bin",
             "sync_relay_log",
             "master_",
-            "binlog_",
+            "binlog",
             "gtid_",
             "log_replica_updates",
             "log_slave_updates",
