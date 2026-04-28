@@ -3,8 +3,14 @@ def _empty_report():
 
 
 def _first_defined_value(row, candidate_keys):
+    lowered_row = None
     for key in candidate_keys:
         value = row.get(key)
+        if value not in (None, ""):
+            return value
+        if lowered_row is None:
+            lowered_row = {str(existing_key).lower(): existing_value for existing_key, existing_value in row.items()}
+        value = lowered_row.get(str(key).lower())
         if value not in (None, ""):
             return value
     return ""
@@ -153,7 +159,7 @@ def _derive_inventory_labels(row):
     if not database_name:
         database_name = parsed_database_name or "Unknown"
 
-    table_name = _normalize_identifier(
+    table_name_raw = _normalize_identifier(
         _first_defined_value(
             row,
             [
@@ -162,6 +168,10 @@ def _derive_inventory_labels(row):
             ],
         )
     )
+    parsed_table_database_name, parsed_table_name = _split_qualified_name(table_name_raw)
+    table_name = parsed_table_name if parsed_table_database_name else table_name_raw
+    if not database_name and parsed_table_database_name:
+        database_name = parsed_table_database_name
     if not table_name:
         table_name = parsed_table_name or _normalize_identifier(raw_name)
     if not table_name:
@@ -221,7 +231,7 @@ def _build_heatwave_inventory_rows(inventory_report):
         row["is_lakehouse"] = False
         row["lakehouse_definition_label"] = "-"
         row["health_class"] = _derive_health_class(raw_row, row["load_state"], load_status_value, progress_value)
-        row["table_key"] = row["full_table_name"].lower()
+        row["table_key"] = _normalize_table_key(row["database_name"], row["table_label"]) or row["full_table_name"].lower()
         enriched_rows.append(row)
 
     enriched_rows.sort(
@@ -331,7 +341,8 @@ def _build_lakehouse_lookup(lakehouse_tables):
 
 def _apply_inventory_membership(inventory_rows, configured_lookup, lakehouse_lookup):
     for row in inventory_rows:
-        row["is_heatwave"] = row["table_key"] in configured_lookup
+        row["is_heatwave"] = True
+        row["is_secondary_engine_configured"] = row["table_key"] in configured_lookup
         lakehouse_row = lakehouse_lookup.get(row["table_key"])
         row["is_lakehouse"] = lakehouse_row is not None
         row["lakehouse_definition_label"] = lakehouse_row["definition_label"] if lakehouse_row else "-"
@@ -425,13 +436,14 @@ def build_heatwave_tables_context(
     lakehouse_tables, lakehouse_lookup = _build_lakehouse_lookup(lakehouse_tables)
     inventory_rows = _apply_inventory_membership(inventory_rows, configured_lookup, lakehouse_lookup)
     inventory_groups = _build_heatwave_inventory_groups(inventory_rows)
-    heatwave_rows = _build_heatwave_table_rows(configured_tables, inventory_rows)
+    heatwave_rows = inventory_rows
     loaded_rows = [row for row in heatwave_rows if row["load_state"] == "loaded"]
     partial_rows = [row for row in heatwave_rows if row["load_state"] == "partial"]
     not_loaded_rows = [row for row in heatwave_rows if row["load_state"] == "not_loaded"]
     lakehouse_rows = _build_lakehouse_rows(lakehouse_tables, inventory_rows)
     lakehouse_needs_attention_rows = [row for row in lakehouse_rows if not row["is_healthy"]]
-    secondary_engine_not_loaded_rows = [row for row in heatwave_rows if row["load_state"] != "loaded"]
+    secondary_engine_not_loaded_rows = _build_heatwave_table_rows(configured_tables, inventory_rows)
+    secondary_engine_not_loaded_rows = [row for row in secondary_engine_not_loaded_rows if row["load_state"] != "loaded"]
 
     export_columns = [
         "database_name",
