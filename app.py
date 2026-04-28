@@ -342,12 +342,25 @@ def clear_login_state(keep_profile=True):
         session["profile_name"] = profile_name
 
 
+def _redirect_to_login_for_mysql_unavailable(error):
+    profile_name = str(session.get("profile_name", "")).strip()
+    clear_login_state(keep_profile=True)
+    flash(f"MySQL connection is unavailable: {error}", "error")
+    redirect_values = {"profile": profile_name} if profile_name else {}
+    return redirect(url_for("login", **redirect_values))
+
+
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
         if not session.get("logged_in"):
             flash("Log in to continue.", "error")
             return redirect(url_for("login"))
+        try:
+            with mysql_connection(connect_timeout=3):
+                pass
+        except Exception as error:
+            return _redirect_to_login_for_mysql_unavailable(error)
         return view(*args, **kwargs)
 
     return wrapped_view
@@ -418,6 +431,20 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
             connection.close()
         if tunnel is not None:
             tunnel.stop()
+
+
+@app.errorhandler(pymysql.err.OperationalError)
+def handle_mysql_operational_error(error):
+    if not session.get("logged_in"):
+        return f"MySQL operational error: {error}", 500
+    return _redirect_to_login_for_mysql_unavailable(error)
+
+
+@app.errorhandler(pymysql.err.InterfaceError)
+def handle_mysql_interface_error(error):
+    if not session.get("logged_in"):
+        return f"MySQL interface error: {error}", 500
+    return _redirect_to_login_for_mysql_unavailable(error)
 
 
 def _apply_query_session_options(cursor, *, use_secondary_engine=""):
