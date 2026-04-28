@@ -88,10 +88,11 @@ Examples:
 - run the platform-specific MySQL Shell Innovation installer
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, ports, TLS paths, and service user/group when applicable
+- when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
 - open the selected HTTP/HTTPS TCP ports when the platform tooling supports it
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
 - enable and start the systemd service that matches the selected deploy mode
-- leave the HTTPS systemd service installed but disabled when TLS files are not configured yet
+- leave the HTTPS systemd service installed but disabled only when user-supplied TLS files are missing or invalid
 
 Start scripts:
 
@@ -101,6 +102,8 @@ SSL_CERT_FILE=/path/to/cert.pem SSL_KEY_FILE=/path/to/key.pem ./start_https.sh
 ```
 
 The start scripts read saved defaults from `.runtime.env`. You can still override either port for a single launch with `PORT=<port>`.
+
+If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsole-selfsigned.crt` and `tls/dbconsole-selfsigned.key`.
 
 On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` and uses the same `.runtime.env` values for host, ports, and optional TLS paths.
 

@@ -374,6 +374,86 @@ write_runtime_env() {
   } >"$RUNTIME_ENV_FILE"
 }
 
+fix_tls_permissions() {
+  local ssl_cert_file="$1"
+  local ssl_key_file="$2"
+  local service_user="$3"
+  local service_group="$4"
+
+  chmod 644 "$ssl_cert_file"
+  chmod 600 "$ssl_key_file"
+
+  if [[ -n "$service_user" && -n "$service_group" ]]; then
+    sudo chown "$service_user:$service_group" "$ssl_cert_file" "$ssl_key_file"
+  fi
+}
+
+generate_self_signed_tls_assets() {
+  local host_value="$1"
+  local ssl_cert_file="$2"
+  local ssl_key_file="$3"
+  local service_user="$4"
+  local service_group="$5"
+  local common_name="localhost"
+  local tls_dir
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "openssl is required to generate a default TLS certificate. Install openssl or provide SSL_CERT_FILE and SSL_KEY_FILE." >&2
+    return 1
+  fi
+
+  if [[ -n "$host_value" && "$host_value" != "0.0.0.0" && "$host_value" != "::" ]]; then
+    common_name="$host_value"
+  fi
+
+  tls_dir="$(dirname "$ssl_cert_file")"
+  mkdir -p "$tls_dir"
+
+  openssl req \
+    -x509 \
+    -nodes \
+    -newkey rsa:2048 \
+    -days 365 \
+    -keyout "$ssl_key_file" \
+    -out "$ssl_cert_file" \
+    -subj "/CN=$common_name" >/dev/null 2>&1
+
+  fix_tls_permissions "$ssl_cert_file" "$ssl_key_file" "$service_user" "$service_group"
+  echo "Generated self-signed TLS certificate: $ssl_cert_file" >&2
+}
+
+ensure_https_tls_assets() {
+  local deploy_mode="$1"
+  local host_value="$2"
+  local ssl_cert_file="$3"
+  local ssl_key_file="$4"
+  local service_user="$5"
+  local service_group="$6"
+  local default_tls_dir="$SCRIPT_DIR/tls"
+
+  if [[ "$deploy_mode" != "https" && "$deploy_mode" != "both" ]]; then
+    printf '%s\n%s\n' "$ssl_cert_file" "$ssl_key_file"
+    return 0
+  fi
+
+  if [[ -n "$ssl_cert_file" || -n "$ssl_key_file" ]]; then
+    printf '%s\n%s\n' "$ssl_cert_file" "$ssl_key_file"
+    return 0
+  fi
+
+  ssl_cert_file="$default_tls_dir/dbconsole-selfsigned.crt"
+  ssl_key_file="$default_tls_dir/dbconsole-selfsigned.key"
+
+  if [[ ! -f "$ssl_cert_file" || ! -f "$ssl_key_file" ]]; then
+    generate_self_signed_tls_assets "$host_value" "$ssl_cert_file" "$ssl_key_file" "$service_user" "$service_group" || return 1
+  else
+    fix_tls_permissions "$ssl_cert_file" "$ssl_key_file" "$service_user" "$service_group"
+    echo "Reusing self-signed TLS certificate: $ssl_cert_file" >&2
+  fi
+
+  printf '%s\n%s\n' "$ssl_cert_file" "$ssl_key_file"
+}
+
 resolve_service_user() {
   if [[ -n "$SERVICE_USER_INPUT" ]]; then
     echo "$SERVICE_USER_INPUT"
@@ -394,6 +474,18 @@ resolve_service_group() {
   fi
 }
 
+resolve_bash_bin() {
+  local bash_bin
+
+  bash_bin="$(command -v bash || true)"
+  if [[ -z "$bash_bin" ]]; then
+    echo "bash is required but was not found in PATH." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$bash_bin"
+}
+
 install_systemd_service() {
   local service_name="$1"
   local description="$2"
@@ -401,6 +493,9 @@ install_systemd_service() {
   local service_user="$4"
   local service_group="$5"
   local unit_path="/etc/systemd/system/${service_name}.service"
+  local bash_bin
+
+  bash_bin="$(resolve_bash_bin)" || return 1
 
   sudo tee "$unit_path" >/dev/null <<EOF
 [Unit]
@@ -414,7 +509,7 @@ User=$service_user
 Group=$service_group
 WorkingDirectory=$SCRIPT_DIR
 EnvironmentFile=-$RUNTIME_ENV_FILE
-ExecStart=$exec_script
+ExecStart=$bash_bin $exec_script
 Restart=on-failure
 RestartSec=5
 
@@ -559,6 +654,7 @@ main() {
   local service_user
   local service_group
   local prompted_ports
+  local tls_assets
 
   load_existing_runtime_env
   parse_args "$@"
@@ -624,6 +720,10 @@ main() {
       ;;
   esac
 
+  tls_assets="$(ensure_https_tls_assets "$deploy_mode" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$service_user" "$service_group")"
+  ssl_cert_file="$(printf '%s\n' "$tls_assets" | sed -n '1p')"
+  ssl_key_file="$(printf '%s\n' "$tls_assets" | sed -n '2p')"
+
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
@@ -654,6 +754,10 @@ main() {
   echo "Default host: $host_value"
   echo "Default HTTP port: $http_port"
   echo "Default HTTPS port: $https_port"
+  if [[ -n "$ssl_cert_file" && -n "$ssl_key_file" ]]; then
+    echo "TLS certificate: $ssl_cert_file"
+    echo "TLS key: $ssl_key_file"
+  fi
   echo "HTTP start script: $SCRIPT_DIR/start_http.sh"
   echo "HTTPS start script: $SCRIPT_DIR/start_https.sh"
   case "$os_family" in
