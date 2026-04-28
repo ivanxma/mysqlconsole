@@ -382,7 +382,7 @@
         <span class="metric-label">PRIO Selection</span>
         <div class="priority-filter-list">
           {% for priority in server_overview.error_log_priority_options %}
-          <label class="priority-filter-option">
+          <label class="priority-filter-option priority-filter-option-{{ priority|lower }}">
             <input
               type="checkbox"
               name="error_prio"
@@ -393,10 +393,7 @@
           </label>
           {% endfor %}
         </div>
-        <span class="helper-text">Choose one or more priority levels: Note, System, Warning, Error.</span>
-      </div>
-      <div class="form-actions">
-        <button class="button secondary" type="submit">Apply PRIO</button>
+        <span class="helper-text">The filter applies immediately when you click a priority. Default selection is <code>Error</code>.</span>
       </div>
     </form>
     <dl class="detail-list dashboard-detail-list">
@@ -427,7 +424,7 @@
           {% for row in server_overview.recent_error_log_rows %}
           <tr>
             <td>{{ row.logged }}</td>
-            <td>{{ row.priority }}</td>
+            <td><span class="priority-badge priority-badge-{{ row.priority|string|lower }}">{{ row.priority }}</span></td>
             <td>{{ row.subsystem }}</td>
             <td>{{ row.error_code }}</td>
             <td>{{ row.message }}</td>
@@ -564,6 +561,19 @@
     document.querySelectorAll("[data-dashboard-tab-button]").forEach((button) => {
       button.addEventListener("click", () => {
         activateDashboardTab(button.dataset.dashboardTabGroup, button.dataset.dashboardTabButton);
+      });
+    });
+
+    document.querySelectorAll('.priority-filter-list input[name="error_prio"]').forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        if (!checkbox.form) {
+          return;
+        }
+        if (typeof checkbox.form.requestSubmit === "function") {
+          checkbox.form.requestSubmit();
+          return;
+        }
+        checkbox.form.submit();
       });
     });
 

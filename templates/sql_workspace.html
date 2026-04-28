@@ -29,6 +29,12 @@
 </div>
 {% endmacro %}
 
+{% macro render_result_export_payload(tab) %}
+<script type="application/json" data-workspace-result-export="{{ tab.key }}">
+{{ {"label": tab.label, "columns": tab.columns, "rows": tab.export_rows}|tojson }}
+</script>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">MySQL</p>
@@ -174,6 +180,35 @@
     {% if workspace_output_tab != tab.key %}hidden{% endif %}
   >
     {% if tab.kind == "table" %}
+    <div class="panel-header panel-header-tight workspace-result-header">
+      <div class="panel-title panel-title-compact">
+        <span class="panel-title-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4.5 6.5h15"></path>
+            <path d="M4.5 12h15"></path>
+            <path d="M4.5 17.5h15"></path>
+          </svg>
+        </span>
+        <div class="panel-title-copy">
+          <h4>{{ tab.label }}</h4>
+          <span class="helper-text">Download this result set as CSV, XLS, or HTML.</span>
+        </div>
+      </div>
+      <button
+        class="panel-icon-button"
+        type="button"
+        title="Download result set"
+        aria-label="Download result set"
+        data-open-result-download="{{ tab.key }}"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4.5v10"></path>
+          <path d="M8.5 11.5 12 15l3.5-3.5"></path>
+          <path d="M5.5 18.5h13"></path>
+        </svg>
+      </button>
+    </div>
+    {{ render_result_export_payload(tab) }}
     {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
     {% elif tab.kind == "code" %}
     <pre class="sql-block">{{ tab.text_output }}</pre>
@@ -271,11 +306,55 @@
     </div>
   </section>
 </section>
+
+<dialog class="management-dialog" id="workspace-download-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Download Result Set</h3>
+        <span class="helper-text">Choose the format for the selected SQL Workspace result tab.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="workspace-download-dialog">Close</button>
+    </div>
+    <div class="workspace-download-dialog-copy">
+      <p class="management-friendly-message" data-workspace-download-selection>No result set selected.</p>
+      <div class="workspace-download-format-list">
+        <button class="button secondary" type="button" data-workspace-download-format="csv">CSV</button>
+        <button class="button secondary" type="button" data-workspace-download-format="xls">XLS</button>
+        <button class="button secondary" type="button" data-workspace-download-format="html">HTML</button>
+      </div>
+    </div>
+  </div>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
 <script>
   (() => {
+    const openDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) {
+          dialog.showModal();
+        }
+        return;
+      }
+      dialog.setAttribute("open", "open");
+    };
+
+    const closeDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute("open");
+    };
+
     const activateWorkspaceTab = (groupName, tabName) => {
       document.querySelectorAll(`[data-workspace-tab-group="${groupName}"][data-workspace-tab-button]`).forEach((button) => {
         const isActive = button.dataset.workspaceTabButton === tabName;
@@ -292,6 +371,179 @@
     document.querySelectorAll("[data-workspace-tab-button]").forEach((button) => {
       button.addEventListener("click", () => {
         activateWorkspaceTab(button.dataset.workspaceTabGroup, button.dataset.workspaceTabButton);
+      });
+    });
+
+    const downloadDialog = document.getElementById("workspace-download-dialog");
+    const downloadSelection = downloadDialog?.querySelector("[data-workspace-download-selection]");
+    const resultExportData = {};
+    let selectedDownloadTabKey = "";
+
+    document.querySelectorAll("[data-workspace-result-export]").forEach((node) => {
+      try {
+        resultExportData[node.dataset.workspaceResultExport] = JSON.parse(node.textContent || "{}");
+      } catch (error) {
+        resultExportData[node.dataset.workspaceResultExport] = null;
+      }
+    });
+
+    const slugify = (value) => String(value || "result")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "result";
+
+    const timestampSuffix = () => {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    };
+
+    const toCellText = (value) => {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      if (typeof value === "object") {
+        try {
+          return JSON.stringify(value);
+        } catch (error) {
+          return String(value);
+        }
+      }
+      return String(value);
+    };
+
+    const escapeHtml = (value) => toCellText(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+    const toCsvText = (columns, rows) => {
+      const escapeCsv = (value) => {
+        const normalized = toCellText(value).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        if (/[",\n]/.test(normalized)) {
+          return `"${normalized.replace(/"/g, "\"\"")}"`;
+        }
+        return normalized;
+      };
+      const lines = [];
+      lines.push(columns.map(escapeCsv).join(","));
+      rows.forEach((row) => {
+        lines.push(columns.map((column) => escapeCsv(row?.[column])).join(","));
+      });
+      return lines.join("\r\n");
+    };
+
+    const toHtmlDocument = (label, columns, rows) => {
+      const headerCells = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("");
+      const bodyRows = rows.length
+        ? rows.map((row) => (
+          `<tr>${columns.map((column) => `<td>${escapeHtml(row?.[column]) || "-"}</td>`).join("")}</tr>`
+        )).join("")
+        : `<tr><td colspan="${Math.max(columns.length, 1)}">No rows returned.</td></tr>`;
+      return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(label)}</title>
+    <style>
+      body { font-family: "Avenir Next", "Segoe UI", sans-serif; margin: 24px; color: #211d18; }
+      h1 { margin: 0 0 16px; font-size: 1.35rem; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 12px; border: 1px solid #d8d1c6; text-align: left; vertical-align: top; }
+      th { background: #f4ebe1; text-transform: uppercase; font-size: 0.82rem; letter-spacing: 0.04em; }
+      tr:nth-child(even) td { background: #fffaf5; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(label)}</h1>
+    <table>
+      <thead>
+        <tr>${headerCells || "<th>Result</th>"}</tr>
+      </thead>
+      <tbody>
+        ${bodyRows}
+      </tbody>
+    </table>
+  </body>
+</html>`;
+    };
+
+    const triggerDownload = (filename, content, mimeType) => {
+      const blob = new Blob([content], { type: mimeType });
+      const link = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    };
+
+    const openDownloadDialog = (tabKey) => {
+      const payload = resultExportData[tabKey];
+      if (!payload) {
+        return;
+      }
+      selectedDownloadTabKey = tabKey;
+      if (downloadSelection) {
+        downloadSelection.innerHTML = `Result set <strong>${escapeHtml(payload.label || tabKey)}</strong> is ready for download.`;
+      }
+      openDialog(downloadDialog);
+    };
+
+    const downloadResultSet = (format) => {
+      const payload = resultExportData[selectedDownloadTabKey];
+      if (!payload) {
+        return;
+      }
+
+      const label = payload.label || selectedDownloadTabKey || "result";
+      const columns = Array.isArray(payload.columns) ? payload.columns : [];
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      const baseFilename = `${slugify(label)}-${timestampSuffix()}`;
+
+      if (format === "csv") {
+        triggerDownload(`${baseFilename}.csv`, toCsvText(columns, rows), "text/csv;charset=utf-8");
+        return;
+      }
+
+      const htmlDocument = toHtmlDocument(label, columns, rows);
+      if (format === "xls") {
+        triggerDownload(`${baseFilename}.xls`, htmlDocument, "application/vnd.ms-excel;charset=utf-8");
+        return;
+      }
+
+      triggerDownload(`${baseFilename}.html`, htmlDocument, "text/html;charset=utf-8");
+    };
+
+    document.querySelectorAll("[data-open-result-download]").forEach((button) => {
+      button.addEventListener("click", () => {
+        openDownloadDialog(button.dataset.openResultDownload);
+      });
+    });
+
+    (downloadDialog ? downloadDialog.querySelectorAll("[data-workspace-download-format]") : []).forEach((button) => {
+      button.addEventListener("click", () => {
+        downloadResultSet(button.dataset.workspaceDownloadFormat);
+        closeDialog(downloadDialog);
+      });
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeDialog(document.getElementById(button.dataset.dialogClose) || button.closest("dialog"));
+      });
+    });
+
+    document.querySelectorAll("dialog.management-dialog").forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog(dialog);
+        }
       });
     });
 

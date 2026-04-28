@@ -418,6 +418,31 @@ def _format_rows_as_text_table(rows):
     return "\n".join(lines)
 
 
+def _normalize_sql_workspace_export_value(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_sql_workspace_export_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_sql_workspace_export_value(item) for item in value]
+    return str(value)
+
+
+def _normalize_sql_workspace_export_rows(columns, rows):
+    export_rows = []
+    for row in rows or []:
+        export_rows.append(
+            {
+                str(column): _normalize_sql_workspace_export_value(row.get(column))
+                for column in columns or []
+            }
+        )
+    return export_rows
+
+
 def build_sql_workspace_result(
     action_label,
     executed_sql,
@@ -458,6 +483,10 @@ def build_sql_workspace_result(
                     "kind": result_set.get("kind", "table"),
                     "columns": result_set.get("columns", []),
                     "rows": result_set.get("rows", []),
+                    "export_rows": _normalize_sql_workspace_export_rows(
+                        result_set.get("columns", []),
+                        result_set.get("rows", []),
+                    ),
                     "message": result_set.get("message", ""),
                     "empty_text": result_set.get("empty_text", "This result did not return any rows."),
                 }

@@ -159,8 +159,9 @@ NAV_GROUPS = [
 
 STATUS_VARIABLE_SECTIONS = [
     {"key": "replication", "label": "Replication"},
+    {"key": "replication_group", "label": "Replication Group"},
     {"key": "performance_schema", "label": "Performance Schema"},
-    {"key": "heatwave_rapid", "label": "HeatWave (rapid)"},
+    {"key": "heatwave_rapid", "label": "HeatWave related"},
     {"key": "innodb", "label": "InnoDB"},
     {"key": "full_text", "label": "Full Text"},
     {"key": "mysqlx_specific", "label": "MySQLX Specific"},
@@ -2055,6 +2056,7 @@ def _classify_status_variable(name):
         return "performance_schema"
     if lowered.startswith(
         (
+            "audit_",
             "ssl_",
             "tls_",
             "admin_ssl_",
@@ -2083,6 +2085,7 @@ def _classify_status_variable(name):
     } or any(
         token in lowered
         for token in (
+            "audit",
             "password",
             "ssl",
             "tls",
@@ -2106,8 +2109,12 @@ def _classify_status_variable(name):
         return "security"
     if lowered.startswith("mysqlx_"):
         return "mysqlx_specific"
-    if lowered.startswith(("rapid_", "heatwave_", "secondary_engine", "use_secondary_engine")):
+    if lowered.startswith(
+        ("rapid_", "heatwave_", "secondary_engine", "use_secondary_engine", "lakehouse_", "lakehouse")
+    ) or "lakehouse" in lowered:
         return "heatwave_rapid"
+    if lowered.startswith(("group_replication_", "gr_")):
+        return "replication_group"
     if lowered.startswith(
         (
             "replica_",
@@ -2116,11 +2123,11 @@ def _classify_status_variable(name):
             "replication_",
             "rpl_",
             "relay_log",
+            "log_bin",
             "sync_relay_log",
             "master_",
             "binlog_",
             "gtid_",
-            "group_replication_",
             "log_replica_updates",
             "log_slave_updates",
         )
@@ -4299,7 +4306,7 @@ def _normalize_error_log_priorities(values):
             continue
         normalized.append(normalized_value)
         seen.add(normalized_value)
-    return normalized or list(ERROR_LOG_PRIORITY_OPTIONS)
+    return normalized or ["Error"]
 
 
 def render_dashboard(template_name, **context):

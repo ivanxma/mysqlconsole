@@ -523,11 +523,70 @@ dialog.management-dialog::backdrop {
   font-weight: 600;
 }
 
+.priority-filter-option-note {
+  border-color: rgba(33, 99, 58, 0.22);
+  background: rgba(232, 246, 237, 0.92);
+  color: #21633a;
+}
+
+.priority-filter-option-system {
+  border-color: rgba(184, 142, 0, 0.24);
+  background: rgba(255, 246, 196, 0.92);
+  color: #8b6a00;
+}
+
+.priority-filter-option-warning {
+  border-color: rgba(194, 98, 15, 0.24);
+  background: rgba(255, 234, 209, 0.92);
+  color: #b15a10;
+}
+
+.priority-filter-option-error {
+  border-color: rgba(161, 47, 39, 0.24);
+  background: rgba(253, 229, 226, 0.92);
+  color: #932e21;
+}
+
 .priority-filter-option input[type="checkbox"] {
   width: auto;
   min-height: 0;
   margin: 0;
   padding: 0;
+}
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.priority-badge-note {
+  border-color: rgba(33, 99, 58, 0.22);
+  background: rgba(232, 246, 237, 0.92);
+  color: #21633a;
+}
+
+.priority-badge-system {
+  border-color: rgba(184, 142, 0, 0.24);
+  background: rgba(255, 246, 196, 0.92);
+  color: #8b6a00;
+}
+
+.priority-badge-warning {
+  border-color: rgba(194, 98, 15, 0.24);
+  background: rgba(255, 234, 209, 0.92);
+  color: #b15a10;
+}
+
+.priority-badge-error {
+  border-color: rgba(161, 47, 39, 0.24);
+  background: rgba(253, 229, 226, 0.92);
+  color: #932e21;
 }
 
 .management-column-list {
@@ -637,6 +696,26 @@ dialog.management-dialog::backdrop {
 
 .workspace-toolbar-note {
   margin: 2px 0 0;
+}
+
+.workspace-result-header {
+  margin-bottom: 14px;
+}
+
+.workspace-download-dialog-copy {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-download-format-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.workspace-download-format-list .button {
+  min-width: 92px;
+  justify-content: center;
 }
 
 .workspace-tab-bar,
