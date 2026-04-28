@@ -2248,6 +2248,45 @@ def _extract_numeric(value, default=None):
         return default
 
 
+def _parse_mysql_size_to_bytes(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.fullmatch(r"(?i)\s*(\d+(?:\.\d+)?)\s*([KMGTPE]?)(?:I?B?)?\s*", text)
+    if not match:
+        return _extract_numeric(text, None)
+    number = float(match.group(1))
+    suffix = match.group(2).upper()
+    power_map = {
+        "": 0,
+        "K": 1,
+        "M": 2,
+        "G": 3,
+        "T": 4,
+        "P": 5,
+        "E": 6,
+    }
+    return number * (1024 ** power_map.get(suffix, 0))
+
+
+def _estimate_temp_tablespace_bytes_from_path(temp_data_file_path):
+    file_specs = [segment.strip() for segment in str(temp_data_file_path or "").split(";") if segment.strip()]
+    total_bytes = 0
+    found_size = False
+    for file_spec in file_specs:
+        parts = [part.strip() for part in file_spec.split(":") if part.strip()]
+        if len(parts) < 2:
+            continue
+        size_bytes = _parse_mysql_size_to_bytes(parts[1])
+        if size_bytes is None:
+            continue
+        total_bytes += size_bytes
+        found_size = True
+    if not found_size:
+        return None
+    return total_bytes
+
+
 def _format_count(value):
     number = _extract_numeric(value, None)
     if number is None:
@@ -2920,21 +2959,46 @@ def fetch_monitoring_storage_totals():
 
 def fetch_monitoring_temp_tablespace_summary():
     column_lookup = fetch_table_column_lookup("information_schema", "files")
-    allocated_size_column = _first_available_column(column_lookup, ["allocated_size", "file_size", "initial_size"])
+    allocated_size_column = _first_available_column(
+        column_lookup,
+        [
+            "allocated_size",
+            "file_size",
+            "data_length",
+            "max_data_length",
+            "initial_size",
+            "maximum_size",
+        ],
+    )
     total_extents_column = _first_available_column(column_lookup, ["total_extents"])
+    free_extents_column = _first_available_column(column_lookup, ["free_extents"])
     extent_size_column = _first_available_column(column_lookup, ["extent_size"])
     tablespace_column = _first_available_column(column_lookup, ["tablespace_name"])
     file_name_column = _first_available_column(column_lookup, ["file_name"])
 
+    size_expression = ""
+    size_source = ""
     if allocated_size_column:
         size_expression = f"COALESCE({quote_identifier(allocated_size_column)}, 0)"
+        size_source = f"information_schema.files.{allocated_size_column}"
+    elif total_extents_column and free_extents_column and extent_size_column:
+        size_expression = (
+            "GREATEST("
+            f"COALESCE({quote_identifier(total_extents_column)}, 0) - "
+            f"COALESCE({quote_identifier(free_extents_column)}, 0), "
+            "0"
+            ") * "
+            f"COALESCE({quote_identifier(extent_size_column)}, 0)"
+        )
+        size_source = (
+            f"information_schema.files.({total_extents_column}-{free_extents_column})*{extent_size_column}"
+        )
     elif total_extents_column and extent_size_column:
         size_expression = (
             f"COALESCE({quote_identifier(total_extents_column)}, 0) * "
             f"COALESCE({quote_identifier(extent_size_column)}, 0)"
         )
-    else:
-        raise ValueError("Unable to determine temp tablespace size columns from information_schema.files.")
+        size_source = f"information_schema.files.{total_extents_column}*{extent_size_column}"
 
     conditions = []
     if tablespace_column:
@@ -2954,19 +3018,30 @@ def fetch_monitoring_temp_tablespace_summary():
             f"OR LOWER({safe_file_name}) LIKE '%%#innodb_temp%%'"
             ")"
         )
-    if not conditions:
-        raise ValueError("Unable to detect temp tablespace identifiers from information_schema.files.")
 
-    rows = execute_query(
-        """
-        SELECT
-          COALESCE(SUM({size_expression}), 0) AS temp_bytes
-        FROM information_schema.files
-        WHERE {conditions}
-        """.format(size_expression=size_expression, conditions=" OR ".join(conditions)),
-        database="information_schema",
-    )
-    return rows[0] if rows else {"temp_bytes": 0}
+    if size_expression and conditions:
+        rows = execute_query(
+            """
+            SELECT
+              COALESCE(SUM({size_expression}), 0) AS temp_bytes
+            FROM information_schema.files
+            WHERE {conditions}
+            """.format(size_expression=size_expression, conditions=" OR ".join(conditions)),
+            database="information_schema",
+        )
+        temp_bytes = _extract_numeric(rows[0].get("temp_bytes"), None) if rows else None
+        if temp_bytes is not None:
+            return {"temp_bytes": temp_bytes, "source": size_source}
+
+    temp_settings = _report_row_map(fetch_monitoring_temp_storage_usage(), "setting_name", "setting_value")
+    estimated_bytes = _estimate_temp_tablespace_bytes_from_path(temp_settings.get("innodb_temp_data_file_path"))
+    if estimated_bytes is not None:
+        return {
+            "temp_bytes": estimated_bytes,
+            "source": "performance_schema.global_variables.innodb_temp_data_file_path",
+            "estimated": True,
+        }
+    return {"temp_bytes": 0, "source": "unavailable", "estimated": True}
 
 
 def fetch_show_binary_logs_summary():
@@ -3519,6 +3594,15 @@ def build_monitoring_temp_space_chart_card():
         temp_bytes = _extract_numeric(temp_summary.get("temp_bytes"), 0) or 0
         configured_max_ram = _extract_numeric(temp_settings.get("temptable_max_ram"), 0) or 0
         temp_table_count = len(temp_table_report.get("rows", [])) if not temp_table_report.get("error") else 0
+        details = [
+            f"Active temp tables: {_format_count(temp_table_count)}",
+            f"innodb_temp_data_file_path: {temp_settings.get('innodb_temp_data_file_path') or '-'}",
+        ]
+        if temp_summary.get("source"):
+            source_label = temp_summary["source"]
+            if temp_summary.get("estimated"):
+                source_label += " (estimated)"
+            details.append(f"Temp space source: {source_label}")
         return _chart_card(
             "temp_space",
             title,
@@ -3541,10 +3625,7 @@ def build_monitoring_temp_space_chart_card():
                     "display": _format_bytes(configured_max_ram),
                 },
             ],
-            details=[
-                f"Active temp tables: {_format_count(temp_table_count)}",
-                f"innodb_temp_data_file_path: {temp_settings.get('innodb_temp_data_file_path') or '-'}",
-            ],
+            details=details,
         )
     except Exception as error:
         return _chart_card("temp_space", title, subtitle, "timeseries", unit="bytes", error=str(error))
