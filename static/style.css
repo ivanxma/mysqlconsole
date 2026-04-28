@@ -168,7 +168,14 @@ textarea {
   margin-bottom: 22px;
 }
 
-.page-header p:last-child {
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.page-header p:last-of-type {
   margin-bottom: 0;
 }
 

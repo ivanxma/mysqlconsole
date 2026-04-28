@@ -87,7 +87,7 @@ Examples:
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
 - save default HTTP and HTTPS ports in `.runtime.env`
-- when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, ports, TLS paths, and service user/group when applicable
+- when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
 - open the selected HTTP/HTTPS TCP ports when the platform tooling supports it
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`

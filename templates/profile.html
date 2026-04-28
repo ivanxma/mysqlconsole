@@ -5,6 +5,11 @@
   <p class="eyebrow">Admin</p>
   <h2>Profile</h2>
   <p>Maintain reusable MySQL connection profiles. Passwords stay in session and are not stored in the profile file.</p>
+  {% if not logged_in %}
+  <div class="page-header-actions">
+    <a class="button secondary" href="{{ url_for('login', profile=selected_profile_name or editing_profile.name) }}">Back to Login</a>
+  </div>
+  {% endif %}
 </section>
 
 <section class="split-layout">

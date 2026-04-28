@@ -302,25 +302,43 @@ prompt_for_port_value() {
 }
 
 prompt_for_ports_if_needed() {
-  local http_port="$1"
-  local https_port="$2"
+  local deploy_mode="$1"
+  local http_port="$2"
+  local https_port="$3"
 
   if ! is_interactive_terminal; then
     printf '%s\n%s\n' "$http_port" "$https_port"
     return 0
   fi
 
-  if [[ -z "$HTTP_PORT_INPUT" || -z "$HTTPS_PORT_INPUT" ]]; then
-    echo "Press Enter to keep the current port values." >&2
-  fi
-
-  if [[ -z "$HTTP_PORT_INPUT" ]]; then
-    http_port="$(prompt_for_port_value "HTTP" "$http_port")"
-  fi
-
-  if [[ -z "$HTTPS_PORT_INPUT" ]]; then
-    https_port="$(prompt_for_port_value "HTTPS" "$https_port")"
-  fi
+  case "$deploy_mode" in
+    http)
+      if [[ -z "$HTTP_PORT_INPUT" ]]; then
+        echo "Press Enter to keep the current HTTP port." >&2
+        http_port="$(prompt_for_port_value "HTTP" "$http_port")"
+      fi
+      ;;
+    https)
+      if [[ -z "$HTTPS_PORT_INPUT" ]]; then
+        echo "Press Enter to keep the current HTTPS port." >&2
+        https_port="$(prompt_for_port_value "HTTPS" "$https_port")"
+      fi
+      ;;
+    both)
+      if [[ -z "$HTTP_PORT_INPUT" || -z "$HTTPS_PORT_INPUT" ]]; then
+        echo "Press Enter to keep the current port values." >&2
+      fi
+      if [[ -z "$HTTP_PORT_INPUT" ]]; then
+        http_port="$(prompt_for_port_value "HTTP" "$http_port")"
+      fi
+      if [[ -z "$HTTPS_PORT_INPUT" ]]; then
+        https_port="$(prompt_for_port_value "HTTPS" "$https_port")"
+      fi
+      ;;
+    none)
+      echo "Deploy mode is 'none'; keeping saved HTTP and HTTPS port defaults." >&2
+      ;;
+  esac
 
   printf '%s\n%s\n' "$http_port" "$https_port"
 }
@@ -687,7 +705,7 @@ main() {
 
   http_port="$(normalize_port "HTTP" "$(resolve_value "$HTTP_PORT_INPUT" "$EXISTING_DEFAULT_HTTP_PORT" "80")")"
   https_port="$(normalize_port "HTTPS" "$(resolve_value "$HTTPS_PORT_INPUT" "$EXISTING_DEFAULT_HTTPS_PORT" "443")")"
-  prompted_ports="$(prompt_for_ports_if_needed "$http_port" "$https_port")"
+  prompted_ports="$(prompt_for_ports_if_needed "$deploy_mode" "$http_port" "$https_port")"
   http_port="$(printf '%s\n' "$prompted_ports" | sed -n '1p')"
   https_port="$(printf '%s\n' "$prompted_ports" | sed -n '2p')"
 
