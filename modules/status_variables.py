@@ -4,7 +4,6 @@ import re
 
 STATUS_VARIABLE_SECTIONS = [
     {"key": "replication", "label": "Replication"},
-    {"key": "replication_group", "label": "Replication Group"},
     {"key": "performance_schema", "label": "Performance Schema"},
     {"key": "heatwave_rapid", "label": "HeatWave related"},
     {"key": "innodb", "label": "InnoDB"},
@@ -180,7 +179,7 @@ def _classify_status_variable(name):
     ) or "lakehouse" in lowered:
         return "heatwave_rapid"
     if lowered.startswith(("group_replication_", "gr_")):
-        return "replication_group"
+        return "replication"
     if lowered.startswith(
         (
             "replica_",
