@@ -140,7 +140,14 @@
     </form>
     {% if table_action_summary.has_selection %}
     <div class="management-friendly-list management-inline-summary">
-      <p class="management-friendly-message">Table <strong>{{ selected_database }}.{{ selected_table }}</strong> is using secondary engine <strong>{{ "RAPID" if table_action_summary.secondary_engine_configured else "Not Configured" }}</strong>.</p>
+      <p class="management-friendly-message">
+        Table <strong>{{ selected_database }}.{{ selected_table }}</strong>
+        {% if table_action_summary.secondary_engine_configured %}
+        is using secondary engine <strong>RAPID</strong>.
+        {% else %}
+        is not using secondary engine <strong>RAPID</strong>.
+        {% endif %}
+      </p>
       <p class="management-friendly-message">HeatWave metadata tracking is <strong>{{ "enabled" if table_action_summary.tracked_in_rpd else "not currently visible" }}</strong>, with load progress at <strong>{{ table_action_summary.load_progress_label }}</strong> and state <strong>{{ table_action_summary.load_state_label }}</strong>.</p>
       <p class="management-friendly-message">Load status is <strong>{{ table_action_summary.load_status_value }}</strong>, and <strong>{{ table_action_summary.excluded_column_count }}</strong> column(s) are currently excluded from secondary loading.</p>
     </div>
