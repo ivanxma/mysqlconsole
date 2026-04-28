@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timezone
+
 import pymysql
 
 
@@ -193,4 +196,203 @@ def build_db_admin_export(selected_database, *, fetch_tables_for_database):
         "filename": f"{normalized_database or 'database'}-tables.csv",
         "columns": ["table_name", "engine", "row_count", "heatwave_configured", "create_options"],
         "rows": export_rows,
+    }
+
+
+def _empty_sql_workspace_result():
+    return {
+        "has_output": False,
+        "title": "Last Result",
+        "tabs": [],
+    }
+
+
+def _summarize_sql_text(sql_text, max_length=240):
+    collapsed = " ".join(str(sql_text or "").split())
+    if len(collapsed) <= max_length:
+        return collapsed
+    return collapsed[: max_length - 3] + "..."
+
+
+def _format_duration_label(duration_ms):
+    if duration_ms >= 1000:
+        return f"{duration_ms / 1000:.3f} s"
+    if abs(duration_ms - round(duration_ms)) < 0.01:
+        return f"{int(round(duration_ms))} ms"
+    return f"{duration_ms:.1f} ms"
+
+
+def _format_rows_as_text_table(rows):
+    if not rows:
+        return "No rows returned."
+
+    columns = [str(column) for column in rows[0].keys()]
+    widths = {column: len(column) for column in columns}
+    for row in rows:
+        for column in columns:
+            widths[column] = max(widths[column], len(str(row.get(column, ""))))
+
+    header = " | ".join(column.ljust(widths[column]) for column in columns)
+    divider = "-+-".join("-" * widths[column] for column in columns)
+    lines = [header, divider]
+    for row in rows:
+        lines.append(" | ".join(str(row.get(column, "")).ljust(widths[column]) for column in columns))
+    return "\n".join(lines)
+
+
+def build_sql_workspace_result(action_label, executed_sql, selected_database, result_sets, duration_ms, *, error_message=""):
+    status_label = "Error" if error_message else "Success"
+    tabs = []
+
+    if error_message:
+        tabs.append(
+            {
+                "key": "error",
+                "label": "Error",
+                "kind": "message",
+                "message": error_message,
+            }
+        )
+    elif not result_sets:
+        tabs.append(
+            {
+                "key": "output",
+                "label": "Output",
+                "kind": "message",
+                "message": "Statement completed without tabular result sets.",
+            }
+        )
+    else:
+        for index, result_set in enumerate(result_sets, start=1):
+            tabs.append(
+                {
+                    "key": f"result_{index}",
+                    "label": result_set.get("label") or f"Result {index}",
+                    "kind": result_set.get("kind", "table"),
+                    "columns": result_set.get("columns", []),
+                    "rows": result_set.get("rows", []),
+                    "message": result_set.get("message", ""),
+                    "empty_text": result_set.get("empty_text", "This result did not return any rows."),
+                }
+            )
+
+    return {
+        "has_output": True,
+        "title": f"{action_label} Result",
+        "summary_details": [
+            {"label": "Action", "value": action_label},
+            {"label": "Database", "value": selected_database or "Profile Default"},
+            {"label": "Status", "value": status_label},
+            {"label": "Duration", "value": _format_duration_label(duration_ms)},
+            {"label": "SQL", "value": executed_sql},
+        ],
+        "tabs": tabs,
+    }
+
+
+def build_sql_workspace_explain_result(
+    explained_sql,
+    selected_database,
+    text_rows,
+    json_rows,
+    duration_ms,
+    *,
+    json_error="",
+):
+    json_text = ""
+    if json_rows:
+        raw_json_value = next(iter(json_rows[0].values()))
+        try:
+            json_text = json.dumps(json.loads(str(raw_json_value or "{}")), indent=2, ensure_ascii=False)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            json_text = str(raw_json_value or "")
+
+    tabs = [
+        {
+            "key": "text",
+            "label": "Text",
+            "kind": "code",
+            "text_output": _format_rows_as_text_table(text_rows),
+        }
+    ]
+    if json_error:
+        tabs.append(
+            {
+                "key": "json",
+                "label": "JSON",
+                "kind": "message",
+                "message": json_error,
+            }
+        )
+        tabs.append(
+            {
+                "key": "visual",
+                "label": "Visual",
+                "kind": "message",
+                "message": "Graphic execution plan is unavailable because EXPLAIN FORMAT=JSON did not return a plan.",
+            }
+        )
+    else:
+        tabs.append(
+            {
+                "key": "json",
+                "label": "JSON",
+                "kind": "code",
+                "text_output": json_text or "{}",
+            }
+        )
+        tabs.append(
+            {
+                "key": "visual",
+                "label": "Visual",
+                "kind": "plan",
+                "plan_json": json_text or "{}",
+            }
+        )
+
+    return {
+        "has_output": True,
+        "title": "Explain Result",
+        "summary_details": [
+            {"label": "Action", "value": "Explain"},
+            {"label": "Database", "value": selected_database or "Profile Default"},
+            {"label": "Status", "value": "Success" if not json_error else "Partial"},
+            {"label": "Duration", "value": _format_duration_label(duration_ms)},
+            {"label": "SQL", "value": explained_sql},
+        ],
+        "tabs": tabs,
+    }
+
+
+def build_sql_workspace_history_entry(action_label, selected_database, sql_text, duration_ms, *, status, error_message=""):
+    return {
+        "executed_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "action_label": action_label,
+        "database_name": selected_database or "Profile Default",
+        "status": status,
+        "duration_label": _format_duration_label(duration_ms),
+        "query_preview": _summarize_sql_text(sql_text),
+        "error_message": error_message,
+    }
+
+
+def append_sql_workspace_history(history_rows, history_entry, *, limit=20):
+    rows = [history_entry]
+    rows.extend(history_rows or [])
+    return rows[:limit]
+
+
+def build_sql_workspace_context(selected_database, sql_text, last_result, history_rows, *, fetch_database_inventory):
+    database_inventory = [row for row in fetch_database_inventory() if not row["is_system"]]
+    available_database_names = {row["database_name"] for row in database_inventory}
+    normalized_database = str(selected_database or "").strip()
+    if normalized_database and normalized_database not in available_database_names:
+        normalized_database = ""
+
+    return {
+        "database_inventory": database_inventory,
+        "selected_database": normalized_database,
+        "sql_text": str(sql_text or ""),
+        "last_result": last_result or _empty_sql_workspace_result(),
+        "history_rows": history_rows or [],
     }

@@ -1,5 +1,23 @@
+import re
+
+
 def _empty_report():
     return {"columns": [], "rows": [], "error": ""}
+
+
+def _empty_dashboard_summary():
+    return {
+        "database_rows": [],
+        "totals": {
+            "configured_table_count": 0,
+            "tracked_table_count": 0,
+            "heatwave_table_count": 0,
+            "loaded_count": 0,
+            "partial_count": 0,
+            "not_loaded_count": 0,
+        },
+        "error": "",
+    }
 
 
 NORMAL_LOAD_STATUSES = {
@@ -427,6 +445,81 @@ def _build_lakehouse_rows(lakehouse_tables, inventory_rows):
     return lakehouse_rows
 
 
+def build_dashboard_heatwave_summary(
+    *,
+    fetch_heatwave_inventory_report,
+    fetch_heatwave_defined_secondary_engine_tables,
+    is_system_schema_name,
+):
+    summary = _empty_dashboard_summary()
+    inventory_report = _safe_report(
+        fetch_heatwave_inventory_report,
+        {"columns": [], "rows": [], "table_id_columns": [], "tables_columns": []},
+    )
+    configured_tables, configured_error = _safe_items(fetch_heatwave_defined_secondary_engine_tables)
+    configured_tables, _ = _build_secondary_engine_lookup(configured_tables)
+    inventory_rows = _build_heatwave_inventory_rows(inventory_report)
+
+    configured_keys_by_db = {}
+    tracked_keys_by_db = {}
+    tracked_states_by_key = {}
+
+    for row in configured_tables:
+        database_name = row["database_name"]
+        table_key = row["table_key"]
+        if not database_name or not table_key or is_system_schema_name(database_name):
+            continue
+        configured_keys_by_db.setdefault(database_name, set()).add(table_key)
+
+    for row in inventory_rows:
+        database_name = row["database_name"]
+        table_key = row["table_key"]
+        if (
+            not database_name
+            or database_name == "Unknown"
+            or not table_key
+            or is_system_schema_name(database_name)
+        ):
+            continue
+        tracked_keys_by_db.setdefault(database_name, set()).add(table_key)
+        tracked_states_by_key[table_key] = row["load_state"]
+
+    totals = summary["totals"]
+    all_databases = sorted(set(configured_keys_by_db) | set(tracked_keys_by_db), key=str.lower)
+    for database_name in all_databases:
+        configured_keys = configured_keys_by_db.get(database_name, set())
+        tracked_keys = tracked_keys_by_db.get(database_name, set())
+        combined_keys = configured_keys | tracked_keys
+        summary_row = {
+            "database_name": database_name,
+            "configured_table_count": len(configured_keys),
+            "tracked_table_count": len(tracked_keys),
+            "heatwave_table_count": len(combined_keys),
+            "loaded_count": 0,
+            "partial_count": 0,
+            "not_loaded_count": 0,
+        }
+        for table_key in combined_keys:
+            load_state = tracked_states_by_key.get(table_key, "not_loaded")
+            if load_state == "loaded":
+                summary_row["loaded_count"] += 1
+            elif load_state == "partial":
+                summary_row["partial_count"] += 1
+            else:
+                summary_row["not_loaded_count"] += 1
+
+        for metric_name in totals:
+            totals[metric_name] += summary_row[metric_name]
+        summary["database_rows"].append(summary_row)
+
+    summary["error"] = " | ".join(
+        error_message
+        for error_message in (configured_error, inventory_report.get("error", ""))
+        if error_message
+    )
+    return summary
+
+
 def build_heatwave_tables_context(
     *,
     fetch_heatwave_inventory_report,
@@ -527,6 +620,170 @@ def build_heatwave_tables_export(report):
     }
 
 
+def _empty_management_database_status(selected_database=""):
+    return {
+        "selected_database": selected_database,
+        "has_selection": bool(selected_database),
+        "error": "",
+        "summary": {
+            "configured_table_count": 0,
+            "tracked_table_count": 0,
+            "heatwave_table_count": 0,
+            "loaded_count": 0,
+            "partial_count": 0,
+            "not_loaded_count": 0,
+        },
+        "rows": [],
+    }
+
+
+def _build_management_database_status(selected_database, configured_tables, inventory_rows):
+    database_status = _empty_management_database_status(selected_database)
+    normalized_database = str(selected_database or "").strip().lower()
+    if not normalized_database:
+        return database_status
+
+    configured_rows = [
+        row for row in configured_tables if str(row.get("database_name") or "").strip().lower() == normalized_database
+    ]
+    inventory_rows = [
+        row for row in inventory_rows if str(row.get("database_name") or "").strip().lower() == normalized_database
+    ]
+    configured_rows, configured_lookup = _build_secondary_engine_lookup(configured_rows)
+    inventory_by_key = {row["table_key"]: row for row in inventory_rows}
+    combined_keys = sorted(set(configured_lookup) | set(inventory_by_key), key=str.lower)
+
+    for table_key in combined_keys:
+        configured_row = configured_lookup.get(table_key)
+        tracked_row = inventory_by_key.get(table_key)
+        database_status["rows"].append(
+            {
+                "table_name": (
+                    configured_row["table_name"]
+                    if configured_row
+                    else (tracked_row["table_label"] if tracked_row else "")
+                ),
+                "secondary_engine_configured": configured_row is not None,
+                "tracked_in_rpd": tracked_row is not None,
+                "load_progress_label": tracked_row["load_progress_label"] if tracked_row else "0%",
+                "load_status_value": tracked_row["load_status_value"] if tracked_row else "-",
+                "load_state": tracked_row["load_state"] if tracked_row else "not_loaded",
+                "load_state_label": tracked_row["load_state_label"] if tracked_row else "Not Loaded",
+                "recovery_source_label": tracked_row["recovery_source_label"] if tracked_row else "-",
+                "health_class": tracked_row["health_class"] if tracked_row else "neutral",
+            }
+        )
+
+    database_status["summary"]["configured_table_count"] = len(configured_rows)
+    database_status["summary"]["tracked_table_count"] = len(inventory_rows)
+    database_status["summary"]["heatwave_table_count"] = len(combined_keys)
+    database_status["summary"]["loaded_count"] = sum(1 for row in database_status["rows"] if row["load_state"] == "loaded")
+    database_status["summary"]["partial_count"] = sum(1 for row in database_status["rows"] if row["load_state"] == "partial")
+    database_status["summary"]["not_loaded_count"] = sum(
+        1 for row in database_status["rows"] if row["load_state"] == "not_loaded"
+    )
+    return database_status
+
+
+def _extract_column_definitions_from_create_statement(create_table_statement):
+    definitions = {}
+    for line in str(create_table_statement or "").splitlines():
+        match = re.match(r"^\s*`([^`]+)`\s+(.*?)(?:,)?\s*$", line.rstrip())
+        if match:
+            definitions[match.group(1)] = match.group(2).strip()
+    return definitions
+
+
+def _definition_has_not_secondary(column_definition):
+    return bool(re.search(r"\bNOT\s+SECONDARY\b", str(column_definition or ""), flags=re.IGNORECASE))
+
+
+def _definition_without_not_secondary(column_definition):
+    return re.sub(
+        r"\s+NOT\s+SECONDARY\b",
+        "",
+        str(column_definition or ""),
+        flags=re.IGNORECASE,
+    ).strip()
+
+
+def _build_management_table_columns(table_columns, create_table_statement):
+    column_definitions = _extract_column_definitions_from_create_statement(create_table_statement)
+    rows = []
+    for row in table_columns:
+        column_name = str(row.get("column_name") or "").strip()
+        column_definition = column_definitions.get(column_name, "")
+        rows.append(
+            {
+                **row,
+                "supports_exclusion": bool(column_definition),
+                "is_not_secondary": _definition_has_not_secondary(column_definition),
+            }
+        )
+    return rows
+
+
+def _build_not_secondary_modify_clauses(selected_columns, create_table_statement, *, quote_identifier):
+    column_definitions = _extract_column_definitions_from_create_statement(create_table_statement)
+    modify_clauses = []
+    missing_columns = []
+
+    for column_name in selected_columns:
+        column_definition = column_definitions.get(column_name)
+        if not column_definition:
+            missing_columns.append(column_name)
+            continue
+        normalized_definition = _definition_without_not_secondary(column_definition)
+        modify_clauses.append(
+            f"MODIFY COLUMN {quote_identifier(column_name)} {normalized_definition} NOT SECONDARY"
+        )
+
+    if missing_columns:
+        missing_list = ", ".join(f"`{column_name}`" for column_name in missing_columns)
+        raise ValueError(f"Unable to determine current column definitions for {missing_list}.")
+    return modify_clauses
+
+
+def _build_management_procedure_popup(title, sql_text, selected_database, result_sets):
+    tabs = [
+        {
+            "key": "info",
+            "label": "Info",
+            "kind": "info",
+            "details": [
+                {"label": "Action", "value": title},
+                {"label": "Database", "value": selected_database or "-"},
+                {"label": "SQL", "value": sql_text},
+                {"label": "Result Sets", "value": str(len(result_sets))},
+            ],
+        }
+    ]
+    if not result_sets:
+        tabs.append(
+            {
+                "key": "result_0",
+                "label": "Output",
+                "kind": "message",
+                "message": "Procedure completed without tabular result sets.",
+            }
+        )
+    for index, result_set in enumerate(result_sets, start=1):
+        tabs.append(
+            {
+                "key": f"result_{index}",
+                "label": result_set.get("label") or f"Result {index}",
+                "kind": "table",
+                "columns": result_set.get("columns", []),
+                "rows": result_set.get("rows", []),
+                "empty_text": "This result set did not return any rows.",
+            }
+        )
+    return {
+        "title": title,
+        "tabs": tabs,
+    }
+
+
 def fetch_heatwave_management_summary(*, execute_query):
     summary = {
         "variables": [],
@@ -553,40 +810,125 @@ def fetch_heatwave_management_summary(*, execute_query):
     return summary
 
 
-def handle_heatwave_management_action(action, selected_database, selected_table, *, quote_identifier, execute_statement):
+def handle_heatwave_management_action(
+    action,
+    selected_database,
+    selected_table,
+    excluded_columns=None,
+    *,
+    quote_identifier,
+    execute_statement,
+    execute_multi_result_query,
+    fetch_table_columns,
+    fetch_create_table_statement,
+):
     normalized_action = str(action or "").strip()
     normalized_database = str(selected_database or "").strip()
     normalized_table = str(selected_table or "").strip()
 
+    if normalized_action == "db_load":
+        if not normalized_database:
+            raise ValueError("Choose a database before running a HeatWave database action.")
+        call_sql = f'CALL sys.heatwave_load(JSON_ARRAY("{normalized_database}"), null)'
+        popup_result = _build_management_procedure_popup(
+            "HeatWave Load Result",
+            call_sql,
+            normalized_database,
+            execute_multi_result_query("CALL sys.heatwave_load(JSON_ARRAY(%s), null)", [normalized_database]),
+        )
+        return {
+            "flash_category": "success",
+            "flash_message": f"HeatWave load requested for database `{normalized_database}`.",
+            "redirect_values": {"tab": "db", "database": normalized_database},
+            "render_popup": True,
+            "open_dialog": "procedure-result-dialog",
+            "popup_result": popup_result,
+        }
+
+    if normalized_action == "db_unload":
+        if not normalized_database:
+            raise ValueError("Choose a database before running a HeatWave database action.")
+        call_sql = f'CALL sys.heatwave_unload(JSON_ARRAY("{normalized_database}"), null)'
+        popup_result = _build_management_procedure_popup(
+            "HeatWave Unload Result",
+            call_sql,
+            normalized_database,
+            execute_multi_result_query("CALL sys.heatwave_unload(JSON_ARRAY(%s), null)", [normalized_database]),
+        )
+        return {
+            "flash_category": "success",
+            "flash_message": f"HeatWave unload requested for database `{normalized_database}`.",
+            "redirect_values": {"tab": "db", "database": normalized_database},
+            "render_popup": True,
+            "open_dialog": "procedure-result-dialog",
+            "popup_result": popup_result,
+        }
+
     if not normalized_database or not normalized_table:
-        raise ValueError("Choose both database and table before running a HeatWave action.")
+        raise ValueError("Choose both database and table before running a HeatWave table action.")
 
     safe_database = quote_identifier(normalized_database)
     safe_table = quote_identifier(normalized_table)
 
-    if normalized_action == "configure_load":
-        execute_statement(f"ALTER TABLE {safe_database}.{safe_table} SECONDARY_ENGINE RAPID")
+    if normalized_action == "table_load":
+        create_table_statement = fetch_create_table_statement(normalized_database, normalized_table)
+        secondary_engine_configured = "SECONDARY_ENGINE=RAPID" in str(create_table_statement or "").upper()
+        if not secondary_engine_configured:
+            execute_statement(f"ALTER TABLE {safe_database}.{safe_table} SECONDARY_ENGINE RAPID")
         execute_statement(f"ALTER TABLE {safe_database}.{safe_table} SECONDARY_LOAD")
+        flash_message = (
+            f"HeatWave secondary engine configured and load requested for `{normalized_database}.{normalized_table}`."
+            if not secondary_engine_configured
+            else f"HeatWave load requested for `{normalized_database}.{normalized_table}`."
+        )
         return {
             "flash_category": "success",
-            "flash_message": f"HeatWave load requested for `{normalized_database}.{normalized_table}`.",
-            "redirect_values": {"database": normalized_database},
+            "flash_message": flash_message,
+            "redirect_values": {"tab": "table", "database": normalized_database, "table": normalized_table},
         }
 
-    if normalized_action == "unload":
+    if normalized_action == "table_unload":
         execute_statement(f"ALTER TABLE {safe_database}.{safe_table} SECONDARY_UNLOAD")
         return {
             "flash_category": "success",
             "flash_message": f"HeatWave unload requested for `{normalized_database}.{normalized_table}`.",
-            "redirect_values": {"database": normalized_database},
+            "redirect_values": {"tab": "table", "database": normalized_database, "table": normalized_table},
         }
 
-    if normalized_action == "drop_secondary_engine":
-        execute_statement(f"ALTER TABLE {safe_database}.{safe_table} SECONDARY_ENGINE = NULL")
+    if normalized_action == "exclude_columns_update":
+        available_columns = {
+            str(row.get("column_name") or "").strip()
+            for row in fetch_table_columns(normalized_database, normalized_table)
+        }
+        selected_columns = []
+        seen_columns = set()
+        for value in excluded_columns or []:
+            column_name = str(value or "").strip()
+            if not column_name or column_name in seen_columns:
+                continue
+            if column_name not in available_columns:
+                raise ValueError(f"Column `{column_name}` was not found on `{normalized_database}.{normalized_table}`.")
+            selected_columns.append(column_name)
+            seen_columns.add(column_name)
+
+        if not selected_columns:
+            raise ValueError("Choose at least one column to mark as NOT SECONDARY.")
+
+        create_table_statement = fetch_create_table_statement(normalized_database, normalized_table)
+        modify_clauses = _build_not_secondary_modify_clauses(
+            selected_columns,
+            create_table_statement,
+            quote_identifier=quote_identifier,
+        )
+        execute_statement(
+            f"ALTER TABLE {safe_database}.{safe_table} " + ", ".join(modify_clauses)
+        )
         return {
             "flash_category": "success",
-            "flash_message": f"HeatWave secondary engine removed for `{normalized_database}.{normalized_table}`.",
-            "redirect_values": {"database": normalized_database},
+            "flash_message": (
+                f"Updated {len(selected_columns)} column(s) on `{normalized_database}.{normalized_table}` as NOT SECONDARY."
+            ),
+            "redirect_values": {"tab": "table", "database": normalized_database, "table": normalized_table},
         }
 
     raise ValueError("Unknown HeatWave action.")
@@ -594,17 +936,91 @@ def handle_heatwave_management_action(action, selected_database, selected_table,
 
 def build_heatwave_management_context(
     selected_database,
+    selected_table,
+    active_tab,
     *,
     fetch_database_inventory,
     fetch_tables_for_database,
+    fetch_table_columns,
+    fetch_create_table_statement,
+    fetch_heatwave_inventory_report,
+    fetch_heatwave_defined_secondary_engine_tables,
     execute_query,
     load_object_storage_config,
 ):
     normalized_database = str(selected_database or "").strip()
+    normalized_table = str(selected_table or "").strip()
+    database_inventory = [row for row in fetch_database_inventory() if not row["is_system"]]
+    available_database_names = {row["database_name"] for row in database_inventory}
+    if normalized_database and normalized_database not in available_database_names:
+        normalized_database = ""
+
+    tables = fetch_tables_for_database(normalized_database) if normalized_database else []
+    table_lookup = {row["table_name"]: row for row in tables}
+    if normalized_table and normalized_table not in table_lookup:
+        normalized_table = ""
+
+    database_status = _empty_management_database_status(normalized_database)
+    if normalized_database:
+        inventory_report = _safe_report(
+            fetch_heatwave_inventory_report,
+            {"columns": [], "rows": [], "table_id_columns": [], "tables_columns": []},
+        )
+        configured_tables, configured_error = _safe_items(fetch_heatwave_defined_secondary_engine_tables)
+        configured_tables, _ = _build_secondary_engine_lookup(configured_tables)
+        inventory_rows = _build_heatwave_inventory_rows(inventory_report)
+        database_status = _build_management_database_status(normalized_database, configured_tables, inventory_rows)
+        database_status["error"] = " | ".join(
+            error_message for error_message in (configured_error, inventory_report.get("error", "")) if error_message
+        )
+
+    table_status_lookup = {
+        str(row["table_name"]).lower(): row
+        for row in database_status["rows"]
+    }
+    table_action_summary = {
+        "has_selection": bool(normalized_database and normalized_table),
+        "secondary_engine_configured": bool(table_lookup.get(normalized_table, {}).get("heatwave_configured"))
+        if normalized_table
+        else False,
+        "tracked_in_rpd": False,
+        "load_progress_label": "-",
+        "load_state_label": "-",
+        "load_status_value": "-",
+        "recovery_source_label": "-",
+        "excluded_column_count": 0,
+        "column_error": "",
+        "columns": [],
+    }
+    if normalized_table:
+        tracked_row = table_status_lookup.get(normalized_table.lower())
+        if tracked_row:
+            table_action_summary["tracked_in_rpd"] = True
+            table_action_summary["load_progress_label"] = tracked_row["load_progress_label"]
+            table_action_summary["load_state_label"] = tracked_row["load_state_label"]
+            table_action_summary["load_status_value"] = tracked_row["load_status_value"]
+            table_action_summary["recovery_source_label"] = tracked_row["recovery_source_label"]
+        else:
+            table_action_summary["load_progress_label"] = "0%"
+            table_action_summary["load_state_label"] = "Not Loaded"
+        try:
+            table_columns = fetch_table_columns(normalized_database, normalized_table)
+            create_table_statement = fetch_create_table_statement(normalized_database, normalized_table)
+            table_action_summary["columns"] = _build_management_table_columns(table_columns, create_table_statement)
+            table_action_summary["excluded_column_count"] = sum(
+                1 for row in table_action_summary["columns"] if row["is_not_secondary"]
+            )
+        except Exception as error:  # pragma: no cover - depends on server features
+            table_action_summary["column_error"] = str(error)
+
     return {
-        "database_inventory": [row for row in fetch_database_inventory() if not row["is_system"]],
+        "active_tab": "table" if str(active_tab or "").strip().lower() == "table" else "db",
+        "database_inventory": database_inventory,
         "selected_database": normalized_database,
-        "tables": fetch_tables_for_database(normalized_database) if normalized_database else [],
+        "selected_table": normalized_table,
+        "tables": tables,
+        "database_status": database_status,
+        "table_action_summary": table_action_summary,
         "management_summary": fetch_heatwave_management_summary(execute_query=execute_query),
         "object_storage_config": load_object_storage_config(),
     }

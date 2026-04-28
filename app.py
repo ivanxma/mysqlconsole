@@ -8,11 +8,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 import pymysql
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
 from modules.heatwave_pages import (
+    build_dashboard_heatwave_summary as module_build_dashboard_heatwave_summary,
     build_heatwave_management_context as module_build_heatwave_management_context,
     build_heatwave_tables_context as module_build_heatwave_tables_context,
     build_heatwave_tables_export as module_build_heatwave_tables_export,
@@ -28,9 +30,14 @@ from modules.mysql_import import (
     validate_mysql_import_request as module_validate_mysql_import_request,
 )
 from modules.mysql_pages import (
+    append_sql_workspace_history as module_append_sql_workspace_history,
     build_db_admin_context as module_build_db_admin_context,
     build_db_admin_export as module_build_db_admin_export,
     build_mysql_dashboard_context as module_build_mysql_dashboard_context,
+    build_sql_workspace_context as module_build_sql_workspace_context,
+    build_sql_workspace_explain_result as module_build_sql_workspace_explain_result,
+    build_sql_workspace_history_entry as module_build_sql_workspace_history_entry,
+    build_sql_workspace_result as module_build_sql_workspace_result,
     handle_db_admin_action as module_handle_db_admin_action,
 )
 from modules.monitoring_pages import (
@@ -92,6 +99,7 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
     "yes",
     "on",
 }
+SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
     "DOUBLE",
@@ -118,6 +126,7 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "mysql_dashboard_page", "label": "Admin Dashboard"},
             {"endpoint": "db_admin_page", "label": "DB Admin"},
+            {"endpoint": "sql_workspace_page", "label": "SQL Workspace"},
             {"endpoint": "mysql_import_page", "label": "Import"},
         ],
     },
@@ -407,6 +416,33 @@ def execute_query(sql, params=None, *, database=None):
             return cursor.fetchall()
 
 
+def execute_multi_result_query(sql, params=None, *, database=None):
+    result_sets = []
+    with mysql_connection(database_override=database) as connection:
+        with connection.cursor() as cursor:
+            if params is None:
+                cursor.execute(sql)
+            else:
+                cursor.execute(sql, params)
+
+            result_index = 1
+            while True:
+                columns = [item[0] for item in cursor.description] if cursor.description else []
+                rows = cursor.fetchall() if columns else []
+                if columns or rows:
+                    result_sets.append(
+                        {
+                            "label": f"Result {result_index}",
+                            "columns": columns,
+                            "rows": rows,
+                        }
+                    )
+                    result_index += 1
+                if not cursor.nextset():
+                    break
+    return result_sets
+
+
 def execute_statement(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
@@ -414,7 +450,28 @@ def execute_statement(sql, params=None, *, database=None):
                 cursor.execute(sql)
             else:
                 cursor.execute(sql, params)
-            return cursor.rowcount
+            rowcount = cursor.rowcount
+            while cursor.nextset():
+                pass
+            return rowcount
+
+
+def _normalize_sql_workspace_statement(sql_text):
+    statement = str(sql_text or "").strip()
+    if not statement:
+        raise ValueError("Enter a SQL statement.")
+    return statement
+
+
+def _normalize_sql_workspace_explain_statement(sql_text):
+    statement = _normalize_sql_workspace_statement(sql_text).rstrip().rstrip(";").strip()
+    if not statement:
+        raise ValueError("Enter a SQL statement.")
+    if ";" in statement:
+        raise ValueError("Explain supports one SQL statement at a time.")
+    if statement.lower().startswith("explain"):
+        raise ValueError("Enter the SQL statement itself. Explain adds EXPLAIN automatically.")
+    return statement
 
 
 def fetch_scalar(sql, params=None, *, database=None, default=None):
@@ -684,216 +741,12 @@ def fetch_lakehouse_engine_tables():
     ]
 
 
-def _dashboard_first_defined_value(row, candidate_keys):
-    for key in candidate_keys:
-        value = row.get(key)
-        if value not in (None, ""):
-            return value
-    return ""
-
-
-def _normalize_dashboard_identifier(value):
-    return str(value or "").strip().strip("`")
-
-
-def _split_dashboard_qualified_name(value):
-    normalized_value = _normalize_dashboard_identifier(value)
-    if not normalized_value or "." not in normalized_value:
-        return "", normalized_value
-    database_name, table_name = normalized_value.split(".", 1)
-    return _normalize_dashboard_identifier(database_name), _normalize_dashboard_identifier(table_name)
-
-
-def _normalize_dashboard_heatwave_progress(value):
-    numeric_value = _extract_numeric(value, None)
-    if numeric_value is None:
-        return None
-    if 0.0 <= numeric_value <= 1.0:
-        return numeric_value * 100.0
-    return numeric_value
-
-
-def _extract_dashboard_heatwave_inventory_labels(row):
-    raw_name = _dashboard_first_defined_value(
-        row,
-        [
-            "rpd_table_id__name",
-            "rpd_table_id__table_name",
-            "rpd_tables__name",
-            "rpd_tables__table_name",
-        ],
-    )
-    parsed_database_name, parsed_table_name = _split_dashboard_qualified_name(raw_name)
-
-    database_name = _normalize_dashboard_identifier(
-        _dashboard_first_defined_value(
-            row,
-            [
-                "rpd_table_id__schema_name",
-                "rpd_table_id__database_name",
-                "rpd_table_id__table_schema",
-                "rpd_table_id__schema",
-                "rpd_table_id__db_name",
-                "rpd_tables__schema_name",
-                "rpd_tables__database_name",
-                "rpd_tables__table_schema",
-                "rpd_tables__schema",
-                "rpd_tables__db_name",
-            ],
-        )
-    )
-    table_name = _normalize_dashboard_identifier(
-        _dashboard_first_defined_value(
-            row,
-            [
-                "rpd_table_id__table_name",
-                "rpd_tables__table_name",
-            ],
-        )
-    )
-
-    if not database_name:
-        database_name = parsed_database_name
-    if not table_name:
-        table_name = parsed_table_name or _normalize_dashboard_identifier(raw_name)
-
-    return {
-        "database_name": database_name,
-        "table_name": table_name,
-    }
-
-
-def _derive_dashboard_heatwave_load_state(row):
-    progress_value = _normalize_dashboard_heatwave_progress(
-        _dashboard_first_defined_value(
-            row,
-            [
-                "rpd_tables__load_progress",
-                "rpd_tables__load_percentage",
-                "rpd_tables__load_percent",
-                "rpd_tables__percent_loaded",
-                "rpd_tables__load_pct",
-                "rpd_tables__availability_percentage",
-                "rpd_tables__availability_percent",
-            ],
-        )
-    )
-    if progress_value is not None:
-        if progress_value >= 99.999:
-            return "loaded"
-        if progress_value > 0:
-            return "partial"
-        return "not_loaded"
-
-    raw_status = str(
-        _dashboard_first_defined_value(
-            row,
-            [
-                "rpd_tables__load_status",
-                "rpd_tables__status",
-                "rpd_tables__recovery_status",
-                "rpd_tables__availability_status",
-            ],
-        )
-        or ""
-    ).strip().lower()
-    numeric_status = _normalize_dashboard_heatwave_progress(raw_status)
-    if numeric_status is not None:
-        if numeric_status >= 99.999:
-            return "loaded"
-        if numeric_status > 0:
-            return "partial"
-        return "partial"
-    if raw_status and any(token in raw_status for token in ("loaded", "complete", "available", "active", "healthy")):
-        return "loaded"
-
-    load_start = _dashboard_first_defined_value(row, ["rpd_tables__load_start_timestamp"])
-    load_end = _dashboard_first_defined_value(row, ["rpd_tables__load_end_timestamp"])
-    if load_end not in (None, ""):
-        return "loaded"
-    if load_start not in (None, ""):
-        return "partial"
-    return "partial"
-
-
 def fetch_dashboard_heatwave_summary():
-    errors = []
-    try:
-        configured_rows = fetch_heatwave_defined_secondary_engine_tables()
-    except Exception as error:  # pragma: no cover - depends on server features
-        configured_rows = []
-        errors.append(str(error))
-
-    try:
-        inventory_report = fetch_heatwave_inventory_report()
-        inventory_rows = inventory_report.get("rows", [])
-    except Exception as error:  # pragma: no cover - depends on server features
-        inventory_rows = []
-        errors.append(str(error))
-
-    configured_keys_by_db = {}
-    tracked_keys_by_db = {}
-    tracked_states_by_key = {}
-
-    for row in configured_rows:
-        database_name = str(row.get("database_name") or "").strip()
-        table_name = str(row.get("table_name") or "").strip()
-        if not database_name or not table_name or is_system_schema_name(database_name):
-            continue
-        configured_keys_by_db.setdefault(database_name, set()).add(f"{database_name}.{table_name}".lower())
-
-    for raw_row in inventory_rows:
-        labels = _extract_dashboard_heatwave_inventory_labels(raw_row)
-        database_name = labels["database_name"]
-        table_name = labels["table_name"]
-        if not database_name or not table_name or is_system_schema_name(database_name):
-            continue
-        table_key = f"{database_name}.{table_name}".lower()
-        tracked_keys_by_db.setdefault(database_name, set()).add(table_key)
-        tracked_states_by_key[table_key] = _derive_dashboard_heatwave_load_state(raw_row)
-
-    totals = {
-        "configured_table_count": 0,
-        "tracked_table_count": 0,
-        "heatwave_table_count": 0,
-        "loaded_count": 0,
-        "partial_count": 0,
-        "not_loaded_count": 0,
-    }
-    database_rows = []
-    all_databases = sorted(set(configured_keys_by_db) | set(tracked_keys_by_db), key=str.lower)
-
-    for database_name in all_databases:
-        configured_keys = configured_keys_by_db.get(database_name, set())
-        tracked_keys = tracked_keys_by_db.get(database_name, set())
-        combined_keys = configured_keys | tracked_keys
-        summary_row = {
-            "database_name": database_name,
-            "configured_table_count": len(configured_keys),
-            "tracked_table_count": len(tracked_keys),
-            "heatwave_table_count": len(combined_keys),
-            "loaded_count": 0,
-            "partial_count": 0,
-            "not_loaded_count": 0,
-        }
-        for table_key in combined_keys:
-            load_state = tracked_states_by_key.get(table_key, "not_loaded")
-            if load_state == "loaded":
-                summary_row["loaded_count"] += 1
-            elif load_state == "partial":
-                summary_row["partial_count"] += 1
-            else:
-                summary_row["not_loaded_count"] += 1
-
-        for metric_name in totals:
-            totals[metric_name] += summary_row[metric_name]
-        database_rows.append(summary_row)
-
-    return {
-        "database_rows": database_rows,
-        "totals": totals,
-        "error": " | ".join(errors),
-    }
+    return module_build_dashboard_heatwave_summary(
+        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
+        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
+        is_system_schema_name=is_system_schema_name,
+    )
 
 
 def fetch_table_columns(database_name, table_name):
@@ -1705,10 +1558,183 @@ def run_mysql_import(plan, import_request):
             raise
 
 
+SECURITY_COMPONENT_KEYWORDS = (
+    "audit",
+    "authentication",
+    "connection_control",
+    "firewall",
+    "keyring",
+    "password",
+    "security",
+)
+
+
+def _is_security_related_name(name):
+    lowered_name = str(name or "").strip().lower()
+    return any(token in lowered_name for token in SECURITY_COMPONENT_KEYWORDS)
+
+
+def _component_name_from_urn(component_urn):
+    normalized_urn = str(component_urn or "").strip()
+    if not normalized_urn:
+        return "-"
+    return normalized_urn.rsplit("/", 1)[-1]
+
+
+def fetch_installed_component_rows():
+    rows = execute_query(
+        """
+        SELECT
+          component_urn AS component_urn_value
+        FROM mysql.component
+        ORDER BY component_urn
+        """
+    )
+    component_rows = []
+    for row in rows:
+        component_urn = row["component_urn_value"] or "-"
+        component_name = _component_name_from_urn(component_urn)
+        component_rows.append(
+            {
+                "component_name": component_name,
+                "component_urn": component_urn,
+                "is_security_related": _is_security_related_name(component_name),
+            }
+        )
+    component_rows.sort(key=lambda item: (not item["is_security_related"], item["component_name"].lower()))
+    return component_rows
+
+
+def fetch_security_feature_rows(installed_components):
+    security_rows = []
+    seen_keys = set()
+
+    for row in installed_components:
+        if not row["is_security_related"]:
+            continue
+        row_key = ("component", row["component_name"].lower())
+        if row_key in seen_keys:
+            continue
+        seen_keys.add(row_key)
+        security_rows.append(
+            {
+                "feature_type": "Component",
+                "feature_name": row["component_name"],
+                "status_label": "Installed",
+                "is_enabled": True,
+                "details": row["component_urn"],
+            }
+        )
+
+    plugin_rows = execute_query(
+        """
+        SELECT
+          plugin_name AS plugin_name_value,
+          plugin_status AS plugin_status_value,
+          load_option AS load_option_value
+        FROM information_schema.plugins
+        ORDER BY plugin_name
+        """
+    )
+    for row in plugin_rows:
+        plugin_name = row["plugin_name_value"] or "-"
+        if not _is_security_related_name(plugin_name):
+            continue
+        row_key = ("plugin", str(plugin_name).lower())
+        if row_key in seen_keys:
+            continue
+        seen_keys.add(row_key)
+        plugin_status = row["plugin_status_value"] or "-"
+        security_rows.append(
+            {
+                "feature_type": "Plugin",
+                "feature_name": plugin_name,
+                "status_label": plugin_status,
+                "is_enabled": str(plugin_status).strip().upper() in {"ACTIVE", "ENABLED"},
+                "details": row["load_option_value"] or "-",
+            }
+        )
+
+    security_rows.sort(key=lambda item: (not item["is_enabled"], item["feature_name"].lower()))
+    return security_rows
+
+
+def fetch_recent_error_log_rows(hours=24, limit=50):
+    column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
+    if not column_lookup:
+        raise ValueError("performance_schema.error_log is not available on this server.")
+
+    logged_column = column_lookup.get("logged")
+    prio_column = column_lookup.get("prio") or column_lookup.get("priority")
+    error_code_column = column_lookup.get("error_code")
+    subsystem_column = column_lookup.get("subsystem")
+    data_column = column_lookup.get("data") or column_lookup.get("message")
+
+    if not logged_column or not data_column:
+        raise ValueError("Unable to determine required columns for performance_schema.error_log.")
+
+    selected_columns = [f"{quote_identifier(logged_column)} AS logged_value"]
+    if prio_column:
+        selected_columns.append(f"{quote_identifier(prio_column)} AS priority_value")
+    if error_code_column:
+        selected_columns.append(f"{quote_identifier(error_code_column)} AS error_code_value")
+    if subsystem_column:
+        selected_columns.append(f"{quote_identifier(subsystem_column)} AS subsystem_value")
+    selected_columns.append(f"{quote_identifier(data_column)} AS message_value")
+
+    sql = (
+        "SELECT {columns} "
+        "FROM performance_schema.error_log "
+        "WHERE {logged_column} >= NOW() - INTERVAL %s HOUR"
+    ).format(
+        columns=", ".join(selected_columns),
+        logged_column=quote_identifier(logged_column),
+    )
+    if prio_column:
+        sql += (
+            " AND UPPER(COALESCE({priority_column}, '')) IN ('SYSTEM', 'ERROR', 'WARNING')"
+        ).format(priority_column=quote_identifier(prio_column))
+    sql += " ORDER BY {logged_column} DESC LIMIT {limit}".format(
+        logged_column=quote_identifier(logged_column),
+        limit=int(limit),
+    )
+
+    rows = execute_query(sql, [int(hours)])
+    return [
+        {
+            "logged": row["logged_value"],
+            "priority": row.get("priority_value") or "-",
+            "error_code": row.get("error_code_value") or "-",
+            "subsystem": row.get("subsystem_value") or "-",
+            "message": row.get("message_value") or "-",
+        }
+        for row in rows
+    ]
+
+
 def fetch_server_overview():
     version = fetch_scalar("SELECT VERSION()", default="-")
     current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
     default_database = fetch_scalar("SELECT DATABASE()", default="-")
+    global_time_zone = fetch_scalar("SELECT @@GLOBAL.time_zone", default="-")
+    session_time_zone = fetch_scalar("SELECT @@SESSION.time_zone", default="-")
+    system_time_zone = fetch_scalar("SELECT @@system_time_zone", default="-")
+    global_sql_mode = fetch_scalar("SELECT @@GLOBAL.sql_mode", default="-")
+    session_sql_mode = fetch_scalar("SELECT @@SESSION.sql_mode", default="-")
+    server_charset = fetch_scalar("SELECT @@character_set_server", default="-")
+    server_collation = fetch_scalar("SELECT @@collation_server", default="-")
+    max_connections = fetch_scalar("SELECT @@max_connections", default=0)
+    threads_connected_rows = execute_query("SHOW GLOBAL STATUS LIKE 'Threads_connected'")
+    current_connection_count = 0
+    if threads_connected_rows:
+        thread_row = threads_connected_rows[0]
+        current_connection_count = int(
+            thread_row.get("Value")
+            or thread_row.get("value")
+            or thread_row.get("VARIABLE_VALUE")
+            or thread_row.get("variable_value")
+            or 0
+        )
     database_count = fetch_scalar(
         """
         SELECT COUNT(*) AS database_count_value
@@ -1749,10 +1775,55 @@ def fetch_server_overview():
     except Exception as error:  # pragma: no cover - depends on server features
         rapid_status_rows = [{"Variable_name": "rapid_status_error", "Value": str(error)}]
 
+    try:
+        time_zone_name_count = fetch_scalar("SELECT COUNT(*) FROM mysql.time_zone_name", default=0)
+        time_zone_tables_populated = bool(time_zone_name_count)
+        time_zone_tables_label = f"Yes ({time_zone_name_count} rows)" if time_zone_name_count else "No"
+        time_zone_tables_error = ""
+    except Exception as error:  # pragma: no cover - depends on privileges / server setup
+        time_zone_name_count = 0
+        time_zone_tables_populated = False
+        time_zone_tables_label = "Unavailable"
+        time_zone_tables_error = str(error)
+
+    try:
+        installed_components = fetch_installed_component_rows()
+        installed_components_error = ""
+    except Exception as error:  # pragma: no cover - depends on server features
+        installed_components = []
+        installed_components_error = str(error)
+
+    try:
+        security_features = fetch_security_feature_rows(installed_components)
+        security_features_error = ""
+    except Exception as error:  # pragma: no cover - depends on server features
+        security_features = []
+        security_features_error = str(error)
+
+    try:
+        recent_error_log_rows = fetch_recent_error_log_rows(hours=24, limit=50)
+        recent_error_log_error = ""
+    except Exception as error:  # pragma: no cover - depends on server features
+        recent_error_log_rows = []
+        recent_error_log_error = str(error)
+
     return {
         "server_version": version,
         "current_user": current_user,
         "default_database": default_database,
+        "global_time_zone": global_time_zone,
+        "session_time_zone": session_time_zone,
+        "system_time_zone": system_time_zone,
+        "time_zone_tables_populated": time_zone_tables_populated,
+        "time_zone_tables_label": time_zone_tables_label,
+        "time_zone_table_row_count": time_zone_name_count,
+        "time_zone_tables_error": time_zone_tables_error,
+        "global_sql_mode": global_sql_mode,
+        "session_sql_mode": session_sql_mode,
+        "server_charset": server_charset,
+        "server_collation": server_collation,
+        "max_connections": max_connections or 0,
+        "current_connection_count": current_connection_count,
         "database_count": database_count,
         "table_count": table_totals.get("base_table_count_value") or 0,
         "innodb_table_count": table_totals.get("innodb_table_count_value") or 0,
@@ -1763,6 +1834,16 @@ def fetch_server_overview():
         "total_size_bytes": total_size_bytes,
         "total_size_label": _format_bytes(total_size_bytes),
         "rapid_status_rows": rapid_status_rows[:10],
+        "installed_components": installed_components,
+        "installed_components_error": installed_components_error,
+        "installed_component_count": len(installed_components),
+        "security_features": security_features,
+        "security_features_error": security_features_error,
+        "security_feature_count": len(security_features),
+        "enabled_security_feature_count": sum(1 for row in security_features if row["is_enabled"]),
+        "recent_error_log_rows": recent_error_log_rows,
+        "recent_error_log_error": recent_error_log_error,
+        "recent_error_log_count": len(recent_error_log_rows),
         "connection_endpoint": f"{get_session_profile()['host']}:{get_session_profile()['port']}",
     }
 
@@ -4243,6 +4324,149 @@ def mysql_dashboard_page():
     )
 
 
+@app.route("/mysql/sql-workspace", methods=["GET", "POST"])
+@login_required
+def sql_workspace_page():
+    default_database = str(get_session_profile().get("database", "") or "").strip()
+    if is_system_schema_name(default_database):
+        default_database = ""
+
+    selected_database = str(
+        request.values.get("database", default_database if request.method == "GET" else "")
+    ).strip()
+    sql_text = str(request.values.get("sql_text", ""))
+    history_rows = session.get(SQL_WORKSPACE_HISTORY_SESSION_KEY, [])
+    if not isinstance(history_rows, list):
+        history_rows = []
+
+    last_result = None
+    if request.method == "POST":
+        action = str(request.form.get("workspace_action", "execute")).strip().lower()
+        selected_database = str(request.form.get("database", "")).strip()
+        sql_text = str(request.form.get("sql_text", ""))
+        started_at = perf_counter()
+
+        if action == "explain":
+            normalized_statement = sql_text
+            try:
+                normalized_statement = _normalize_sql_workspace_explain_statement(sql_text)
+                text_rows = execute_query(f"EXPLAIN {normalized_statement}", database=selected_database or None)
+                json_rows = []
+                json_error = ""
+                try:
+                    json_rows = execute_query(
+                        f"EXPLAIN FORMAT=JSON {normalized_statement}",
+                        database=selected_database or None,
+                    )
+                except Exception as error:  # pragma: no cover - depends on server features
+                    json_error = str(error)
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_explain_result(
+                    normalized_statement,
+                    selected_database,
+                    text_rows,
+                    json_rows,
+                    duration_ms,
+                    json_error=json_error,
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Explain",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        status="success" if not json_error else "partial",
+                        error_message=json_error,
+                    ),
+                )
+            except Exception as error:
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_result(
+                    "Explain",
+                    normalized_statement,
+                    selected_database,
+                    [],
+                    duration_ms,
+                    error_message=str(error),
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Explain",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        status="error",
+                        error_message=str(error),
+                    ),
+                )
+                flash(str(error), "error")
+        else:
+            normalized_statement = sql_text
+            try:
+                normalized_statement = _normalize_sql_workspace_statement(sql_text)
+                result_sets = execute_multi_result_query(
+                    normalized_statement,
+                    database=selected_database or None,
+                )
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_result(
+                    "Execute",
+                    normalized_statement,
+                    selected_database,
+                    result_sets,
+                    duration_ms,
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Execute",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        status="success",
+                    ),
+                )
+            except Exception as error:
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_result(
+                    "Execute",
+                    normalized_statement,
+                    selected_database,
+                    [],
+                    duration_ms,
+                    error_message=str(error),
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Execute",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        status="error",
+                        error_message=str(error),
+                    ),
+                )
+                flash(str(error), "error")
+
+        session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = history_rows
+
+    page_context = module_build_sql_workspace_context(
+        selected_database,
+        sql_text,
+        last_result,
+        history_rows,
+        fetch_database_inventory=fetch_database_inventory,
+    )
+    return render_dashboard(
+        "sql_workspace.html",
+        page_title="SQL Workspace",
+        **page_context,
+    )
+
+
 @app.route("/mysql/imprt", methods=["GET", "POST"])
 @login_required
 def mysql_import_page():
@@ -4439,9 +4663,14 @@ def hw_table_download():
 @app.route("/heatwave/management", methods=["GET", "POST"])
 @login_required
 def heatwave_management_page():
+    active_tab = "table" if str(request.values.get("tab", "")).strip().lower() == "table" else "db"
     selected_database = str(request.values.get("database", "")).strip()
+    selected_table = str(request.values.get("table", "")).strip()
+    management_open_dialog = ""
+    management_popup_result = None
 
     if request.method == "POST":
+        active_tab = "table" if str(request.form.get("tab", "")).strip().lower() == "table" else "db"
         action = str(request.form.get("management_action", "")).strip()
         selected_database = str(request.form.get("database", "")).strip()
         selected_table = str(request.form.get("table", "")).strip()
@@ -4450,24 +4679,45 @@ def heatwave_management_page():
                 action,
                 selected_database,
                 selected_table,
+                excluded_columns=request.form.getlist("excluded_columns"),
                 quote_identifier=quote_identifier,
                 execute_statement=execute_statement,
+                execute_multi_result_query=execute_multi_result_query,
+                fetch_table_columns=fetch_table_columns,
+                fetch_create_table_statement=fetch_create_table_statement,
             )
             flash(action_result["flash_message"], action_result["flash_category"])
-            return redirect(url_for("heatwave_management_page", **action_result["redirect_values"]))
+            selected_database = str(action_result["redirect_values"].get("database", selected_database)).strip()
+            selected_table = str(action_result["redirect_values"].get("table", selected_table)).strip()
+            active_tab = "table" if str(action_result["redirect_values"].get("tab", active_tab)).strip().lower() == "table" else "db"
+            if action_result.get("render_popup"):
+                management_open_dialog = str(action_result.get("open_dialog", "")).strip()
+                management_popup_result = action_result.get("popup_result")
+            else:
+                return redirect(url_for("heatwave_management_page", **action_result["redirect_values"]))
         except Exception as error:
             flash(str(error), "error")
+            if action == "exclude_columns_update":
+                management_open_dialog = "exclude-columns-dialog"
 
     page_context = module_build_heatwave_management_context(
         selected_database,
+        selected_table,
+        active_tab,
         fetch_database_inventory=fetch_database_inventory,
         fetch_tables_for_database=fetch_tables_for_database,
+        fetch_table_columns=fetch_table_columns,
+        fetch_create_table_statement=fetch_create_table_statement,
+        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
+        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
         execute_query=execute_query,
         load_object_storage_config=load_object_storage_config,
     )
     return render_dashboard(
         "heatwave_management.html",
         page_title="HeatWave Management",
+        management_open_dialog=management_open_dialog,
+        management_popup_result=management_popup_result,
         **page_context,
     )
 

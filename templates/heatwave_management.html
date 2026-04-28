@@ -1,19 +1,122 @@
 {% extends "base.html" %}
 
+{% macro render_result_table(columns, rows, empty_text="No rows returned.") %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td>{% if row[column] is not none and row[column] != "" %}{{ row[column] }}{% else %}-{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ columns|length if columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">HeatWave</p>
   <h2>Management</h2>
-  <p>Run core HeatWave table actions and review server-side variables and plugin status.</p>
+  <p>Run database-level HeatWave load actions, inspect current DB status, and manage table-level load and column exclusion controls.</p>
+</section>
+
+<section class="tab-shell">
+  <div class="tab-strip">
+    <a
+      class="tab-link {% if active_tab == 'db' %}active{% endif %}"
+      href="{{ url_for('heatwave_management_page', tab='db', database=selected_database) }}"
+    >
+      DB
+    </a>
+    <a
+      class="tab-link {% if active_tab == 'table' %}active{% endif %}"
+      href="{{ url_for('heatwave_management_page', tab='table', database=selected_database, table=selected_table) }}"
+    >
+      Table
+    </a>
+  </div>
 </section>
 
 <section class="split-layout split-layout-top">
   <article class="panel">
-    <h3>Table Action</h3>
+    {% if active_tab == 'db' %}
+    <div class="panel-header">
+      <h3>DB Action</h3>
+      <span class="helper-text">`Load` and `Unload` call `sys.heatwave_load` and `sys.heatwave_unload` and return their result sets in a popup.</span>
+    </div>
     <form method="post" class="form-grid">
+      <input type="hidden" name="tab" value="db">
       <label>
         Database
-        <select name="database" onchange="window.location='{{ url_for('heatwave_management_page') }}?database=' + encodeURIComponent(this.value);">
+        <select name="database" data-management-query data-management-tab="db" data-reset-table="true">
+          <option value="">Choose a database</option>
+          {% for row in database_inventory %}
+          <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="form-actions stacked-actions">
+        <button class="button primary" type="submit" name="management_action" value="db_load" {% if not selected_database %}disabled{% endif %}>Load</button>
+        <button class="button secondary" type="submit" name="management_action" value="db_unload" {% if not selected_database %}disabled{% endif %}>Unload</button>
+        <button class="button secondary" type="button" data-open-dialog="database-status-dialog" {% if not selected_database %}disabled{% endif %}>Status</button>
+      </div>
+    </form>
+    {% if database_status.has_selection %}
+    <dl class="detail-list management-inline-summary">
+      <div>
+        <dt>Configured</dt>
+        <dd>{{ database_status.summary.configured_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Tracked</dt>
+        <dd>{{ database_status.summary.tracked_table_count }}</dd>
+      </div>
+      <div>
+        <dt>HeatWave Tables</dt>
+        <dd>{{ database_status.summary.heatwave_table_count }}</dd>
+      </div>
+      <div>
+        <dt>Loaded</dt>
+        <dd>{{ database_status.summary.loaded_count }}</dd>
+      </div>
+      <div>
+        <dt>Partial</dt>
+        <dd>{{ database_status.summary.partial_count }}</dd>
+      </div>
+      <div>
+        <dt>None</dt>
+        <dd>{{ database_status.summary.not_loaded_count }}</dd>
+      </div>
+    </dl>
+    {% else %}
+    <p class="helper-text">Choose a database to run a HeatWave DB action or inspect current HeatWave table status.</p>
+    {% endif %}
+    {% else %}
+    <div class="panel-header">
+      <h3>Table Action</h3>
+      <span class="helper-text">Load configures `SECONDARY_ENGINE=RAPID` when needed, then runs `SECONDARY_LOAD` for the selected table.</span>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="tab" value="table">
+      <label>
+        Database
+        <select name="database" data-management-query data-management-tab="table" data-reset-table="true">
           <option value="">Choose a database</option>
           {% for row in database_inventory %}
           <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
@@ -22,19 +125,53 @@
       </label>
       <label>
         Table
-        <select name="table">
+        <select name="table" data-management-query data-management-tab="table">
           <option value="">Choose a table</option>
           {% for row in tables %}
-          <option value="{{ row.table_name }}">{{ row.table_name }}</option>
+          <option value="{{ row.table_name }}" {% if row.table_name == selected_table %}selected{% endif %}>{{ row.table_name }}</option>
           {% endfor %}
         </select>
       </label>
       <div class="form-actions stacked-actions">
-        <button class="button primary" type="submit" name="management_action" value="configure_load">Configure + Load</button>
-        <button class="button secondary" type="submit" name="management_action" value="unload">Unload</button>
-        <button class="button secondary danger" type="submit" name="management_action" value="drop_secondary_engine">Remove Secondary Engine</button>
+        <button class="button primary" type="submit" name="management_action" value="table_load" {% if not selected_table %}disabled{% endif %}>Load</button>
+        <button class="button secondary" type="submit" name="management_action" value="table_unload" {% if not selected_table %}disabled{% endif %}>Unload</button>
+        <button class="button secondary" type="button" data-open-dialog="exclude-columns-dialog" {% if not selected_table %}disabled{% endif %}>Exclude Column</button>
       </div>
     </form>
+    {% if table_action_summary.has_selection %}
+    <dl class="detail-list management-inline-summary">
+      <div>
+        <dt>Secondary Engine</dt>
+        <dd>{{ "RAPID" if table_action_summary.secondary_engine_configured else "Not Configured" }}</dd>
+      </div>
+      <div>
+        <dt>Tracked in rpd</dt>
+        <dd>{{ "Yes" if table_action_summary.tracked_in_rpd else "No" }}</dd>
+      </div>
+      <div>
+        <dt>Load Progress</dt>
+        <dd>{{ table_action_summary.load_progress_label }}</dd>
+      </div>
+      <div>
+        <dt>Load State</dt>
+        <dd>{{ table_action_summary.load_state_label }}</dd>
+      </div>
+      <div>
+        <dt>Load Status</dt>
+        <dd>{{ table_action_summary.load_status_value }}</dd>
+      </div>
+      <div>
+        <dt>Excluded Columns</dt>
+        <dd>{{ table_action_summary.excluded_column_count }}</dd>
+      </div>
+    </dl>
+    {% else %}
+    <p class="helper-text">Choose a database and table to run a full table load, unload, or apply `NOT SECONDARY` to columns.</p>
+    {% endif %}
+    {% if table_action_summary.column_error %}
+    <p class="helper-text error-text">{{ table_action_summary.column_error }}</p>
+    {% endif %}
+    {% endif %}
   </article>
 
   <article class="panel">
@@ -124,4 +261,282 @@
     </div>
   </article>
 </section>
+
+<dialog class="management-dialog management-dialog-wide" id="database-status-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Database Status</h3>
+        <span class="helper-text">{{ selected_database or "Choose a database" }}</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="database-status-dialog">Close</button>
+    </div>
+    {% if selected_database %}
+    <div class="tab-strip" role="tablist">
+      <button class="tab-link active" type="button" data-popup-tab-group="database-status" data-popup-tab-button="info">Info</button>
+      <button class="tab-link" type="button" data-popup-tab-group="database-status" data-popup-tab-button="tables">Tables</button>
+    </div>
+    <section class="management-popup-panel active" data-popup-tab-group="database-status" data-popup-tab-panel="info">
+      {% if database_status.error %}
+      <p class="helper-text error-text">{{ database_status.error }}</p>
+      {% endif %}
+      <dl class="detail-list">
+        <div>
+          <dt>Configured</dt>
+          <dd>{{ database_status.summary.configured_table_count }}</dd>
+        </div>
+        <div>
+          <dt>Tracked</dt>
+          <dd>{{ database_status.summary.tracked_table_count }}</dd>
+        </div>
+        <div>
+          <dt>HeatWave Tables</dt>
+          <dd>{{ database_status.summary.heatwave_table_count }}</dd>
+        </div>
+        <div>
+          <dt>Loaded</dt>
+          <dd>{{ database_status.summary.loaded_count }}</dd>
+        </div>
+        <div>
+          <dt>Partial</dt>
+          <dd>{{ database_status.summary.partial_count }}</dd>
+        </div>
+        <div>
+          <dt>None</dt>
+          <dd>{{ database_status.summary.not_loaded_count }}</dd>
+        </div>
+      </dl>
+    </section>
+    <section class="management-popup-panel" data-popup-tab-group="database-status" data-popup-tab-panel="tables" hidden>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Secondary Engine</th>
+              <th>Tracked</th>
+              <th>Load Progress</th>
+              <th>Load Status</th>
+              <th>Load State</th>
+              <th>Recovery Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in database_status.rows %}
+            <tr class="hw-row-{{ row.health_class }}">
+              <td>{{ row.table_name }}</td>
+              <td>{{ "RAPID" if row.secondary_engine_configured else "-" }}</td>
+              <td>{{ "Yes" if row.tracked_in_rpd else "No" }}</td>
+              <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+              <td>{{ row.load_status_value }}</td>
+              <td>{{ row.load_state_label }}</td>
+              <td>{{ row.recovery_source_label }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="7">No HeatWave table rows returned for this database.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% else %}
+    <p class="helper-text">Choose a database on the DB tab to inspect HeatWave status.</p>
+    {% endif %}
+  </div>
+</dialog>
+
+<dialog class="management-dialog" id="exclude-columns-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Exclude Columns</h3>
+        <span class="helper-text">{% if selected_table %}{{ selected_database }}.{{ selected_table }}{% else %}Choose a table first{% endif %}</span>
+      </div>
+    </div>
+    {% if selected_table %}
+    <p class="helper-text">Choose columns to mark as <code>NOT SECONDARY</code>. Columns already excluded are shown for reference and can be selected again safely.</p>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="tab" value="table">
+      <input type="hidden" name="database" value="{{ selected_database }}">
+      <input type="hidden" name="table" value="{{ selected_table }}">
+      <div class="management-column-list">
+        {% for column in table_action_summary.columns %}
+        <label class="management-column-option {% if not column.supports_exclusion %}disabled{% endif %}">
+          <input type="checkbox" name="excluded_columns" value="{{ column.column_name }}" {% if not column.supports_exclusion %}disabled{% endif %}>
+          <span class="management-column-copy">
+            <strong>{{ column.column_name }}</strong>
+            <span class="helper-text">
+              {{ column.column_type }}
+              {% if column.is_not_secondary %} • Already NOT SECONDARY{% endif %}
+              {% if not column.supports_exclusion %} • Current definition unavailable{% endif %}
+            </span>
+          </span>
+        </label>
+        {% else %}
+        <p class="section-empty">No columns are available for this table.</p>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <button class="button primary" type="submit" name="management_action" value="exclude_columns_update" {% if not table_action_summary.columns %}disabled{% endif %}>Update</button>
+        <button class="button secondary" type="button" data-dialog-close="exclude-columns-dialog">Cancel</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="helper-text">Choose a database and table on the Table tab before managing excluded columns.</p>
+    <div class="form-actions">
+      <button class="button secondary" type="button" data-dialog-close="exclude-columns-dialog">Cancel</button>
+    </div>
+    {% endif %}
+  </div>
+</dialog>
+
+<dialog class="management-dialog management-dialog-wide" id="procedure-result-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>{{ management_popup_result.title if management_popup_result else "Procedure Result" }}</h3>
+        <span class="helper-text">HeatWave procedure result sets are shown as tabs.</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="procedure-result-dialog">Close</button>
+    </div>
+    {% if management_popup_result %}
+    <div class="tab-strip" role="tablist">
+      {% for tab in management_popup_result.tabs %}
+      <button
+        class="tab-link {% if loop.first %}active{% endif %}"
+        type="button"
+        data-popup-tab-group="procedure-result"
+        data-popup-tab-button="{{ tab.key }}"
+      >
+        {{ tab.label }}
+      </button>
+      {% endfor %}
+    </div>
+    {% for tab in management_popup_result.tabs %}
+    <section
+      class="management-popup-panel {% if loop.first %}active{% endif %}"
+      data-popup-tab-group="procedure-result"
+      data-popup-tab-panel="{{ tab.key }}"
+      {% if not loop.first %}hidden{% endif %}
+    >
+      {% if tab.kind == 'info' %}
+      <dl class="detail-list">
+        {% for item in tab.details %}
+        <div>
+          <dt>{{ item.label }}</dt>
+          <dd>{% if item.label == "SQL" %}<code>{{ item.value }}</code>{% else %}{{ item.value }}{% endif %}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+      {% elif tab.kind == 'message' %}
+      <p class="section-empty">{{ tab.message }}</p>
+      {% else %}
+      {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
+      {% endif %}
+    </section>
+    {% endfor %}
+    {% else %}
+    <p class="helper-text">Run a DB load or unload action to open the procedure result popup.</p>
+    {% endif %}
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const openDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) {
+          dialog.showModal();
+        }
+        return;
+      }
+      dialog.setAttribute("open", "open");
+    };
+
+    const closeDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute("open");
+    };
+
+    const activatePopupTab = (groupName, tabName) => {
+      document.querySelectorAll(`[data-popup-tab-group="${groupName}"][data-popup-tab-button]`).forEach((button) => {
+        button.classList.toggle("active", button.dataset.popupTabButton === tabName);
+      });
+      document.querySelectorAll(`[data-popup-tab-group="${groupName}"][data-popup-tab-panel]`).forEach((panel) => {
+        const isActive = panel.dataset.popupTabPanel === tabName;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+    };
+
+    document.querySelectorAll("[data-management-query]").forEach((field) => {
+      field.addEventListener("change", () => {
+        const form = field.closest("form");
+        const url = new URL(window.location.href);
+        const tab = field.dataset.managementTab || "db";
+        const databaseField = form ? form.querySelector('[name="database"]') : null;
+        const tableField = form ? form.querySelector('[name="table"]') : null;
+        const databaseValue = databaseField ? databaseField.value : "";
+        const tableValue = tableField ? tableField.value : "";
+
+        url.searchParams.set("tab", tab);
+        if (databaseValue) {
+          url.searchParams.set("database", databaseValue);
+        } else {
+          url.searchParams.delete("database");
+        }
+        if (field.dataset.resetTable === "true" || !tableValue) {
+          url.searchParams.delete("table");
+        } else {
+          url.searchParams.set("table", tableValue);
+        }
+        window.location.assign(url.toString());
+      });
+    });
+
+    document.querySelectorAll("[data-open-dialog]").forEach((button) => {
+      button.addEventListener("click", () => {
+        openDialog(document.getElementById(button.dataset.openDialog));
+      });
+    });
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeDialog(document.getElementById(button.dataset.dialogClose) || button.closest("dialog"));
+      });
+    });
+
+    document.querySelectorAll("[data-popup-tab-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activatePopupTab(button.dataset.popupTabGroup, button.dataset.popupTabButton);
+      });
+    });
+
+    document.querySelectorAll('dialog.management-dialog').forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog(dialog);
+        }
+      });
+    });
+
+    const autoDialog = {{ management_open_dialog|tojson }};
+    if (autoDialog) {
+      openDialog(document.getElementById(autoDialog));
+    }
+  })();
+</script>
 {% endblock %}

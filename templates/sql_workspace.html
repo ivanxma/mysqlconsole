@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+
+{% macro render_result_table(columns, rows, empty_text="No rows returned.") %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td>{% if row[column] is not none and row[column] != "" %}{{ row[column] }}{% else %}-{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ columns|length if columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">MySQL</p>
+  <h2>SQL Workspace</h2>
+  <p>Run SQL in a workspace-style editor, inspect multi-result output as tabs, and keep a lightweight execution history for this session.</p>
+</section>
+
+<section class="panel">
+  <form method="post" class="form-grid">
+    <div class="panel-header">
+      <div>
+        <h3>SQL Painter</h3>
+        <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan.</span>
+      </div>
+      <div class="panel-actions">
+        <button class="button primary" type="submit" name="workspace_action" value="execute">Execute</button>
+        <button class="button secondary" type="submit" name="workspace_action" value="explain">Explain</button>
+      </div>
+    </div>
+    <label>
+      Database
+      <select name="database">
+        <option value="">Profile Default</option>
+        {% for row in database_inventory %}
+        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>{{ row.database_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="full-span">
+      SQL Statement
+      <textarea name="sql_text" rows="14" class="sql-workspace-editor" placeholder="SELECT * FROM your_table LIMIT 10;">{{ sql_text }}</textarea>
+    </label>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>{{ last_result.title if last_result.has_output else "Last Result" }}</h3>
+    <span class="helper-text">Stacked result tabs from the most recent execution on this page.</span>
+  </div>
+  {% if last_result.has_output %}
+  <dl class="detail-list">
+    {% for item in last_result.summary_details %}
+    <div>
+      <dt>{{ item.label }}</dt>
+      <dd>{% if item.label == "SQL" %}<code>{{ item.value }}</code>{% else %}{{ item.value }}{% endif %}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  <div class="tab-strip workspace-tab-strip" role="tablist">
+    {% for tab in last_result.tabs %}
+    <button
+      class="tab-link {% if loop.first %}active{% endif %}"
+      type="button"
+      data-workspace-tab-group="last-result"
+      data-workspace-tab-button="{{ tab.key }}"
+    >
+      {{ tab.label }}
+    </button>
+    {% endfor %}
+  </div>
+  {% for tab in last_result.tabs %}
+  <section
+    class="workspace-tab-panel {% if loop.first %}active{% endif %}"
+    data-workspace-tab-group="last-result"
+    data-workspace-tab-panel="{{ tab.key }}"
+    {% if not loop.first %}hidden{% endif %}
+  >
+    {% if tab.kind == "table" %}
+    {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
+    {% elif tab.kind == "code" %}
+    <pre class="sql-block">{{ tab.text_output }}</pre>
+    {% elif tab.kind == "plan" %}
+    <div class="plan-visual-shell" data-plan-visual>
+      <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
+      <p class="helper-text" data-plan-status>Rendering execution plan...</p>
+      <div class="plan-canvas" data-plan-canvas hidden></div>
+    </div>
+    {% else %}
+    <p class="section-empty">{{ tab.message }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+  {% else %}
+  <p class="helper-text">Run Execute or Explain to populate the last result stack.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Execution History</h3>
+    <span class="helper-text">Recent executions stored for this browser session, with duration and status per row.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Executed</th>
+          <th>Action</th>
+          <th>Database</th>
+          <th>Status</th>
+          <th>Duration</th>
+          <th>SQL</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in history_rows %}
+        <tr>
+          <td>{{ row.executed_at }}</td>
+          <td>{{ row.action_label }}</td>
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.status }}</td>
+          <td>{{ row.duration_label }}</td>
+          <td>
+            <div>{{ row.query_preview }}</div>
+            {% if row.error_message %}
+            <div class="helper-text">{{ row.error_message }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">No SQL has been executed in this session.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const activateWorkspaceTab = (groupName, tabName) => {
+      document.querySelectorAll(`[data-workspace-tab-group="${groupName}"][data-workspace-tab-button]`).forEach((button) => {
+        button.classList.toggle("active", button.dataset.workspaceTabButton === tabName);
+      });
+      document.querySelectorAll(`[data-workspace-tab-group="${groupName}"][data-workspace-tab-panel]`).forEach((panel) => {
+        const isActive = panel.dataset.workspaceTabPanel === tabName;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+    };
+
+    document.querySelectorAll("[data-workspace-tab-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activateWorkspaceTab(button.dataset.workspaceTabGroup, button.dataset.workspaceTabButton);
+      });
+    });
+
+    const humanize = (value) => String(value || "")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+
+    const isScalar = (value) => value === null || ["string", "number", "boolean"].includes(typeof value);
+
+    const deriveNodeTitle = (label, payload) => {
+      if (payload && typeof payload === "object") {
+        if (payload.table_name) {
+          return `Table: ${payload.table_name}`;
+        }
+        if (label === "query_block" && payload.select_id) {
+          return `Query Block #${payload.select_id}`;
+        }
+        if (label === "grouping_operation") {
+          return "Grouping";
+        }
+        if (label === "ordering_operation") {
+          return "Ordering";
+        }
+        if (label === "duplicates_removal") {
+          return "Duplicates Removal";
+        }
+      }
+      return humanize(label);
+    };
+
+    const appendMetadata = (container, payload) => {
+      const details = [];
+      Object.entries(payload || {}).forEach(([key, value]) => {
+        if (key === "cost_info" && value && typeof value === "object") {
+          Object.entries(value).forEach(([costKey, costValue]) => {
+            if (isScalar(costValue)) {
+              details.push({ label: `Cost ${humanize(costKey)}`, value: String(costValue) });
+            }
+          });
+          return;
+        }
+        if (isScalar(value)) {
+          details.push({ label: humanize(key), value: String(value) });
+        }
+      });
+      if (!details.length) {
+        return;
+      }
+
+      const list = document.createElement("dl");
+      list.className = "plan-metadata";
+      details.slice(0, 10).forEach((item) => {
+        const wrapper = document.createElement("div");
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = item.label;
+        description.textContent = item.value;
+        wrapper.appendChild(term);
+        wrapper.appendChild(description);
+        list.appendChild(wrapper);
+      });
+      container.appendChild(list);
+    };
+
+    const createPlanNode = (label, payload) => {
+      if (Array.isArray(payload)) {
+        const collection = document.createElement("div");
+        collection.className = "plan-children";
+        payload.forEach((entry, index) => {
+          const childNode = createPlanNode(`${label}_${index + 1}`, entry);
+          if (childNode) {
+            collection.appendChild(childNode);
+          }
+        });
+        return collection.childNodes.length ? collection : null;
+      }
+
+      if (!payload || typeof payload !== "object") {
+        return null;
+      }
+
+      const node = document.createElement("article");
+      node.className = "plan-node";
+
+      const title = document.createElement("h4");
+      title.textContent = deriveNodeTitle(label, payload);
+      node.appendChild(title);
+      appendMetadata(node, payload);
+
+      const structuralEntries = Object.entries(payload).filter(([key, value]) => {
+        if (key === "cost_info") {
+          return false;
+        }
+        return Array.isArray(value) || (value && typeof value === "object");
+      });
+
+      if (structuralEntries.length) {
+        const childrenWrap = document.createElement("div");
+        childrenWrap.className = "plan-children";
+        structuralEntries.forEach(([key, value]) => {
+          const childNode = createPlanNode(key, value);
+          if (childNode) {
+            childrenWrap.appendChild(childNode);
+          }
+        });
+        if (childrenWrap.childNodes.length) {
+          node.appendChild(childrenWrap);
+        }
+      }
+
+      return node;
+    };
+
+    document.querySelectorAll("[data-plan-visual]").forEach((visualShell) => {
+      const status = visualShell.querySelector("[data-plan-status]");
+      const canvas = visualShell.querySelector("[data-plan-canvas]");
+      const jsonNode = visualShell.querySelector("[data-plan-json]");
+      if (!canvas || !jsonNode) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(jsonNode.textContent || "{}");
+        const planNode = createPlanNode("query_plan", payload);
+        if (!planNode) {
+          status.textContent = "No visual execution plan could be derived from the JSON payload.";
+          return;
+        }
+        canvas.innerHTML = "";
+        canvas.appendChild(planNode);
+        canvas.hidden = false;
+        status.hidden = true;
+      } catch (error) {
+        status.textContent = "Unable to render the JSON execution plan.";
+      }
+    });
+  })();
+</script>
+{% endblock %}

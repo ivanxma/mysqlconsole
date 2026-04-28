@@ -58,7 +58,62 @@
         <dt>Object Storage</dt>
         <dd>{{ setup_status.summary }}</dd>
       </div>
+      <div>
+        <dt>Installed Components</dt>
+        <dd>{{ server_overview.installed_component_count }}</dd>
+      </div>
+      <div>
+        <dt>Security Features</dt>
+        <dd>{{ server_overview.enabled_security_feature_count }} active of {{ server_overview.security_feature_count }}</dd>
+      </div>
+      <div>
+        <dt>Global Time Zone</dt>
+        <dd>{{ server_overview.global_time_zone }}</dd>
+      </div>
+      <div>
+        <dt>Session Time Zone</dt>
+        <dd>{{ server_overview.session_time_zone }}</dd>
+      </div>
+      <div>
+        <dt>System Time Zone</dt>
+        <dd>{{ server_overview.system_time_zone }}</dd>
+      </div>
+      <div>
+        <dt>Time Zone Tables</dt>
+        <dd>{{ server_overview.time_zone_tables_label }}</dd>
+      </div>
+      <div>
+        <dt>Time Zone Table Rows</dt>
+        <dd>{{ server_overview.time_zone_table_row_count }}</dd>
+      </div>
+      <div>
+        <dt>Server Charset</dt>
+        <dd>{{ server_overview.server_charset }}</dd>
+      </div>
+      <div>
+        <dt>Server Collation</dt>
+        <dd>{{ server_overview.server_collation }}</dd>
+      </div>
+      <div>
+        <dt>Global SQL Mode</dt>
+        <dd><code>{{ server_overview.global_sql_mode or "-" }}</code></dd>
+      </div>
+      <div>
+        <dt>Session SQL Mode</dt>
+        <dd><code>{{ server_overview.session_sql_mode or "-" }}</code></dd>
+      </div>
+      <div>
+        <dt>Current Connections</dt>
+        <dd>{{ server_overview.current_connection_count }}</dd>
+      </div>
+      <div>
+        <dt>Max Connections</dt>
+        <dd>{{ server_overview.max_connections }}</dd>
+      </div>
     </dl>
+    {% if server_overview.time_zone_tables_error %}
+    <p class="helper-text error-text">{{ server_overview.time_zone_tables_error }}</p>
+    {% endif %}
   </article>
 
   <article class="panel">
@@ -96,6 +151,143 @@
       </div>
     </dl>
   </article>
+</section>
+
+<section class="split-layout">
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Security Overview</h3>
+      <span class="helper-text">Installed components from <code>mysql.component</code>, security-related components/plugins, and recent server diagnostics from <code>performance_schema.error_log</code>.</span>
+    </div>
+    <dl class="detail-list">
+      <div>
+        <dt>Installed Components</dt>
+        <dd>{{ server_overview.installed_component_count }}</dd>
+      </div>
+      <div>
+        <dt>Security Features</dt>
+        <dd>{{ server_overview.security_feature_count }}</dd>
+      </div>
+      <div>
+        <dt>Enabled / Active</dt>
+        <dd>{{ server_overview.enabled_security_feature_count }}</dd>
+      </div>
+      <div>
+        <dt>Error / Warning Events (24h)</dt>
+        <dd>{{ server_overview.recent_error_log_count }}</dd>
+      </div>
+    </dl>
+    {% if server_overview.installed_components_error %}
+    <p class="helper-text error-text">{{ server_overview.installed_components_error }}</p>
+    {% endif %}
+    {% if server_overview.security_features_error %}
+    <p class="helper-text error-text">{{ server_overview.security_features_error }}</p>
+    {% endif %}
+    {% if server_overview.recent_error_log_error %}
+    <p class="helper-text error-text">{{ server_overview.recent_error_log_error }}</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h3>Security Components and Plugins</h3>
+      <span class="helper-text">Security-related components and plugins that are installed or currently loaded.</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Enabled</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.security_features %}
+          <tr>
+            <td>{{ row.feature_type }}</td>
+            <td>{{ row.feature_name }}</td>
+            <td>{{ row.status_label }}</td>
+            <td>{{ "Yes" if row.is_enabled else "No" }}</td>
+            <td>{{ row.details }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">No security-related components or plugins were detected.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Installed Components</h3>
+    <span class="helper-text">Component inventory from <code>mysql.component</code>. Security-related rows are marked in the last column.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>URN</th>
+          <th>Security Related</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in server_overview.installed_components %}
+        <tr>
+          <td>{{ row.component_name }}</td>
+          <td>{{ row.component_urn }}</td>
+          <td>{{ "Yes" if row.is_security_related else "No" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3">No installed components returned.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Error Log (24h)</h3>
+    <span class="helper-text">Recent <code>System</code>, <code>Error</code>, and <code>Warning</code> rows from <code>performance_schema.error_log</code>.</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Logged</th>
+          <th>Priority</th>
+          <th>Subsystem</th>
+          <th>Error Code</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in server_overview.recent_error_log_rows %}
+        <tr>
+          <td>{{ row.logged }}</td>
+          <td>{{ row.priority }}</td>
+          <td>{{ row.subsystem }}</td>
+          <td>{{ row.error_code }}</td>
+          <td>{{ row.message }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5">No system, warning, or error rows were returned for the last 24 hours.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="panel">
