@@ -8,6 +8,13 @@ NORMAL_LOAD_STATUSES = {
 }
 
 
+def _is_normal_load_status(load_status_value):
+    normalized_status = str(load_status_value or "").strip().upper()
+    if not normalized_status:
+        return False
+    return normalized_status.startswith("AVAIL_") or normalized_status in NORMAL_LOAD_STATUSES
+
+
 def _first_defined_value(row, candidate_keys):
     lowered_row = None
     for key in candidate_keys:
@@ -118,7 +125,7 @@ def _derive_load_state(row):
 
 def _derive_health_class(row, load_state, load_status_value, progress_value):
     normalized_status = load_status_value.upper()
-    if normalized_status and normalized_status not in NORMAL_LOAD_STATUSES:
+    if normalized_status and not _is_normal_load_status(normalized_status):
         return "error"
     if progress_value is not None:
         if progress_value >= 99.999:

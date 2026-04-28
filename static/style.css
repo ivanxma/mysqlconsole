@@ -638,6 +638,42 @@ h4 {
   background: rgba(169, 58, 26, 0.08);
 }
 
+.panel-anchor {
+  scroll-margin-top: 18px;
+}
+
+.count-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.count-link-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 252, 248, 0.94);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.count-link-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(169, 58, 26, 0.24);
+  box-shadow: 0 12px 24px rgba(67, 42, 15, 0.08);
+}
+
+.count-link-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.count-link-helper {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .hw-row-loaded td {
   background: rgba(47, 116, 66, 0.14);
 }
