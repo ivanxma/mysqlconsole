@@ -32,8 +32,25 @@
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">HeatWave</p>
-  <h2>Management</h2>
+  <h2>HeatWave Manage</h2>
   <p>Run database-level HeatWave load actions, inspect current DB status, and manage table-level load and column exclusion controls.</p>
+</section>
+
+<section class="tab-shell">
+  <div class="tab-strip">
+    <a
+      class="tab-link"
+      href="{{ url_for('hw_table_page') }}"
+    >
+      HW Table
+    </a>
+    <a
+      class="tab-link active"
+      href="{{ url_for('heatwave_management_page', tab=active_tab, database=selected_database, table=selected_table) }}"
+    >
+      HeatWave Manage
+    </a>
+  </div>
 </section>
 
 <section class="tab-shell">

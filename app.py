@@ -135,7 +135,7 @@ NAV_GROUPS = [
         "label": "HeatWave",
         "items": [
             {"endpoint": "hw_table_page", "label": "HW Table"},
-            {"endpoint": "heatwave_management_page", "label": "Management"},
+            {"endpoint": "heatwave_management_page", "label": "HeatWave Manage"},
             {"endpoint": "monitoring_performance_page", "label": "Performance Query"},
             {"endpoint": "monitoring_ml_page", "label": "ML Query"},
             {"endpoint": "monitoring_load_recovery_page", "label": "Table Load Recovery"},
