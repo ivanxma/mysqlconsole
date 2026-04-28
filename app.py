@@ -100,6 +100,7 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
     "on",
 }
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
+ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
     "DOUBLE",
@@ -1659,7 +1660,8 @@ def fetch_security_feature_rows(installed_components):
     return security_rows
 
 
-def fetch_recent_error_log_rows(hours=24, limit=50):
+def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
+    normalized_priorities = _normalize_error_log_priorities(priorities)
     column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
     if not column_lookup:
         raise ValueError("performance_schema.error_log is not available on this server.")
@@ -1690,20 +1692,23 @@ def fetch_recent_error_log_rows(hours=24, limit=50):
         columns=", ".join(selected_columns),
         logged_column=quote_identifier(logged_column),
     )
-    if prio_column:
-        sql += (
-            " AND UPPER(COALESCE({priority_column}, '')) IN ('SYSTEM', 'ERROR', 'WARNING')"
-        ).format(priority_column=quote_identifier(prio_column))
+    params = [int(hours)]
+    if prio_column and normalized_priorities:
+        sql += " AND UPPER(COALESCE({priority_column}, '')) IN ({placeholders})".format(
+            priority_column=quote_identifier(prio_column),
+            placeholders=", ".join(["%s"] * len(normalized_priorities)),
+        )
+        params.extend(priority.upper() for priority in normalized_priorities)
     sql += " ORDER BY {logged_column} DESC LIMIT {limit}".format(
         logged_column=quote_identifier(logged_column),
         limit=int(limit),
     )
 
-    rows = execute_query(sql, [int(hours)])
+    rows = execute_query(sql, params)
     return [
         {
             "logged": row["logged_value"],
-            "priority": row.get("priority_value") or "-",
+            "priority": str(row.get("priority_value") or "-"),
             "error_code": row.get("error_code_value") or "-",
             "subsystem": row.get("subsystem_value") or "-",
             "message": row.get("message_value") or "-",
@@ -1712,7 +1717,8 @@ def fetch_recent_error_log_rows(hours=24, limit=50):
     ]
 
 
-def fetch_server_overview():
+def fetch_server_overview(recent_error_log_priorities=None):
+    selected_error_log_priorities = _normalize_error_log_priorities(recent_error_log_priorities)
     version = fetch_scalar("SELECT VERSION()", default="-")
     current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
     default_database = fetch_scalar("SELECT DATABASE()", default="-")
@@ -1801,7 +1807,11 @@ def fetch_server_overview():
         security_features_error = str(error)
 
     try:
-        recent_error_log_rows = fetch_recent_error_log_rows(hours=24, limit=50)
+        recent_error_log_rows = fetch_recent_error_log_rows(
+            hours=24,
+            limit=50,
+            priorities=selected_error_log_priorities,
+        )
         recent_error_log_error = ""
     except Exception as error:  # pragma: no cover - depends on server features
         recent_error_log_rows = []
@@ -1841,6 +1851,9 @@ def fetch_server_overview():
         "security_features_error": security_features_error,
         "security_feature_count": len(security_features),
         "enabled_security_feature_count": sum(1 for row in security_features if row["is_enabled"]),
+        "error_log_priority_options": list(ERROR_LOG_PRIORITY_OPTIONS),
+        "selected_error_log_priorities": selected_error_log_priorities,
+        "selected_error_log_priority_label": ", ".join(selected_error_log_priorities),
         "recent_error_log_rows": recent_error_log_rows,
         "recent_error_log_error": recent_error_log_error,
         "recent_error_log_count": len(recent_error_log_rows),
@@ -4141,6 +4154,22 @@ def _normalize_checkbox(value):
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_error_log_priorities(values):
+    allowed_lookup = {
+        str(option).strip().lower(): str(option)
+        for option in ERROR_LOG_PRIORITY_OPTIONS
+    }
+    normalized = []
+    seen = set()
+    for value in values or []:
+        normalized_value = allowed_lookup.get(str(value or "").strip().lower())
+        if not normalized_value or normalized_value in seen:
+            continue
+        normalized.append(normalized_value)
+        seen.add(normalized_value)
+    return normalized or list(ERROR_LOG_PRIORITY_OPTIONS)
+
+
 def render_dashboard(template_name, **context):
     profile = get_session_profile()
     overview = context.pop("server_overview", None)
@@ -4313,11 +4342,18 @@ def admin_status_variables_page():
 @app.route("/mysql/dashboard")
 @login_required
 def mysql_dashboard_page():
+    dashboard_tab = str(request.args.get("dashboard_tab", "security")).strip().lower()
+    if dashboard_tab not in {"security", "error-log"}:
+        dashboard_tab = "security"
+    selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
     return render_dashboard(
         "mysql_dashboard.html",
         page_title="Admin Dashboard",
+        dashboard_tab=dashboard_tab,
         **module_build_mysql_dashboard_context(
-            fetch_server_overview=fetch_server_overview,
+            fetch_server_overview=lambda: fetch_server_overview(
+                recent_error_log_priorities=selected_error_log_priorities
+            ),
             fetch_database_inventory=fetch_database_inventory,
             fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
         ),
@@ -4327,6 +4363,9 @@ def mysql_dashboard_page():
 @app.route("/mysql/sql-workspace", methods=["GET", "POST"])
 @login_required
 def sql_workspace_page():
+    workspace_output_tab = str(request.values.get("output_tab", "execution-result")).strip().lower()
+    if workspace_output_tab not in {"execution-result", "history"}:
+        workspace_output_tab = "execution-result"
     default_database = str(get_session_profile().get("database", "") or "").strip()
     if is_system_schema_name(default_database):
         default_database = ""
@@ -4344,7 +4383,18 @@ def sql_workspace_page():
         action = str(request.form.get("workspace_action", "execute")).strip().lower()
         selected_database = str(request.form.get("database", "")).strip()
         sql_text = str(request.form.get("sql_text", ""))
+        if action == "clear_history":
+            session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = []
+            flash("SQL workspace history cleared.", "success")
+            redirect_values = {"output_tab": "history"}
+            if selected_database:
+                redirect_values["database"] = selected_database
+            if sql_text:
+                redirect_values["sql_text"] = sql_text
+            return redirect(url_for("sql_workspace_page", **redirect_values))
+
         started_at = perf_counter()
+        workspace_output_tab = "execution-result"
 
         if action == "explain":
             normalized_statement = sql_text
@@ -4463,6 +4513,7 @@ def sql_workspace_page():
     return render_dashboard(
         "sql_workspace.html",
         page_title="SQL Workspace",
+        workspace_output_tab=workspace_output_tab,
         **page_context,
     )
 
@@ -4576,21 +4627,32 @@ def db_admin_page():
     selected_database = str(request.values.get("database", "")).strip()
     selected_table = str(request.values.get("table", "")).strip()
     preview_page = normalize_page_number(request.args.get("page", "1"))
+    db_open_dialog = "modify-columns-dialog" if str(request.args.get("dialog", "")).strip() == "modify-columns" else ""
+    db_admin_edit_payload = None
 
     if request.method == "POST":
         action = str(request.form.get("db_action", "")).strip()
+        selected_database = str(request.form.get("database_name", selected_database)).strip()
+        selected_table = str(request.form.get("table_name", selected_table)).strip()
         try:
             action_result = module_handle_db_admin_action(
                 action,
                 request.form.get("database_name", ""),
+                table_name=request.form.get("table_name", ""),
+                payload=request.form,
                 quote_identifier=quote_identifier,
                 execute_statement=execute_statement,
                 system_schemas=SYSTEM_SCHEMAS,
+                fetch_create_table_statement=fetch_create_table_statement,
+                fetch_table_columns=fetch_table_columns,
             )
             flash(action_result["flash_message"], action_result["flash_category"])
             return redirect(url_for(action_result["redirect_endpoint"], **action_result["redirect_values"]))
         except Exception as error:
             flash(str(error), "error")
+            if action == "modify_table_columns":
+                db_open_dialog = "modify-columns-dialog"
+                db_admin_edit_payload = request.form
 
     page_context = module_build_db_admin_context(
         selected_database,
@@ -4604,6 +4666,7 @@ def db_admin_page():
         fetch_table_columns=fetch_table_columns,
         fetch_table_indexes=fetch_table_indexes,
         fetch_table_partitions=fetch_table_partitions,
+        column_edit_payload=db_admin_edit_payload,
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])
@@ -4612,6 +4675,7 @@ def db_admin_page():
     return render_dashboard(
         "db_admin.html",
         page_title="DB Admin",
+        db_open_dialog=db_open_dialog,
         **page_context,
     )
 
@@ -4711,7 +4775,6 @@ def heatwave_management_page():
         fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
         fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
         execute_query=execute_query,
-        load_object_storage_config=load_object_storage_config,
     )
     return render_dashboard(
         "heatwave_management.html",

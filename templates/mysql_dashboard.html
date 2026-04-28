@@ -37,7 +37,7 @@
 <section class="split-layout">
   <article class="panel">
     <h3>Connection Details</h3>
-    <dl class="detail-list">
+    <dl class="detail-list dashboard-detail-list">
       <div>
         <dt>Version</dt>
         <dd>{{ server_overview.server_version }}</dd>
@@ -124,7 +124,7 @@
     {% if heatwave_summary.error %}
     <p class="helper-text error-text">{{ heatwave_summary.error }}</p>
     {% endif %}
-    <dl class="detail-list">
+    <dl class="detail-list dashboard-detail-list">
       <div>
         <dt>Configured HeatWave Tables</dt>
         <dd>{{ heatwave_summary.totals.configured_table_count }}</dd>
@@ -153,141 +153,195 @@
   </article>
 </section>
 
-<section class="split-layout">
-  <article class="panel">
-    <div class="panel-header">
-      <h3>Security Overview</h3>
-      <span class="helper-text">Installed components from <code>mysql.component</code>, security-related components/plugins, and recent server diagnostics from <code>performance_schema.error_log</code>.</span>
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Security and Diagnostics</h3>
+      <span class="helper-text">Compact tabbed view for component inventory, security features, and the last 24 hours of <code>performance_schema.error_log</code>.</span>
     </div>
-    <dl class="detail-list">
-      <div>
-        <dt>Installed Components</dt>
-        <dd>{{ server_overview.installed_component_count }}</dd>
-      </div>
-      <div>
-        <dt>Security Features</dt>
-        <dd>{{ server_overview.security_feature_count }}</dd>
-      </div>
-      <div>
-        <dt>Enabled / Active</dt>
-        <dd>{{ server_overview.enabled_security_feature_count }}</dd>
-      </div>
-      <div>
-        <dt>Error / Warning Events (24h)</dt>
-        <dd>{{ server_overview.recent_error_log_count }}</dd>
-      </div>
-    </dl>
-    {% if server_overview.installed_components_error %}
-    <p class="helper-text error-text">{{ server_overview.installed_components_error }}</p>
-    {% endif %}
-    {% if server_overview.security_features_error %}
-    <p class="helper-text error-text">{{ server_overview.security_features_error }}</p>
-    {% endif %}
-    {% if server_overview.recent_error_log_error %}
-    <p class="helper-text error-text">{{ server_overview.recent_error_log_error }}</p>
-    {% endif %}
-  </article>
+  </div>
+  <div class="tab-strip" role="tablist">
+    <button
+      class="tab-link {% if dashboard_tab == 'security' %}active{% endif %}"
+      type="button"
+      data-dashboard-tab-group="security-diagnostics"
+      data-dashboard-tab-button="security"
+    >
+      Security
+    </button>
+    <button
+      class="tab-link {% if dashboard_tab == 'error-log' %}active{% endif %}"
+      type="button"
+      data-dashboard-tab-group="security-diagnostics"
+      data-dashboard-tab-button="error-log"
+    >
+      Error Log
+    </button>
+  </div>
+  <section
+    class="dashboard-tab-panel {% if dashboard_tab == 'security' %}active{% endif %}"
+    data-dashboard-tab-group="security-diagnostics"
+    data-dashboard-tab-panel="security"
+    {% if dashboard_tab != 'security' %}hidden{% endif %}
+  >
+    <section class="split-layout split-layout-compact">
+      <article class="dashboard-compact-card">
+        <h4>Security Overview</h4>
+        <dl class="detail-list dashboard-detail-list">
+          <div>
+            <dt>Installed Components</dt>
+            <dd>{{ server_overview.installed_component_count }}</dd>
+          </div>
+          <div>
+            <dt>Security Features</dt>
+            <dd>{{ server_overview.security_feature_count }}</dd>
+          </div>
+          <div>
+            <dt>Enabled / Active</dt>
+            <dd>{{ server_overview.enabled_security_feature_count }}</dd>
+          </div>
+          <div>
+            <dt>Error Log Rows (24h)</dt>
+            <dd>{{ server_overview.recent_error_log_count }}</dd>
+          </div>
+        </dl>
+        {% if server_overview.installed_components_error %}
+        <p class="helper-text error-text">{{ server_overview.installed_components_error }}</p>
+        {% endif %}
+        {% if server_overview.security_features_error %}
+        <p class="helper-text error-text">{{ server_overview.security_features_error }}</p>
+        {% endif %}
+      </article>
 
-  <article class="panel">
-    <div class="panel-header">
-      <h3>Security Components and Plugins</h3>
-      <span class="helper-text">Security-related components and plugins that are installed or currently loaded.</span>
-    </div>
+      <article class="dashboard-compact-card">
+        <h4>Security Components and Plugins</h4>
+        <div class="table-wrap">
+          <table class="dashboard-compact-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Enabled</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in server_overview.security_features %}
+              <tr>
+                <td>{{ row.feature_type }}</td>
+                <td>{{ row.feature_name }}</td>
+                <td>{{ row.status_label }}</td>
+                <td>{{ "Yes" if row.is_enabled else "No" }}</td>
+                <td>{{ row.details }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5">No security-related components or plugins were detected.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
     <div class="table-wrap">
-      <table>
+      <table class="dashboard-compact-table">
         <thead>
           <tr>
-            <th>Type</th>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Enabled</th>
-            <th>Details</th>
+            <th>Component</th>
+            <th>URN</th>
+            <th>Security Related</th>
           </tr>
         </thead>
         <tbody>
-          {% for row in server_overview.security_features %}
+          {% for row in server_overview.installed_components %}
           <tr>
-            <td>{{ row.feature_type }}</td>
-            <td>{{ row.feature_name }}</td>
-            <td>{{ row.status_label }}</td>
-            <td>{{ "Yes" if row.is_enabled else "No" }}</td>
-            <td>{{ row.details }}</td>
+            <td>{{ row.component_name }}</td>
+            <td>{{ row.component_urn }}</td>
+            <td>{{ "Yes" if row.is_security_related else "No" }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">No security-related components or plugins were detected.</td>
+            <td colspan="3">No installed components returned.</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </article>
-</section>
-
-<section class="panel">
-  <div class="panel-header">
-    <h3>Installed Components</h3>
-    <span class="helper-text">Component inventory from <code>mysql.component</code>. Security-related rows are marked in the last column.</span>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Component</th>
-          <th>URN</th>
-          <th>Security Related</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in server_overview.installed_components %}
-        <tr>
-          <td>{{ row.component_name }}</td>
-          <td>{{ row.component_urn }}</td>
-          <td>{{ "Yes" if row.is_security_related else "No" }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="3">No installed components returned.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="panel">
-  <div class="panel-header">
-    <h3>Error Log (24h)</h3>
-    <span class="helper-text">Recent <code>System</code>, <code>Error</code>, and <code>Warning</code> rows from <code>performance_schema.error_log</code>.</span>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Logged</th>
-          <th>Priority</th>
-          <th>Subsystem</th>
-          <th>Error Code</th>
-          <th>Message</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in server_overview.recent_error_log_rows %}
-        <tr>
-          <td>{{ row.logged }}</td>
-          <td>{{ row.priority }}</td>
-          <td>{{ row.subsystem }}</td>
-          <td>{{ row.error_code }}</td>
-          <td>{{ row.message }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5">No system, warning, or error rows were returned for the last 24 hours.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  </section>
+  <section
+    class="dashboard-tab-panel {% if dashboard_tab == 'error-log' %}active{% endif %}"
+    data-dashboard-tab-group="security-diagnostics"
+    data-dashboard-tab-panel="error-log"
+    {% if dashboard_tab != 'error-log' %}hidden{% endif %}
+  >
+    <form method="get" class="form-grid compact-form">
+      <input type="hidden" name="dashboard_tab" value="error-log">
+      <div class="priority-filter-shell full-span">
+        <span class="metric-label">PRIO Selection</span>
+        <div class="priority-filter-list">
+          {% for priority in server_overview.error_log_priority_options %}
+          <label class="priority-filter-option">
+            <input
+              type="checkbox"
+              name="error_prio"
+              value="{{ priority }}"
+              {% if priority in server_overview.selected_error_log_priorities %}checked{% endif %}
+            >
+            <span>{{ priority }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <span class="helper-text">Choose one or more priority levels: Note, System, Warning, Error.</span>
+      </div>
+      <div class="form-actions">
+        <button class="button secondary" type="submit">Apply PRIO</button>
+      </div>
+    </form>
+    <dl class="detail-list dashboard-detail-list">
+      <div>
+        <dt>Selected PRIO</dt>
+        <dd>{{ server_overview.selected_error_log_priority_label }}</dd>
+      </div>
+      <div>
+        <dt>Returned Rows</dt>
+        <dd>{{ server_overview.recent_error_log_count }}</dd>
+      </div>
+    </dl>
+    {% if server_overview.recent_error_log_error %}
+    <p class="helper-text error-text">{{ server_overview.recent_error_log_error }}</p>
+    {% endif %}
+    <div class="table-wrap">
+      <table class="dashboard-compact-table">
+        <thead>
+          <tr>
+            <th>Logged</th>
+            <th>Priority</th>
+            <th>Subsystem</th>
+            <th>Error Code</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in server_overview.recent_error_log_rows %}
+          <tr>
+            <td>{{ row.logged }}</td>
+            <td>{{ row.priority }}</td>
+            <td>{{ row.subsystem }}</td>
+            <td>{{ row.error_code }}</td>
+            <td>{{ row.message }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">No rows were returned for the selected priorities in the last 24 hours.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 
 <section class="panel">
@@ -366,4 +420,27 @@
     </table>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const activateDashboardTab = (groupName, tabName) => {
+      document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-button]`).forEach((button) => {
+        button.classList.toggle("active", button.dataset.dashboardTabButton === tabName);
+      });
+      document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-panel]`).forEach((panel) => {
+        const isActive = panel.dataset.dashboardTabPanel === tabName;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+    };
+
+    document.querySelectorAll("[data-dashboard-tab-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activateDashboardTab(button.dataset.dashboardTabGroup, button.dataset.dashboardTabButton);
+      });
+    });
+  })();
+</script>
 {% endblock %}

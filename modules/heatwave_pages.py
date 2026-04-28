@@ -727,21 +727,66 @@ def _build_not_secondary_modify_clauses(selected_columns, create_table_statement
     column_definitions = _extract_column_definitions_from_create_statement(create_table_statement)
     modify_clauses = []
     missing_columns = []
+    selected_lookup = {
+        str(column_name or "").strip()
+        for column_name in selected_columns or []
+        if str(column_name or "").strip()
+    }
 
-    for column_name in selected_columns:
-        column_definition = column_definitions.get(column_name)
-        if not column_definition:
+    for column_name, column_definition in column_definitions.items():
+        should_be_not_secondary = column_name in selected_lookup
+        currently_not_secondary = _definition_has_not_secondary(column_definition)
+        if should_be_not_secondary == currently_not_secondary:
+            continue
+
+        normalized_definition = _definition_without_not_secondary(column_definition)
+        if not normalized_definition:
             missing_columns.append(column_name)
             continue
-        normalized_definition = _definition_without_not_secondary(column_definition)
+
+        final_definition = (
+            f"{normalized_definition} NOT SECONDARY"
+            if should_be_not_secondary
+            else normalized_definition
+        )
         modify_clauses.append(
-            f"MODIFY COLUMN {quote_identifier(column_name)} {normalized_definition} NOT SECONDARY"
+            f"MODIFY COLUMN {quote_identifier(column_name)} {final_definition}"
         )
 
+    for column_name in selected_lookup:
+        if column_name not in column_definitions:
+            missing_columns.append(column_name)
+
     if missing_columns:
-        missing_list = ", ".join(f"`{column_name}`" for column_name in missing_columns)
+        missing_list = ", ".join(f"`{column_name}`" for column_name in sorted(set(missing_columns), key=str.lower))
         raise ValueError(f"Unable to determine current column definitions for {missing_list}.")
     return modify_clauses
+
+
+def _summarize_not_secondary_changes(selected_columns, create_table_statement):
+    column_definitions = _extract_column_definitions_from_create_statement(create_table_statement)
+    selected_lookup = {
+        str(column_name or "").strip()
+        for column_name in selected_columns or []
+        if str(column_name or "").strip()
+    }
+    added_count = 0
+    removed_count = 0
+
+    for column_name, column_definition in column_definitions.items():
+        should_be_not_secondary = column_name in selected_lookup
+        currently_not_secondary = _definition_has_not_secondary(column_definition)
+        if should_be_not_secondary and not currently_not_secondary:
+            added_count += 1
+        elif currently_not_secondary and not should_be_not_secondary:
+            removed_count += 1
+
+    return {
+        "added_count": added_count,
+        "removed_count": removed_count,
+        "changed_count": added_count + removed_count,
+        "selected_count": len(selected_lookup),
+    }
 
 
 def _build_management_procedure_popup(title, sql_text, selected_database, result_sets):
@@ -911,23 +956,38 @@ def handle_heatwave_management_action(
             selected_columns.append(column_name)
             seen_columns.add(column_name)
 
-        if not selected_columns:
-            raise ValueError("Choose at least one column to mark as NOT SECONDARY.")
-
         create_table_statement = fetch_create_table_statement(normalized_database, normalized_table)
+        change_summary = _summarize_not_secondary_changes(selected_columns, create_table_statement)
         modify_clauses = _build_not_secondary_modify_clauses(
             selected_columns,
             create_table_statement,
             quote_identifier=quote_identifier,
         )
-        execute_statement(
-            f"ALTER TABLE {safe_database}.{safe_table} " + ", ".join(modify_clauses)
-        )
+        if modify_clauses:
+            execute_statement(
+                f"ALTER TABLE {safe_database}.{safe_table} " + ", ".join(modify_clauses)
+            )
+            if change_summary["added_count"] and change_summary["removed_count"]:
+                flash_message = (
+                    f"Updated exclusions on `{normalized_database}.{normalized_table}`: "
+                    f"{change_summary['added_count']} column(s) marked NOT SECONDARY and "
+                    f"{change_summary['removed_count']} column(s) restored."
+                )
+            elif change_summary["added_count"]:
+                flash_message = (
+                    f"Marked {change_summary['added_count']} column(s) on "
+                    f"`{normalized_database}.{normalized_table}` as NOT SECONDARY."
+                )
+            else:
+                flash_message = (
+                    f"Restored {change_summary['removed_count']} column(s) on "
+                    f"`{normalized_database}.{normalized_table}` back to secondary eligibility."
+                )
+        else:
+            flash_message = f"No column exclusion changes were needed for `{normalized_database}.{normalized_table}`."
         return {
             "flash_category": "success",
-            "flash_message": (
-                f"Updated {len(selected_columns)} column(s) on `{normalized_database}.{normalized_table}` as NOT SECONDARY."
-            ),
+            "flash_message": flash_message,
             "redirect_values": {"tab": "table", "database": normalized_database, "table": normalized_table},
         }
 
@@ -946,7 +1006,6 @@ def build_heatwave_management_context(
     fetch_heatwave_inventory_report,
     fetch_heatwave_defined_secondary_engine_tables,
     execute_query,
-    load_object_storage_config,
 ):
     normalized_database = str(selected_database or "").strip()
     normalized_table = str(selected_table or "").strip()
@@ -1022,5 +1081,4 @@ def build_heatwave_management_context(
         "database_status": database_status,
         "table_action_summary": table_action_summary,
         "management_summary": fetch_heatwave_management_summary(execute_query=execute_query),
-        "object_storage_config": load_object_storage_config(),
     }

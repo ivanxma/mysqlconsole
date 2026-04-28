@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 
 import pymysql
@@ -61,9 +62,147 @@ def build_mysql_dashboard_context(*, fetch_server_overview, fetch_database_inven
     }
 
 
-def handle_db_admin_action(action, database_name, *, quote_identifier, execute_statement, system_schemas):
+def _extract_column_definitions_from_create_statement(create_table_statement):
+    definitions = {}
+    for line in str(create_table_statement or "").splitlines():
+        match = re.match(r"^\s*`([^`]+)`\s+(.*?)(?:,)?\s*$", line.rstrip())
+        if match:
+            definitions[match.group(1)] = match.group(2).strip()
+    return definitions
+
+
+def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
+    definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
+    submitted_name_by_source = {}
+    submitted_definition_by_source = {}
+
+    if payload is not None and hasattr(payload, "getlist"):
+        source_values = payload.getlist("source_column_name")
+        new_name_values = payload.getlist("new_column_name")
+        definition_values = payload.getlist("column_definition")
+        for index, source_value in enumerate(source_values):
+            source_column_name = str(source_value or "").strip()
+            if not source_column_name or source_column_name in submitted_name_by_source:
+                continue
+            submitted_name_by_source[source_column_name] = str(
+                new_name_values[index] if index < len(new_name_values) else source_column_name
+            ).strip()
+            submitted_definition_by_source[source_column_name] = str(
+                definition_values[index] if index < len(definition_values) else ""
+            ).strip()
+
+    rows = []
+    unsupported_columns = []
+    for row in columns:
+        source_column_name = str(row.get("column_name") or "").strip()
+        current_definition = definition_lookup.get(source_column_name, "")
+        supports_modify = bool(current_definition)
+        if not supports_modify:
+            unsupported_columns.append(source_column_name)
+        rows.append(
+            {
+                "source_column_name": source_column_name,
+                "current_definition": current_definition,
+                "edited_column_name": submitted_name_by_source.get(source_column_name, source_column_name),
+                "edited_definition": submitted_definition_by_source.get(source_column_name, current_definition),
+                "supports_modify": supports_modify,
+                "column_type": row.get("column_type") or "",
+                "is_nullable": row.get("is_nullable") or "",
+                "column_key": row.get("column_key") or "",
+                "extra": row.get("extra") or "",
+            }
+        )
+    return rows, unsupported_columns
+
+
+def _build_db_admin_change_requests(columns, ddl_statement, payload):
+    if payload is None or not hasattr(payload, "getlist"):
+        raise ValueError("Column update payload is missing.")
+
+    definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
+    current_columns = [str(row.get("column_name") or "").strip() for row in columns]
+    current_columns = [column_name for column_name in current_columns if column_name]
+    current_column_set = set(current_columns)
+
+    source_values = payload.getlist("source_column_name")
+    new_name_values = payload.getlist("new_column_name")
+    definition_values = payload.getlist("column_definition")
+    if not source_values:
+        raise ValueError("No column definitions were submitted.")
+
+    final_name_by_source = {column_name: column_name for column_name in current_columns}
+    change_requests = []
+    seen_sources = set()
+
+    for index, source_value in enumerate(source_values):
+        source_column_name = str(source_value or "").strip()
+        if not source_column_name or source_column_name in seen_sources:
+            continue
+        if source_column_name not in current_column_set:
+            raise ValueError(f"Column `{source_column_name}` was not found on the selected table.")
+
+        seen_sources.add(source_column_name)
+        new_column_name = str(
+            new_name_values[index] if index < len(new_name_values) else source_column_name
+        ).strip()
+        column_definition = str(
+            definition_values[index] if index < len(definition_values) else ""
+        ).strip()
+        current_definition = definition_lookup.get(source_column_name, "")
+        if not current_definition:
+            raise ValueError(
+                f"Unable to determine the current definition for column `{source_column_name}` from SHOW CREATE TABLE."
+            )
+        if not new_column_name:
+            raise ValueError(f"Column name is required for `{source_column_name}`.")
+        if not column_definition:
+            raise ValueError(f"Column definition is required for `{source_column_name}`.")
+
+        final_name_by_source[source_column_name] = new_column_name
+        if new_column_name != source_column_name or column_definition != current_definition:
+            change_requests.append(
+                {
+                    "source_column_name": source_column_name,
+                    "new_column_name": new_column_name,
+                    "column_definition": column_definition,
+                }
+            )
+
+    normalized_final_names = [column_name.lower() for column_name in final_name_by_source.values()]
+    if len(set(normalized_final_names)) != len(normalized_final_names):
+        raise ValueError("Column names must remain unique after the update.")
+
+    return change_requests
+
+
+def _build_db_admin_change_column_clauses(change_requests, *, quote_identifier):
+    clauses = []
+    for row in change_requests:
+        clauses.append(
+            "CHANGE COLUMN {source_column} {target_column} {column_definition}".format(
+                source_column=quote_identifier(row["source_column_name"]),
+                target_column=quote_identifier(row["new_column_name"]),
+                column_definition=row["column_definition"],
+            )
+        )
+    return clauses
+
+
+def handle_db_admin_action(
+    action,
+    database_name,
+    *,
+    table_name="",
+    payload=None,
+    quote_identifier,
+    execute_statement,
+    system_schemas,
+    fetch_create_table_statement=None,
+    fetch_table_columns=None,
+):
     normalized_action = str(action or "").strip()
     normalized_name = str(database_name or "").strip()
+    normalized_table = str(table_name or "").strip()
 
     if normalized_action == "create_database":
         if not normalized_name:
@@ -89,6 +228,34 @@ def handle_db_admin_action(action, database_name, *, quote_identifier, execute_s
             "flash_message": f"Database `{normalized_name}` dropped.",
             "redirect_endpoint": "db_admin_page",
             "redirect_values": {},
+        }
+
+    if normalized_action == "modify_table_columns":
+        if not normalized_name or not normalized_table:
+            raise ValueError("Choose both a database and table before modifying columns.")
+        if fetch_create_table_statement is None or fetch_table_columns is None:
+            raise ValueError("Column metadata helpers are not available.")
+
+        current_columns = fetch_table_columns(normalized_name, normalized_table)
+        ddl_statement = fetch_create_table_statement(normalized_name, normalized_table)
+        change_requests = _build_db_admin_change_requests(current_columns, ddl_statement, payload)
+        if not change_requests:
+            raise ValueError("No column definition changes were submitted.")
+
+        safe_database = quote_identifier(normalized_name)
+        safe_table = quote_identifier(normalized_table)
+        execute_statement(
+            f"ALTER TABLE {safe_database}.{safe_table} "
+            + ", ".join(_build_db_admin_change_column_clauses(change_requests, quote_identifier=quote_identifier))
+        )
+        return {
+            "flash_category": "success",
+            "flash_message": (
+                f"Updated {len(change_requests)} column definition(s) on "
+                f"`{normalized_name}.{normalized_table}`."
+            ),
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {"database": normalized_name, "table": normalized_table},
         }
 
     raise ValueError("Unsupported DB Admin action.")
@@ -119,6 +286,7 @@ def build_db_admin_context(
     fetch_table_columns,
     fetch_table_indexes,
     fetch_table_partitions,
+    column_edit_payload=None,
 ):
     inventory = fetch_database_inventory()
     available_database_names = {row["database_name"] for row in inventory}
@@ -148,6 +316,8 @@ def build_db_admin_context(
     columns = []
     indexes = []
     partitions = _empty_partition_state()
+    column_edit_rows = []
+    column_edit_unsupported_columns = []
 
     if normalized_table:
         try:
@@ -156,6 +326,11 @@ def build_db_admin_context(
             columns = fetch_table_columns(normalized_database, normalized_table)
             indexes = fetch_table_indexes(normalized_database, normalized_table)
             partitions = fetch_table_partitions(normalized_database, normalized_table)
+            column_edit_rows, column_edit_unsupported_columns = _build_db_admin_column_edit_rows(
+                columns,
+                ddl_statement,
+                payload=column_edit_payload,
+            )
         except pymysql.err.ProgrammingError as error:
             if error.args and error.args[0] == 1146:
                 return {
@@ -174,6 +349,8 @@ def build_db_admin_context(
         "preview": preview,
         "ddl_statement": ddl_statement,
         "columns": columns,
+        "column_edit_rows": column_edit_rows,
+        "column_edit_unsupported_columns": column_edit_unsupported_columns,
         "indexes": indexes,
         "partitions": partitions,
     }

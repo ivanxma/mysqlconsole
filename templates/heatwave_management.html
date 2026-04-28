@@ -53,8 +53,7 @@
   </div>
 </section>
 
-<section class="split-layout split-layout-top">
-  <article class="panel">
+<section class="panel">
     {% if active_tab == 'db' %}
     <div class="panel-header">
       <h3>DB Action</h3>
@@ -78,32 +77,11 @@
       </div>
     </form>
     {% if database_status.has_selection %}
-    <dl class="detail-list management-inline-summary">
-      <div>
-        <dt>Configured</dt>
-        <dd>{{ database_status.summary.configured_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Tracked</dt>
-        <dd>{{ database_status.summary.tracked_table_count }}</dd>
-      </div>
-      <div>
-        <dt>HeatWave Tables</dt>
-        <dd>{{ database_status.summary.heatwave_table_count }}</dd>
-      </div>
-      <div>
-        <dt>Loaded</dt>
-        <dd>{{ database_status.summary.loaded_count }}</dd>
-      </div>
-      <div>
-        <dt>Partial</dt>
-        <dd>{{ database_status.summary.partial_count }}</dd>
-      </div>
-      <div>
-        <dt>None</dt>
-        <dd>{{ database_status.summary.not_loaded_count }}</dd>
-      </div>
-    </dl>
+    <div class="management-friendly-list management-inline-summary">
+      <p class="management-friendly-message">Database <strong>{{ selected_database }}</strong> has <strong>{{ database_status.summary.configured_table_count }}</strong> configured HeatWave table(s).</p>
+      <p class="management-friendly-message"><strong>{{ database_status.summary.tracked_table_count }}</strong> table(s) are currently tracked in HeatWave metadata, with <strong>{{ database_status.summary.heatwave_table_count }}</strong> total HeatWave-related table(s) visible from this selection.</p>
+      <p class="management-friendly-message">Current load state: <strong>{{ database_status.summary.loaded_count }}</strong> loaded, <strong>{{ database_status.summary.partial_count }}</strong> partial, and <strong>{{ database_status.summary.not_loaded_count }}</strong> not loaded.</p>
+    </div>
     {% else %}
     <p class="helper-text">Choose a database to run a HeatWave DB action or inspect current HeatWave table status.</p>
     {% endif %}
@@ -139,32 +117,11 @@
       </div>
     </form>
     {% if table_action_summary.has_selection %}
-    <dl class="detail-list management-inline-summary">
-      <div>
-        <dt>Secondary Engine</dt>
-        <dd>{{ "RAPID" if table_action_summary.secondary_engine_configured else "Not Configured" }}</dd>
-      </div>
-      <div>
-        <dt>Tracked in rpd</dt>
-        <dd>{{ "Yes" if table_action_summary.tracked_in_rpd else "No" }}</dd>
-      </div>
-      <div>
-        <dt>Load Progress</dt>
-        <dd>{{ table_action_summary.load_progress_label }}</dd>
-      </div>
-      <div>
-        <dt>Load State</dt>
-        <dd>{{ table_action_summary.load_state_label }}</dd>
-      </div>
-      <div>
-        <dt>Load Status</dt>
-        <dd>{{ table_action_summary.load_status_value }}</dd>
-      </div>
-      <div>
-        <dt>Excluded Columns</dt>
-        <dd>{{ table_action_summary.excluded_column_count }}</dd>
-      </div>
-    </dl>
+    <div class="management-friendly-list management-inline-summary">
+      <p class="management-friendly-message">Table <strong>{{ selected_database }}.{{ selected_table }}</strong> is using secondary engine <strong>{{ "RAPID" if table_action_summary.secondary_engine_configured else "Not Configured" }}</strong>.</p>
+      <p class="management-friendly-message">HeatWave metadata tracking is <strong>{{ "enabled" if table_action_summary.tracked_in_rpd else "not currently visible" }}</strong>, with load progress at <strong>{{ table_action_summary.load_progress_label }}</strong> and state <strong>{{ table_action_summary.load_state_label }}</strong>.</p>
+      <p class="management-friendly-message">Load status is <strong>{{ table_action_summary.load_status_value }}</strong>, and <strong>{{ table_action_summary.excluded_column_count }}</strong> column(s) are currently excluded from secondary loading.</p>
+    </div>
     {% else %}
     <p class="helper-text">Choose a database and table to run a full table load, unload, or apply `NOT SECONDARY` to columns.</p>
     {% endif %}
@@ -172,29 +129,6 @@
     <p class="helper-text error-text">{{ table_action_summary.column_error }}</p>
     {% endif %}
     {% endif %}
-  </article>
-
-  <article class="panel">
-    <h3>Object Storage Context</h3>
-    <dl class="detail-list">
-      <div>
-        <dt>Region</dt>
-        <dd>{{ object_storage_config.region or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Namespace</dt>
-        <dd>{{ object_storage_config.namespace or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Bucket</dt>
-        <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Prefix</dt>
-        <dd>{{ object_storage_config.bucket_prefix or "-" }}</dd>
-      </div>
-    </dl>
-  </article>
 </section>
 
 {% if management_summary.load_errors %}
@@ -280,32 +214,11 @@
       {% if database_status.error %}
       <p class="helper-text error-text">{{ database_status.error }}</p>
       {% endif %}
-      <dl class="detail-list">
-        <div>
-          <dt>Configured</dt>
-          <dd>{{ database_status.summary.configured_table_count }}</dd>
-        </div>
-        <div>
-          <dt>Tracked</dt>
-          <dd>{{ database_status.summary.tracked_table_count }}</dd>
-        </div>
-        <div>
-          <dt>HeatWave Tables</dt>
-          <dd>{{ database_status.summary.heatwave_table_count }}</dd>
-        </div>
-        <div>
-          <dt>Loaded</dt>
-          <dd>{{ database_status.summary.loaded_count }}</dd>
-        </div>
-        <div>
-          <dt>Partial</dt>
-          <dd>{{ database_status.summary.partial_count }}</dd>
-        </div>
-        <div>
-          <dt>None</dt>
-          <dd>{{ database_status.summary.not_loaded_count }}</dd>
-        </div>
-      </dl>
+      <div class="management-friendly-list">
+        <p class="management-friendly-message">Database <strong>{{ selected_database }}</strong> currently shows <strong>{{ database_status.summary.configured_table_count }}</strong> configured HeatWave table(s) and <strong>{{ database_status.summary.tracked_table_count }}</strong> tracked table(s) in metadata.</p>
+        <p class="management-friendly-message">Across this database, <strong>{{ database_status.summary.heatwave_table_count }}</strong> HeatWave-related table(s) are visible from configured and tracked sources combined.</p>
+        <p class="management-friendly-message">Load summary: <strong>{{ database_status.summary.loaded_count }}</strong> loaded, <strong>{{ database_status.summary.partial_count }}</strong> partial, and <strong>{{ database_status.summary.not_loaded_count }}</strong> not loaded.</p>
+      </div>
     </section>
     <section class="management-popup-panel" data-popup-tab-group="database-status" data-popup-tab-panel="tables" hidden>
       <div class="table-wrap">
@@ -356,7 +269,7 @@
       </div>
     </div>
     {% if selected_table %}
-    <p class="helper-text">Choose columns to mark as <code>NOT SECONDARY</code>. Columns already excluded are shown for reference and can be selected again safely.</p>
+    <p class="helper-text">Checked columns are excluded with <code>NOT SECONDARY</code>. Clear a checked column to restore it, then use <code>Update</code> to apply the final selection.</p>
     <form method="post" class="form-grid">
       <input type="hidden" name="tab" value="table">
       <input type="hidden" name="database" value="{{ selected_database }}">
@@ -364,12 +277,12 @@
       <div class="management-column-list">
         {% for column in table_action_summary.columns %}
         <label class="management-column-option {% if not column.supports_exclusion %}disabled{% endif %}">
-          <input type="checkbox" name="excluded_columns" value="{{ column.column_name }}" {% if not column.supports_exclusion %}disabled{% endif %}>
+          <input type="checkbox" name="excluded_columns" value="{{ column.column_name }}" {% if column.is_not_secondary %}checked{% endif %} {% if not column.supports_exclusion %}disabled{% endif %}>
           <span class="management-column-copy">
             <strong>{{ column.column_name }}</strong>
             <span class="helper-text">
               {{ column.column_type }}
-              {% if column.is_not_secondary %} • Already NOT SECONDARY{% endif %}
+              {% if column.is_not_secondary %} • Excluded now{% endif %}
               {% if not column.supports_exclusion %} • Current definition unavailable{% endif %}
             </span>
           </span>

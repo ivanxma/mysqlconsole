@@ -39,9 +39,19 @@
 <section class="panel">
   <form method="post" class="form-grid">
     <div class="panel-header">
-      <div>
-        <h3>SQL Painter</h3>
-        <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan.</span>
+      <div class="panel-title">
+        <span class="panel-title-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 6.5h14"></path>
+            <path d="M5 12h14"></path>
+            <path d="M5 17.5h8"></path>
+            <path d="M16.5 15.5l2 2 3-4"></path>
+          </svg>
+        </span>
+        <div class="panel-title-copy">
+          <h3>SQL Painter</h3>
+          <span class="helper-text">`Explain` runs plain <code>EXPLAIN</code> for one statement, then adds a JSON view and a visual execution plan.</span>
+        </div>
       </div>
       <div class="panel-actions">
         <button class="button primary" type="submit" name="workspace_action" value="execute">Execute</button>
@@ -66,97 +76,170 @@
 
 <section class="panel">
   <div class="panel-header">
-    <h3>{{ last_result.title if last_result.has_output else "Last Result" }}</h3>
-    <span class="helper-text">Stacked result tabs from the most recent execution on this page.</span>
-  </div>
-  {% if last_result.has_output %}
-  <dl class="detail-list">
-    {% for item in last_result.summary_details %}
-    <div>
-      <dt>{{ item.label }}</dt>
-      <dd>{% if item.label == "SQL" %}<code>{{ item.value }}</code>{% else %}{{ item.value }}{% endif %}</dd>
+    <div class="panel-title">
+      <span class="panel-title-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M4.5 6.5h15"></path>
+          <path d="M4.5 12h15"></path>
+          <path d="M4.5 17.5h9"></path>
+          <path d="M18.5 17.5h1"></path>
+        </svg>
+      </span>
+      <div class="panel-title-copy">
+        <h3>Output</h3>
+        <span class="helper-text">Execution Result is a tab in the Output view, and result sets stay tabbed inside it.</span>
+      </div>
     </div>
-    {% endfor %}
-  </dl>
+  </div>
   <div class="tab-strip workspace-tab-strip" role="tablist">
-    {% for tab in last_result.tabs %}
     <button
-      class="tab-link {% if loop.first %}active{% endif %}"
+      class="tab-link {% if workspace_output_tab == 'execution-result' %}active{% endif %}"
       type="button"
-      data-workspace-tab-group="last-result"
-      data-workspace-tab-button="{{ tab.key }}"
+      data-workspace-tab-group="workspace-output"
+      data-workspace-tab-button="execution-result"
     >
-      {{ tab.label }}
+      Execution Result
     </button>
-    {% endfor %}
+    <button
+      class="tab-link {% if workspace_output_tab == 'history' %}active{% endif %}"
+      type="button"
+      data-workspace-tab-group="workspace-output"
+      data-workspace-tab-button="history"
+    >
+      History
+    </button>
   </div>
-  {% for tab in last_result.tabs %}
   <section
-    class="workspace-tab-panel {% if loop.first %}active{% endif %}"
-    data-workspace-tab-group="last-result"
-    data-workspace-tab-panel="{{ tab.key }}"
-    {% if not loop.first %}hidden{% endif %}
+    class="workspace-tab-panel {% if workspace_output_tab == 'execution-result' %}active{% endif %}"
+    data-workspace-tab-group="workspace-output"
+    data-workspace-tab-panel="execution-result"
+    {% if workspace_output_tab != 'execution-result' %}hidden{% endif %}
   >
-    {% if tab.kind == "table" %}
-    {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
-    {% elif tab.kind == "code" %}
-    <pre class="sql-block">{{ tab.text_output }}</pre>
-    {% elif tab.kind == "plan" %}
-    <div class="plan-visual-shell" data-plan-visual>
-      <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
-      <p class="helper-text" data-plan-status>Rendering execution plan...</p>
-      <div class="plan-canvas" data-plan-canvas hidden></div>
+    {% if last_result.has_output %}
+    <dl class="detail-list">
+      {% for item in last_result.summary_details %}
+      <div>
+        <dt>{{ item.label }}</dt>
+        <dd>{% if item.label == "SQL" %}<code>{{ item.value }}</code>{% else %}{{ item.value }}{% endif %}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    <div class="tab-strip workspace-tab-strip" role="tablist">
+      {% for tab in last_result.tabs %}
+      <button
+        class="tab-link {% if loop.first %}active{% endif %}"
+        type="button"
+        data-workspace-tab-group="last-result"
+        data-workspace-tab-button="{{ tab.key }}"
+      >
+        {{ tab.label }}
+      </button>
+      {% endfor %}
     </div>
+    {% for tab in last_result.tabs %}
+    <section
+      class="workspace-tab-panel {% if loop.first %}active{% endif %}"
+      data-workspace-tab-group="last-result"
+      data-workspace-tab-panel="{{ tab.key }}"
+      {% if not loop.first %}hidden{% endif %}
+    >
+      {% if tab.kind == "table" %}
+      {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
+      {% elif tab.kind == "code" %}
+      <pre class="sql-block">{{ tab.text_output }}</pre>
+      {% elif tab.kind == "plan" %}
+      <div class="plan-visual-shell" data-plan-visual>
+        <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
+        <p class="helper-text" data-plan-status>Rendering execution plan...</p>
+        <div class="plan-canvas" data-plan-canvas hidden></div>
+      </div>
+      {% else %}
+      <p class="section-empty">{{ tab.message }}</p>
+      {% endif %}
+    </section>
+    {% endfor %}
     {% else %}
-    <p class="section-empty">{{ tab.message }}</p>
+    <p class="helper-text">Run Execute or Explain to populate the Execution Result tab view.</p>
     {% endif %}
   </section>
-  {% endfor %}
-  {% else %}
-  <p class="helper-text">Run Execute or Explain to populate the last result stack.</p>
-  {% endif %}
-</section>
-
-<section class="panel">
-  <div class="panel-header">
-    <h3>Execution History</h3>
-    <span class="helper-text">Recent executions stored for this browser session, with duration and status per row.</span>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Executed</th>
-          <th>Action</th>
-          <th>Database</th>
-          <th>Status</th>
-          <th>Duration</th>
-          <th>SQL</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in history_rows %}
-        <tr>
-          <td>{{ row.executed_at }}</td>
-          <td>{{ row.action_label }}</td>
-          <td>{{ row.database_name }}</td>
-          <td>{{ row.status }}</td>
-          <td>{{ row.duration_label }}</td>
-          <td>
-            <div>{{ row.query_preview }}</div>
-            {% if row.error_message %}
-            <div class="helper-text">{{ row.error_message }}</div>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="6">No SQL has been executed in this session.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <section
+    class="workspace-tab-panel {% if workspace_output_tab == 'history' %}active{% endif %}"
+    data-workspace-tab-group="workspace-output"
+    data-workspace-tab-panel="history"
+    {% if workspace_output_tab != 'history' %}hidden{% endif %}
+  >
+    <div class="panel-header panel-header-tight">
+      <div class="panel-title panel-title-compact">
+        <span class="panel-title-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 6.5v5l3 2"></path>
+            <path d="M20 12a8 8 0 1 1-2.34-5.66"></path>
+          </svg>
+        </span>
+        <div class="panel-title-copy">
+          <h4>History</h4>
+          <span class="helper-text">Recent executions stored for this browser session.</span>
+        </div>
+      </div>
+      <form method="post" class="panel-actions">
+        <input type="hidden" name="workspace_action" value="clear_history">
+        <input type="hidden" name="database" value="{{ selected_database }}">
+        <input type="hidden" name="output_tab" value="history">
+        <textarea name="sql_text" hidden>{{ sql_text }}</textarea>
+        <button
+          class="panel-icon-button"
+          type="submit"
+          title="Clear history"
+          aria-label="Clear history"
+          {% if not history_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5.5 7.5h13"></path>
+            <path d="M9 7.5v-2h6v2"></path>
+            <path d="M8.5 10.5v6"></path>
+            <path d="M12 10.5v6"></path>
+            <path d="M15.5 10.5v6"></path>
+            <path d="M7.5 7.5l.7 10a2 2 0 0 0 2 1.8h3.6a2 2 0 0 0 2-1.8l.7-10"></path>
+          </svg>
+        </button>
+      </form>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Executed</th>
+            <th>Action</th>
+            <th>Database</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>SQL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in history_rows %}
+          <tr>
+            <td>{{ row.executed_at }}</td>
+            <td>{{ row.action_label }}</td>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.duration_label }}</td>
+            <td>
+              <div>{{ row.query_preview }}</div>
+              {% if row.error_message %}
+              <div class="helper-text">{{ row.error_message }}</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">No SQL has been executed in this session.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 {% endblock %}
 

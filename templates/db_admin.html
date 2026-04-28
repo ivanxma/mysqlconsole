@@ -72,6 +72,7 @@
           <th>Engine</th>
           <th>Rows</th>
           <th>HeatWave</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -88,10 +89,14 @@
           <td>{{ row.engine }}</td>
           <td>{{ row.row_count }}</td>
           <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
+          <td class="table-action-cell">
+            <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=row.table_name) }}">Select</a>
+            <a class="button secondary" href="{{ url_for('db_admin_page', database=selected_database, table=row.table_name, dialog='modify-columns') }}">Modify</a>
+          </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="4">Choose a database to list its tables.</td>
+          <td colspan="5">Choose a database to list its tables.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -292,4 +297,123 @@
   </div>
   {% endif %}
 </section>
+
+<dialog class="management-dialog management-dialog-wide" id="modify-columns-dialog">
+  <div class="management-dialog-shell">
+    <div class="panel-header">
+      <div>
+        <h3>Modify Column Definitions</h3>
+        <span class="helper-text">{% if selected_table %}{{ selected_database }}.{{ selected_table }}{% else %}Choose a table first{% endif %}</span>
+      </div>
+      <button class="button secondary" type="button" data-dialog-close="modify-columns-dialog">Close</button>
+    </div>
+    {% if selected_table %}
+    <p class="helper-text">Edit the column name and the full SQL definition fragment after the name. This keeps datatype parameters like <code>decimal(10,2)</code>, <code>varchar(255)</code>, or multi-value type definitions intact.</p>
+    {% if column_edit_unsupported_columns %}
+    <p class="helper-text error-text">Unable to load the current SHOW CREATE TABLE definition for: {{ column_edit_unsupported_columns|join(', ') }}.</p>
+    {% endif %}
+    {% set modifiable_column_rows = column_edit_rows|selectattr('supports_modify')|list %}
+    <form method="post" class="form-grid">
+      <input type="hidden" name="db_action" value="modify_table_columns">
+      <input type="hidden" name="database_name" value="{{ selected_database }}">
+      <input type="hidden" name="table_name" value="{{ selected_table }}">
+      <div class="table-wrap full-span">
+        <table class="db-admin-edit-table">
+          <thead>
+            <tr>
+              <th>Current Column</th>
+              <th>Column Name</th>
+              <th>Column Definition</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in column_edit_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.source_column_name }}</strong>
+                <div class="helper-text">{{ row.column_type }}{% if row.extra %} • {{ row.extra }}{% endif %}</div>
+              </td>
+              <td>
+                {% if row.supports_modify %}
+                <input type="hidden" name="source_column_name" value="{{ row.source_column_name }}">
+                <input name="new_column_name" type="text" value="{{ row.edited_column_name }}">
+                {% else %}
+                <input type="text" value="{{ row.edited_column_name }}" disabled>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.supports_modify %}
+                <textarea class="column-definition-editor" name="column_definition" rows="3">{{ row.edited_definition }}</textarea>
+                {% else %}
+                <textarea class="column-definition-editor" rows="3" disabled>{{ row.edited_definition or "Current definition unavailable from SHOW CREATE TABLE." }}</textarea>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="3">Choose a table to edit its column definitions.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="button primary" type="submit" {% if not modifiable_column_rows %}disabled{% endif %}>Update</button>
+        <button class="button secondary" type="button" data-dialog-close="modify-columns-dialog">Cancel</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="helper-text">Choose a database and table before modifying column definitions.</p>
+    {% endif %}
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const openDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) {
+          dialog.showModal();
+        }
+        return;
+      }
+      dialog.setAttribute("open", "open");
+    };
+
+    const closeDialog = (dialog) => {
+      if (!dialog) {
+        return;
+      }
+      if (typeof dialog.close === "function") {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute("open");
+    };
+
+    document.querySelectorAll("[data-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeDialog(document.getElementById(button.dataset.dialogClose) || button.closest("dialog"));
+      });
+    });
+
+    document.querySelectorAll('dialog.management-dialog').forEach((dialog) => {
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) {
+          closeDialog(dialog);
+        }
+      });
+    });
+
+    const autoDialog = {{ db_open_dialog|tojson }};
+    if (autoDialog) {
+      openDialog(document.getElementById(autoDialog));
+    }
+  })();
+</script>
 {% endblock %}
