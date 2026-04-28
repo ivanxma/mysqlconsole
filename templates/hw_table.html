@@ -117,23 +117,6 @@
 <section class="tab-shell">
   <div class="tab-strip">
     <a
-      class="tab-link active"
-      href="{{ url_for('hw_table_page', tab=active_tab) }}"
-    >
-      HW Table
-    </a>
-    <a
-      class="tab-link"
-      href="{{ url_for('heatwave_management_page') }}"
-    >
-      HeatWave Manage
-    </a>
-  </div>
-</section>
-
-<section class="tab-shell">
-  <div class="tab-strip">
-    <a
       class="tab-link {% if active_tab == 'heatwave' %}active{% endif %}"
       href="{{ url_for('hw_table_page', tab='heatwave') }}"
     >

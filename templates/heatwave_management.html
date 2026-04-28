@@ -32,46 +32,40 @@
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">HeatWave</p>
-  <h2>HeatWave Manage</h2>
+  <h2>HW Admin</h2>
   <p>Run database-level HeatWave load actions, inspect current DB status, and manage table-level load and column exclusion controls.</p>
 </section>
 
 <section class="tab-shell">
-  <div class="tab-strip">
-    <a
-      class="tab-link"
-      href="{{ url_for('hw_table_page') }}"
-    >
-      HW Table
-    </a>
-    <a
-      class="tab-link active"
-      href="{{ url_for('heatwave_management_page', tab=active_tab, database=selected_database, table=selected_table) }}"
-    >
-      HeatWave Manage
-    </a>
-  </div>
-</section>
-
-<section class="tab-shell">
-  <div class="tab-strip">
-    <a
+  <div class="tab-strip" role="tablist" aria-label="HeatWave admin tabs">
+    <button
       class="tab-link {% if active_tab == 'db' %}active{% endif %}"
-      href="{{ url_for('heatwave_management_page', tab='db', database=selected_database) }}"
+      type="button"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'db' else 'false' }}"
+      data-management-tab-button="db"
     >
       DB
-    </a>
-    <a
+    </button>
+    <button
       class="tab-link {% if active_tab == 'table' %}active{% endif %}"
-      href="{{ url_for('heatwave_management_page', tab='table', database=selected_database, table=selected_table) }}"
+      type="button"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'table' else 'false' }}"
+      data-management-tab-button="table"
     >
       Table
-    </a>
+    </button>
   </div>
 </section>
 
 <section class="panel">
-    {% if active_tab == 'db' %}
+    <section
+      class="management-main-panel {% if active_tab == 'db' %}active{% endif %}"
+      role="tabpanel"
+      data-management-tab-panel="db"
+      {% if active_tab != 'db' %}hidden{% endif %}
+    >
     <div class="panel-header">
       <h3>DB Action</h3>
       <span class="helper-text">`Load` and `Unload` call `sys.heatwave_load` and `sys.heatwave_unload` and return their result sets in a popup.</span>
@@ -102,7 +96,14 @@
     {% else %}
     <p class="helper-text">Choose a database to run a HeatWave DB action or inspect current HeatWave table status.</p>
     {% endif %}
-    {% else %}
+    </section>
+
+    <section
+      class="management-main-panel {% if active_tab == 'table' %}active{% endif %}"
+      role="tabpanel"
+      data-management-tab-panel="table"
+      {% if active_tab != 'table' %}hidden{% endif %}
+    >
     <div class="panel-header">
       <h3>Table Action</h3>
       <span class="helper-text">Load configures `SECONDARY_ENGINE=RAPID` when needed, then runs `SECONDARY_LOAD` for the selected table.</span>
@@ -145,7 +146,7 @@
     {% if table_action_summary.column_error %}
     <p class="helper-text error-text">{{ table_action_summary.column_error }}</p>
     {% endif %}
-    {% endif %}
+    </section>
 </section>
 
 {% if management_summary.load_errors %}
@@ -377,6 +378,24 @@
 {% block scripts %}
 <script>
   (() => {
+    const activateManagementTab = (tabName, updateUrl = false) => {
+      document.querySelectorAll("[data-management-tab-button]").forEach((button) => {
+        const isActive = button.dataset.managementTabButton === tabName;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      document.querySelectorAll("[data-management-tab-panel]").forEach((panel) => {
+        const isActive = panel.dataset.managementTabPanel === tabName;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", tabName);
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+
     const openDialog = (dialog) => {
       if (!dialog) {
         return;
@@ -449,6 +468,12 @@
       });
     });
 
+    document.querySelectorAll("[data-management-tab-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activateManagementTab(button.dataset.managementTabButton, true);
+      });
+    });
+
     document.querySelectorAll("[data-popup-tab-button]").forEach((button) => {
       button.addEventListener("click", () => {
         activatePopupTab(button.dataset.popupTabGroup, button.dataset.popupTabButton);
@@ -467,6 +492,8 @@
     if (autoDialog) {
       openDialog(document.getElementById(autoDialog));
     }
+
+    activateManagementTab({{ active_tab|tojson }}, false);
   })();
 </script>
 {% endblock %}

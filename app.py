@@ -135,7 +135,7 @@ NAV_GROUPS = [
         "label": "HeatWave",
         "items": [
             {"endpoint": "hw_table_page", "label": "HW Table"},
-            {"endpoint": "heatwave_management_page", "label": "HeatWave Manage"},
+            {"endpoint": "heatwave_management_page", "label": "HW Admin"},
             {"endpoint": "monitoring_performance_page", "label": "Performance Query"},
             {"endpoint": "monitoring_ml_page", "label": "ML Query"},
             {"endpoint": "monitoring_load_recovery_page", "label": "Table Load Recovery"},
@@ -4778,7 +4778,7 @@ def heatwave_management_page():
     )
     return render_dashboard(
         "heatwave_management.html",
-        page_title="HeatWave Management",
+        page_title="HW Admin",
         management_open_dialog=management_open_dialog,
         management_popup_result=management_popup_result,
         **page_context,
