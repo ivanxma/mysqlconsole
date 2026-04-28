@@ -79,6 +79,19 @@ DEFAULT_OBJECT_STORAGE = {
     "bucket_prefix": "",
     "config_profile": "DEFAULT",
 }
+DBCONSOLE_SESSION_SCOPE_KEY = "_dbconsole_session_scope"
+DBCONSOLE_SESSION_SCOPE_VALUE = "dbconsole"
+DBCONSOLE_SESSION_VERSION_KEY = "_dbconsole_session_version"
+DBCONSOLE_SESSION_VERSION = 1
+DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
+DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
+DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
+DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
     "DOUBLE",
@@ -143,6 +156,27 @@ STATUS_VARIABLE_SECTIONS = [
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dbconsole-change-me")
+app.config["SESSION_COOKIE_NAME"] = DBCONSOLE_SESSION_COOKIE_NAME
+app.config["SESSION_COOKIE_PATH"] = DBCONSOLE_SESSION_COOKIE_PATH
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = DBCONSOLE_SESSION_COOKIE_SAMESITE
+app.config["SESSION_COOKIE_SECURE"] = DBCONSOLE_SESSION_COOKIE_SECURE
+
+
+def _prime_dbconsole_session_scope():
+    session[DBCONSOLE_SESSION_SCOPE_KEY] = DBCONSOLE_SESSION_SCOPE_VALUE
+    session[DBCONSOLE_SESSION_VERSION_KEY] = DBCONSOLE_SESSION_VERSION
+
+
+@app.before_request
+def ensure_dbconsole_session_scope():
+    if (
+        session.get(DBCONSOLE_SESSION_SCOPE_KEY) == DBCONSOLE_SESSION_SCOPE_VALUE
+        and session.get(DBCONSOLE_SESSION_VERSION_KEY) == DBCONSOLE_SESSION_VERSION
+    ):
+        return
+    session.clear()
+    _prime_dbconsole_session_scope()
 
 
 def ensure_profile_store():
@@ -286,6 +320,7 @@ def clear_login_state(keep_profile=True):
     profile = session.get("connection_profile") if keep_profile else None
     profile_name = session.get("profile_name") if keep_profile else None
     session.clear()
+    _prime_dbconsole_session_scope()
     if keep_profile and profile:
         session["connection_profile"] = profile
         session["profile_name"] = profile_name
@@ -3991,6 +4026,7 @@ def login():
             flash("MySQL username is required.", "error")
         else:
             try:
+                clear_login_state(keep_profile=False)
                 session["connection_profile"] = profile
                 session["profile_name"] = profile["name"]
                 session["mysql_username"] = username
