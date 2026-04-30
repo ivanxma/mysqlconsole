@@ -104,6 +104,24 @@ ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key"}
 DB_ADMIN_DEFAULT_TAB = "select"
+DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = {
+    "binary",
+    "bit",
+    "blob",
+    "geometry",
+    "geometrycollection",
+    "linestring",
+    "longblob",
+    "mediumblob",
+    "multilinestring",
+    "multipoint",
+    "multipolygon",
+    "point",
+    "polygon",
+    "tinyblob",
+    "varbinary",
+    "vector",
+}
 MONITORING_CHART_TAB_OPTIONS = (
     ("general", "General"),
     ("heatwave", "HeatWave"),
@@ -1179,17 +1197,56 @@ def fetch_table_partitions(database_name, table_name):
     }
 
 
+def _normalize_mysql_base_type(column_type):
+    normalized = str(column_type or "").strip().lower()
+    if not normalized:
+        return ""
+    return normalized.split("(", 1)[0].split()[0]
+
+
+def _build_table_preview_select_list(column_definitions):
+    select_clauses = []
+    masked_columns = []
+    for column in column_definitions or []:
+        column_name = column["column_name"]
+        column_type = column.get("column_type", "")
+        safe_column_name = quote_identifier(column_name)
+        base_type = _normalize_mysql_base_type(column_type)
+        if base_type in DB_ADMIN_PREVIEW_MASKED_BASE_TYPES:
+            placeholder = f"[{base_type.upper()}]"
+            select_clauses.append(f"CAST('{placeholder}' AS CHAR(32)) AS {safe_column_name}")
+            masked_columns.append({"column_name": column_name, "column_type": column_type})
+            continue
+        select_clauses.append(safe_column_name)
+    return select_clauses, masked_columns
+
+
 def fetch_table_preview(database_name, table_name, page=1, page_size=25):
     if not database_name or not table_name:
-        return {"columns": [], "rows": [], "page": 1, "page_size": page_size, "total_rows": 0}
+        return {
+            "columns": [],
+            "rows": [],
+            "page": 1,
+            "page_size": page_size,
+            "total_rows": 0,
+            "has_previous": False,
+            "has_next": False,
+            "masked_columns": [],
+        }
     safe_database = quote_identifier(database_name)
     safe_table = quote_identifier(table_name)
     page = normalize_page_number(page)
     offset = (page - 1) * page_size
     total_rows = fetch_scalar(f"SELECT COUNT(*) FROM {safe_database}.{safe_table}", default=0)
+    column_definitions = fetch_table_columns(database_name, table_name)
+    select_clauses, masked_columns = _build_table_preview_select_list(column_definitions)
     with mysql_connection(database_override=database_name) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(f"SELECT * FROM {safe_database}.{safe_table} LIMIT %s OFFSET %s", [page_size, offset])
+            select_list_sql = ", ".join(select_clauses) if select_clauses else "*"
+            cursor.execute(
+                f"SELECT {select_list_sql} FROM {safe_database}.{safe_table} LIMIT %s OFFSET %s",
+                [page_size, offset],
+            )
             rows = cursor.fetchall()
             columns = [item[0] for item in cursor.description] if cursor.description else []
     return {
@@ -1200,6 +1257,7 @@ def fetch_table_preview(database_name, table_name, page=1, page_size=25):
         "total_rows": total_rows or 0,
         "has_previous": page > 1,
         "has_next": offset + len(rows) < (total_rows or 0),
+        "masked_columns": masked_columns,
     }
 
 
@@ -1223,6 +1281,7 @@ def empty_table_preview(page_size=25):
         "total_rows": 0,
         "has_previous": False,
         "has_next": False,
+        "masked_columns": [],
     }
 
 

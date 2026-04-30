@@ -383,6 +383,14 @@
     <span class="helper-text">{{ preview.total_rows }} total rows</span>
     {% endif %}
   </div>
+  {% if preview.masked_columns %}
+  <p class="helper-text">
+    Raw preview is hidden for non-display-safe columns:
+    {% for column in preview.masked_columns %}
+    <span>{{ column.column_name }} ({{ column.column_type }}){% if not loop.last %}, {% endif %}</span>
+    {% endfor %}
+  </p>
+  {% endif %}
   <div class="table-wrap">
     <table>
       <thead>
