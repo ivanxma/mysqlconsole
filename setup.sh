@@ -196,6 +196,58 @@ is_interactive_terminal() {
   [[ -t 0 && -t 1 ]]
 }
 
+skip_privileged_setup_enabled() {
+  case "$(printf '%s' "${SKIP_PRIVILEGED_SETUP:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+run_as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+    return 0
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "This step requires root privileges. Re-run setup.sh from a shell with sudo access." >&2
+    return 1
+  fi
+
+  if is_interactive_terminal; then
+    sudo "$@"
+  else
+    sudo -n "$@"
+  fi
+}
+
+write_root_file() {
+  local target_path="$1"
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    cat >"$target_path"
+    return 0
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "This step requires root privileges. Re-run setup.sh from a shell with sudo access." >&2
+    return 1
+  fi
+
+  if is_interactive_terminal; then
+    sudo tee "$target_path" >/dev/null
+  else
+    sudo -n tee "$target_path" >/dev/null
+  fi
+}
+
+log_skipped_privileged_step() {
+  local step_description="$1"
+  echo "Skipping ${step_description} because SKIP_PRIVILEGED_SETUP=1. Re-run ./setup.sh from a shell with sudo access to apply privileged changes." >&2
+}
+
 parse_args() {
   local positional=()
 
@@ -515,14 +567,22 @@ open_firewall_port() {
   fi
 
   if command -v firewall-cmd >/dev/null 2>&1; then
-    sudo firewall-cmd --permanent --add-port="${port_value}/tcp"
-    sudo firewall-cmd --reload
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall update for port ${port_value}/tcp"
+      return 0
+    fi
+    run_as_root firewall-cmd --permanent --add-port="${port_value}/tcp"
+    run_as_root firewall-cmd --reload
     echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
     return 0
   fi
 
   if command -v ufw >/dev/null 2>&1; then
-    sudo ufw allow "${port_value}/tcp"
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall update for port ${port_value}/tcp"
+      return 0
+    fi
+    run_as_root ufw allow "${port_value}/tcp"
     echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with ufw."
     return 0
   fi
@@ -540,9 +600,13 @@ close_firewall_port() {
   fi
 
   if command -v firewall-cmd >/dev/null 2>&1; then
-    if sudo firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
-      sudo firewall-cmd --permanent --remove-port="${port_value}/tcp"
-      sudo firewall-cmd --reload
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall cleanup for port ${port_value}/tcp"
+      return 0
+    fi
+    if run_as_root firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
+      run_as_root firewall-cmd --permanent --remove-port="${port_value}/tcp"
+      run_as_root firewall-cmd --reload
       echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
     else
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in firewall-cmd."
@@ -551,8 +615,12 @@ close_firewall_port() {
   fi
 
   if command -v ufw >/dev/null 2>&1; then
-    if sudo ufw status | grep -Fq "${port_value}/tcp"; then
-      sudo ufw --force delete allow "${port_value}/tcp"
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall cleanup for port ${port_value}/tcp"
+      return 0
+    fi
+    if run_as_root ufw status | grep -Fq "${port_value}/tcp"; then
+      run_as_root ufw --force delete allow "${port_value}/tcp"
       echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with ufw."
     else
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in ufw."
@@ -655,7 +723,11 @@ fix_tls_permissions() {
   chmod 600 "$ssl_key_file"
 
   if [[ -n "$service_user" && -n "$service_group" ]]; then
-    sudo chown "$service_user:$service_group" "$ssl_cert_file" "$ssl_key_file"
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "TLS file ownership update"
+      return 0
+    fi
+    run_as_root chown "$service_user:$service_group" "$ssl_cert_file" "$ssl_key_file"
   fi
 }
 
@@ -790,7 +862,6 @@ EOF
     if [[ "$needs_privileged_bind" == "yes" ]]; then
       cat <<EOF
 AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 EOF
     fi
 
@@ -798,20 +869,20 @@ EOF
 [Install]
 WantedBy=multi-user.target
 EOF
-  } | sudo tee "$unit_path" >/dev/null
+  } | write_root_file "$unit_path"
 }
 
 enable_systemd_service() {
   local service_name="$1"
 
-  sudo systemctl enable --now "${service_name}.service"
+  run_as_root systemctl enable --now "${service_name}.service"
   echo "Enabled systemd service ${service_name}.service."
 }
 
 disable_systemd_service() {
   local service_name="$1"
 
-  sudo systemctl disable --now "${service_name}.service" >/dev/null 2>&1 || true
+  run_as_root systemctl disable --now "${service_name}.service" >/dev/null 2>&1 || true
 }
 
 https_service_ready() {
@@ -855,6 +926,11 @@ setup_systemd_services() {
     return 0
   fi
 
+  if skip_privileged_setup_enabled; then
+    log_skipped_privileged_step "systemd unit installation and enablement"
+    return 0
+  fi
+
   service_user="$(resolve_service_user)"
   service_group="$(resolve_service_group "$service_user")"
 
@@ -868,7 +944,7 @@ setup_systemd_services() {
 
   install_systemd_service "dbconsole-http" "DBConsole HTTP service" "$SCRIPT_DIR/start_http.sh" "$service_user" "$service_group" "$http_needs_privileged_bind"
   install_systemd_service "dbconsole-https" "DBConsole HTTPS service" "$SCRIPT_DIR/start_https.sh" "$service_user" "$service_group" "$https_needs_privileged_bind"
-  sudo systemctl daemon-reload
+  run_as_root systemctl daemon-reload
   echo "Installed systemd unit files for dbconsole."
 
   case "$deploy_mode" in
@@ -947,6 +1023,15 @@ run_mysqlsh_installer() {
   local os_family="$1"
   local platform_dir
   local installer
+
+  if skip_privileged_setup_enabled; then
+    case "$os_family" in
+      ol8|ol9|ubuntu)
+        log_skipped_privileged_step "MySQL Shell package installation"
+        return 0
+        ;;
+    esac
+  fi
 
   platform_dir="$(resolve_platform_dir "$os_family")" || return 1
   installer="$platform_dir/install_mysql_shell_innovation.sh"

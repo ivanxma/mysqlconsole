@@ -326,6 +326,7 @@ def _default_dbconsole_update_status():
         "state": "idle",
         "step": "Ready",
         "message": "No update has been started.",
+        "completion_message": "",
         "started_at": "",
         "updated_at": "",
         "finished_at": "",
@@ -387,7 +388,7 @@ def _maybe_finalize_dbconsole_update_status(status):
             _append_dbconsole_update_log("DBConsole service restart completed.")
             normalized_status["state"] = "completed"
             normalized_status["step"] = "Completed"
-            normalized_status["message"] = "Repository refresh, setup, and service restart completed."
+            normalized_status["message"] = normalized_status.get("completion_message") or "Repository refresh, setup, and service restart completed."
             normalized_status["finished_at"] = _utc_now_iso()
             normalized_status = _write_dbconsole_update_status(normalized_status)
         elif (datetime.now(timezone.utc) - restart_requested_at).total_seconds() > 120:
@@ -435,6 +436,7 @@ def start_dbconsole_update_job():
             "state": "starting",
             "step": "Starting",
             "message": "Launching the DBConsole update worker.",
+            "completion_message": "",
             "started_at": _utc_now_iso(),
             "finished_at": "",
             "worker_pid": None,
@@ -456,6 +458,8 @@ def start_dbconsole_update_job():
             str(DBCONSOLE_UPDATE_STATUS_FILE),
             "--log-file",
             str(DBCONSOLE_UPDATE_LOG_FILE),
+            "--service-pid",
+            str(os.getpid()),
         ],
         cwd=str(ROOT_DIR),
         stdout=subprocess.DEVNULL,

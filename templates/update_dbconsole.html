@@ -59,6 +59,7 @@
       <ul class="plain-list">
         <li>The repository update uses the current checked-out branch and requires a clean git worktree.</li>
         <li><code>setup.sh</code> reruns dependency installation and platform-specific setup.</li>
+        <li>If passwordless <code>sudo</code> is unavailable from the running service, the updater still refreshes the repo, reinstalls Python packages, and self-restarts DBConsole, but Linux package, firewall, and systemd changes must be applied later from a shell with <code>./setup.sh</code>.</li>
         <li>If the configured service restarts, the page can briefly lose contact and then reconnect automatically.</li>
       </ul>
     </article>

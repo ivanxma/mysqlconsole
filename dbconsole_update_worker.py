@@ -7,6 +7,7 @@ import platform
 import pwd
 import shlex
 import shutil
+import signal
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,11 +22,20 @@ def utc_now_iso():
 
 
 class UpdateWorker:
-    def __init__(self, repo_dir, status_file, log_file):
+    def __init__(self, repo_dir, status_file, log_file, service_pid=None):
         self.repo_dir = Path(repo_dir).resolve()
         self.status_file = Path(status_file).resolve()
         self.log_file = Path(log_file).resolve()
+        self.service_pid = self.normalize_pid(service_pid)
         self.status = self.load_status()
+
+    @staticmethod
+    def normalize_pid(value):
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        return normalized if normalized > 0 else None
 
     def load_status(self):
         if not self.status_file.exists():
@@ -187,7 +197,7 @@ class UpdateWorker:
             group_name = ""
         return user_name, group_name
 
-    def run_setup(self, os_family, deploy_mode, runtime_env):
+    def run_setup(self, os_family, deploy_mode, runtime_env, *, skip_privileged_setup=False):
         setup_env = os.environ.copy()
         setup_env["RUNTIME_ENV_FILE"] = str(self.repo_dir / ".runtime.env")
         user_name, group_name = self.current_user_group()
@@ -195,6 +205,8 @@ class UpdateWorker:
             setup_env["SERVICE_USER"] = user_name
         if group_name:
             setup_env["SERVICE_GROUP"] = group_name
+        if skip_privileged_setup:
+            setup_env["SKIP_PRIVILEGED_SETUP"] = "1"
 
         host_value = runtime_env.get("HOST", "")
         http_port = runtime_env.get("DEFAULT_HTTP_PORT", "")
@@ -220,14 +232,26 @@ class UpdateWorker:
             command.extend(["--https-port", https_port])
         self.run_command(command, cwd=self.repo_dir, env=setup_env)
 
-    def schedule_restart(self, service_names):
-        if not service_names:
-            return
+    def passwordless_sudo_available(self):
+        if os.geteuid() == 0:
+            return True, ""
         if not shutil.which("sudo"):
-            raise RuntimeError("sudo is required to restart the DBConsole service.")
-        if not shutil.which("systemctl"):
-            raise RuntimeError("systemctl is required to restart the DBConsole service.")
+            return False, "sudo is not installed."
+        true_command = "/bin/true" if Path("/bin/true").exists() else (shutil.which("true") or "true")
+        result = subprocess.run(
+            ["sudo", "-n", true_command],
+            cwd=str(self.repo_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True, ""
+        output = (result.stderr or result.stdout or "").strip()
+        return False, output or "sudo -n true failed."
 
+    def begin_restart_wait(self, service_names, completion_message):
         restart_requested_at = utc_now_iso()
         self.write_status(
             state="restarting",
@@ -235,7 +259,19 @@ class UpdateWorker:
             message=f"Waiting for {' and '.join(service_names)} to restart.",
             restart_requested_at=restart_requested_at,
             service_names=service_names,
+            completion_message=completion_message,
         )
+        return restart_requested_at
+
+    def schedule_service_restart(self, service_names, completion_message):
+        if not service_names:
+            return
+        if not shutil.which("systemctl"):
+            raise RuntimeError("systemctl is required to restart the DBConsole service.")
+
+        privilege_prefix = [] if os.geteuid() == 0 else ["sudo", "-n"]
+
+        restart_requested_at = self.begin_restart_wait(service_names, completion_message)
         self.append_log(f"[{restart_requested_at}] Scheduling service restart for {', '.join(service_names)}.")
 
         if shutil.which("systemd-run"):
@@ -244,9 +280,8 @@ class UpdateWorker:
                 shlex.quote(service_name) for service_name in service_names
             )
             self.run_command(
-                [
-                    "sudo",
-                    "-n",
+                privilege_prefix
+                + [
                     "systemd-run",
                     "--unit",
                     transient_unit_name,
@@ -260,15 +295,38 @@ class UpdateWorker:
             self.append_log(f"Restart scheduled in transient unit {transient_unit_name}.")
             return
 
-        self.run_command(["sudo", "-n", "systemctl", "restart", *service_names], cwd=self.repo_dir)
+        self.run_command(privilege_prefix + ["systemctl", "restart", *service_names], cwd=self.repo_dir)
         completed_at = utc_now_iso()
         self.write_status(
             state="completed",
             step="Completed",
-            message="Repository refresh, setup, and service restart completed.",
+            message=completion_message,
+            completion_message=completion_message,
             finished_at=completed_at,
         )
         self.append_log(f"[{completed_at}] Service restart completed.")
+
+    def schedule_self_restart(self, service_names, completion_message):
+        if not service_names:
+            raise RuntimeError("Unable to restart DBConsole automatically because no active systemd service was detected.")
+        if not self.service_pid:
+            raise RuntimeError("Unable to restart DBConsole automatically because the running service PID is unknown.")
+
+        restart_requested_at = self.begin_restart_wait(service_names, completion_message)
+        self.append_log(
+            f"[{restart_requested_at}] Scheduling service self-restart by terminating PID {self.service_pid}."
+        )
+        subprocess.Popen(
+            ["/bin/sh", "-lc", f"sleep 2 && kill -{signal.SIGKILL.value} {self.service_pid}"],
+            cwd=str(self.repo_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        self.append_log(
+            "Restart will be triggered by sending SIGKILL to the current DBConsole service process so systemd restarts it."
+        )
 
     def run(self):
         self.write_status(
@@ -297,18 +355,49 @@ class UpdateWorker:
         self.run_command(["git", "fetch", "--all", "--prune"], cwd=self.repo_dir)
         self.run_command(["git", "pull", "--ff-only"], cwd=self.repo_dir)
 
-        self.log_step("Running setup", "Rerunning setup.sh to refresh dependencies and service wiring.")
-        self.run_setup(os_family, deploy_mode, runtime_env)
+        full_completion_message = "Repository refresh, setup, and service restart completed."
+        limited_completion_message = (
+            "Repository refresh, Python dependencies, and service restart completed. "
+            "Privileged setup changes were skipped because passwordless sudo was unavailable from the running service."
+        )
+        sudo_ready, sudo_error = self.passwordless_sudo_available()
+
+        if sudo_ready:
+            self.log_step("Running setup", "Rerunning setup.sh to refresh dependencies and service wiring.")
+            self.run_setup(os_family, deploy_mode, runtime_env)
+        else:
+            self.log_step(
+                "Running setup",
+                "Passwordless sudo is unavailable from the running DBConsole service. "
+                "Refreshing the repository and Python environment in unprivileged mode.",
+            )
+            if sudo_error:
+                self.append_log(f"Passwordless sudo check failed: {sudo_error}")
+            self.append_log(
+                "setup.sh will skip privileged steps such as Linux package installation, firewall changes, and systemd unit rewrites."
+            )
+            self.append_log(
+                "Re-run ./setup.sh from an SSH shell if you need MySQL Shell package updates, firewall changes, or refreshed systemd units."
+            )
+            self.run_setup(os_family, deploy_mode, runtime_env, skip_privileged_setup=True)
 
         if service_names:
-            self.schedule_restart(service_names)
+            if sudo_ready:
+                self.schedule_service_restart(service_names, full_completion_message)
+            else:
+                self.schedule_self_restart(service_names, limited_completion_message)
             return
 
         completion_time = utc_now_iso()
         self.write_status(
             state="completed",
             step="Completed",
-            message="Repository refresh and setup completed. No systemd service restart was required.",
+            message=(
+                "Repository refresh and setup completed. No systemd service restart was required."
+                if sudo_ready
+                else "Repository refresh and Python dependencies completed. Restart DBConsole manually to load the new code."
+            ),
+            completion_message="",
             finished_at=completion_time,
             restart_requested_at="",
             service_names=[],
@@ -321,9 +410,10 @@ def main():
     parser.add_argument("--repo-dir", required=True)
     parser.add_argument("--status-file", required=True)
     parser.add_argument("--log-file", required=True)
+    parser.add_argument("--service-pid")
     args = parser.parse_args()
 
-    worker = UpdateWorker(args.repo_dir, args.status_file, args.log_file)
+    worker = UpdateWorker(args.repo_dir, args.status_file, args.log_file, service_pid=args.service_pid)
     try:
         worker.run()
     except Exception as error:

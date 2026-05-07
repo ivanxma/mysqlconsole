@@ -253,7 +253,7 @@ Change `SERVICE_NAME` to `dbconsole-http.service` for an HTTP-only deployment. I
 - synchronize the selected HTTP/HTTPS TCP ports with the host firewall when `firewall-cmd` or `ufw` is available, including removing stale DBConsole ports that are no longer selected
 - it does not stop or disable the firewall service globally; it only updates the DBConsole listener ports
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
-- when a Linux systemd service is configured to use a port below `1024`, grant `CAP_NET_BIND_SERVICE` so `80` and `443` do not require running the service as `root`
+- when a Linux systemd service is configured to use a port below `1024`, grant `CAP_NET_BIND_SERVICE` so `80` and `443` do not require running the service as `root`, without clamping the rest of the service capability set
 - enable and start the systemd service that matches the selected deploy mode
 - leave the HTTPS systemd service installed but disabled only when user-supplied TLS files are missing or invalid
 
@@ -272,6 +272,17 @@ If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsol
 
 On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` and uses the same `.runtime.env` values for host, ports, and optional TLS paths.
 
+The `Admin > Update DBConsole` page works best when the DBConsole service user can run `sudo` non-interactively for the privileged steps in `setup.sh` and for service restarts. When passwordless `sudo` is unavailable from the running service, the updater falls back to:
+
+- `git fetch` and `git pull`
+- reinstalling Python packages inside `.venv`
+- refreshing `.runtime.env`
+- restarting the current DBConsole systemd service by letting systemd recover after the running service process exits
+
+In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
+
+If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Update DBConsole` can use the new updater behavior on later releases.
+
 Environment overrides for `setup.sh`:
 
 - `OS_FAMILY`
@@ -282,6 +293,7 @@ Environment overrides for `setup.sh`:
 - `RUNTIME_ENV_FILE`
 - `SSL_CERT_FILE`
 - `SSL_KEY_FILE`
+- `SKIP_PRIVILEGED_SETUP`
 - `SERVICE_USER`
 - `SERVICE_GROUP`
 - `VENV_DIR`
