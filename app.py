@@ -205,8 +205,8 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "admin_status_variables_page", "label": "Status and Variables"},
-            {"endpoint": "update_dbconsole_page", "label": "Update DBConsole"},
             {"endpoint": "setup_object_storage_page", "label": "Setup Object Storage"},
+            {"endpoint": "update_dbconsole_page", "label": "Auto-Update"},
         ],
     },
     {
@@ -5254,14 +5254,14 @@ def update_dbconsole_page():
         if action == "start":
             try:
                 start_dbconsole_update_job()
-                flash("DBConsole update started.", "success")
+                flash("Auto-update started.", "success")
             except Exception as error:
                 flash(str(error), "error")
         return redirect(url_for("update_dbconsole_page"))
 
     return render_dashboard(
         "update_dbconsole.html",
-        page_title="Update DBConsole",
+        page_title="Auto-Update",
         update_status=get_dbconsole_update_status(),
     )
 

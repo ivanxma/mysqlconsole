@@ -272,7 +272,7 @@ If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsol
 
 On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` and uses the same `.runtime.env` values for host, ports, and optional TLS paths.
 
-The `Admin > Update DBConsole` page works best when the DBConsole service user can run `sudo` non-interactively for the privileged steps in `setup.sh` and for service restarts. When passwordless `sudo` is unavailable from the running service, the updater falls back to:
+The `Admin > Auto-Update` page works best when the DBConsole service user can run `sudo` non-interactively for the privileged steps in `setup.sh` and for service restarts. When passwordless `sudo` is unavailable from the running service, the updater falls back to:
 
 - `git fetch` and `git pull`
 - reinstalling Python packages inside `.venv`
@@ -281,7 +281,7 @@ The `Admin > Update DBConsole` page works best when the DBConsole service user c
 
 In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
 
-If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Update DBConsole` can use the new updater behavior on later releases.
+If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
 
 Environment overrides for `setup.sh`:
 

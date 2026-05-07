@@ -3,7 +3,7 @@
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">Admin</p>
-  <h2>Update DBConsole</h2>
+  <h2>Auto-Update</h2>
   <p>Pull the latest repository changes, rerun <code>setup.sh</code>, and restart the configured DBConsole service.</p>
 </section>
 
@@ -15,7 +15,7 @@
     </div>
     <form method="post">
       <input type="hidden" name="update_action" value="start">
-      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Update DBConsole</button>
+      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
     </form>
   </div>
 
