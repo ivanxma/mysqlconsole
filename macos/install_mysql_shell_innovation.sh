@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if command -v mysqlsh >/dev/null 2>&1; then
-  echo "mysqlsh is already installed."
-  exit 0
-fi
-
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This installer is intended for macOS." >&2
   exit 1
@@ -17,10 +12,17 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! brew list mysql-shell >/dev/null 2>&1; then
-  brew install mysql-shell
-else
+if brew list --cask mysql-shell >/dev/null 2>&1; then
+  brew upgrade --cask mysql-shell || true
+elif brew list --formula mysql-shell >/dev/null 2>&1; then
   brew upgrade mysql-shell || true
+else
+  brew install --cask mysql-shell || brew install mysql-shell
+fi
+
+if ! command -v mysqlsh >/dev/null 2>&1; then
+  echo "mysqlsh was not found in PATH after the macOS installation completed." >&2
+  exit 1
 fi
 
 echo "mysqlsh installed successfully."

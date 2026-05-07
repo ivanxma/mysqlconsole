@@ -521,6 +521,17 @@ dialog.management-dialog::backdrop {
   margin-left: auto;
 }
 
+.db-admin-event-action {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+}
+
+.db-admin-event-action:hover:not(:disabled),
+.db-admin-event-action:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
+}
+
 .db-admin-event-action svg {
   width: 18px;
   height: 18px;
@@ -1371,6 +1382,18 @@ h4 {
   align-items: end;
 }
 
+.field-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
 .import-target-row {
   grid-column: 1 / -1;
   display: grid;
@@ -1392,13 +1415,35 @@ h4 {
 }
 
 .checkbox-field {
-  display: flex;
-  gap: 10px;
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 6px;
   align-items: center;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-input,
+.checkbox-field input[type="checkbox"],
+.checkbox-field input[type="radio"] {
+  order: 0;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.checkbox-field span {
+  order: 1;
+  display: inline;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   width: 100%;
@@ -1558,15 +1603,3 @@ code {
     border-radius: 20px;
   }
 }
-.field-label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-
-.inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 18px;
-}
-

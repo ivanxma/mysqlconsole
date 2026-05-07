@@ -66,6 +66,8 @@ That starts the app on `127.0.0.1:5001` in debug mode.
 - `ubuntu`
 - `macos`
 
+### Existing Clone
+
 Usage:
 
 ```bash
@@ -83,15 +85,92 @@ Examples:
 ./setup.sh ubuntu https --https-port 8443
 ```
 
+### Fresh Host Bootstrap With `curl | sh`
+
+On a fresh host you can bootstrap the repo clone and then re-run the real file-backed `setup.sh` in one step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ol9 https --https-port 443
+```
+
+The bootstrap flow:
+
+- installs `git` when it is missing
+- clones `https://github.com/ivanxma/mysqlconsole.git`
+- renames an existing target directory to `<dir>.<timestamp>`
+- re-executes the cloned `setup.sh` with `bash`
+
+Optional bootstrap overrides:
+
+```bash
+BOOTSTRAP_REPO_URL=https://github.com/ivanxma/mysqlconsole.git
+BOOTSTRAP_CLONE_DIR=mysqlconsole
+BOOTSTRAP_PARENT_DIR=/opt
+```
+
+Example:
+
+```bash
+BOOTSTRAP_PARENT_DIR=/opt \
+BOOTSTRAP_CLONE_DIR=dbconsole \
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ubuntu both --http-port 80 --https-port 443
+```
+
+### OCI Compute Instance Init Script
+
+For OCI Compute it is usually cleaner to clone the repo into the target user's home directory and run `setup.sh` as that user while still allowing `sudo` for systemd, firewall, and privileged-port setup.
+
+Example init script:
+
+```bash
+#!/bin/bash
+set -euxo pipefail
+
+APP_REPO="https://github.com/ivanxma/mysqlconsole.git"
+APP_DIR="/home/opc/mysqlconsole"
+APP_USER="opc"
+APP_GROUP="opc"
+OS_FAMILY="ol9"
+
+if command -v dnf >/dev/null 2>&1; then
+  dnf install -y git
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y git
+elif command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y git
+else
+  echo "Unable to install git automatically." >&2
+  exit 1
+fi
+
+if [ -d "$APP_DIR" ]; then
+  mv "$APP_DIR" "${APP_DIR}.$(date +%Y%m%d%H%M%S)"
+fi
+
+sudo -u "$APP_USER" git clone "$APP_REPO" "$APP_DIR"
+cd "$APP_DIR"
+
+sudo -u "$APP_USER" env \
+  HOST=0.0.0.0 \
+  SERVICE_USER="$APP_USER" \
+  SERVICE_GROUP="$APP_GROUP" \
+  bash ./setup.sh "$OS_FAMILY" https --https-port 443
+```
+
 `setup.sh` will:
 
 - create `.venv`
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
+  - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, and install `mysql-shell`
+  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, then install `mysql-shell`
+  - `macos`: install or upgrade `mysql-shell` with Homebrew and fall back to the formula path if needed
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
-- synchronize the selected HTTP/HTTPS TCP ports with the host firewall when the platform tooling supports it, including removing stale or disabled DBConsole ports
+- synchronize the selected HTTP/HTTPS TCP ports with the host firewall when `firewall-cmd` or `ufw` is available, including removing stale DBConsole ports that are no longer selected
+- it does not stop or disable the firewall service globally; it only updates the DBConsole listener ports
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
 - when a Linux systemd service is configured to use a port below `1024`, grant `CAP_NET_BIND_SERVICE` so `80` and `443` do not require running the service as `root`
 - enable and start the systemd service that matches the selected deploy mode
@@ -112,11 +191,11 @@ If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsol
 
 On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` and uses the same `.runtime.env` values for host, ports, and optional TLS paths.
 
-Environment overrides:
+Environment overrides for `setup.sh`:
 
-- `PYTHON_BIN`
+- `OS_FAMILY`
+- `DEPLOY_MODE`
 - `HOST`
-- `PORT`
 - `HTTP_PORT`
 - `HTTPS_PORT`
 - `RUNTIME_ENV_FILE`
@@ -124,13 +203,28 @@ Environment overrides:
 - `SSL_KEY_FILE`
 - `SERVICE_USER`
 - `SERVICE_GROUP`
+- `VENV_DIR`
+- `BOOTSTRAP_REPO_URL`
+- `BOOTSTRAP_CLONE_DIR`
+- `BOOTSTRAP_PARENT_DIR`
+
+Environment overrides for `start_http.sh` and `start_https.sh`:
+
+- `PYTHON_BIN`
+- `PORT`
+- `RUNTIME_ENV_FILE`
+- `HOST`
+- `SSL_CERT_FILE`
+- `SSL_KEY_FILE`
 
 ## Default Config Files
 
-- `profiles.json`: non-secret saved connection defaults
+- `.runtime.env`: saved host, port, and TLS defaults written by `setup.sh`
+- `profiles.json`: non-secret saved connection defaults created locally by the app
+- `tls/`: default self-signed TLS assets generated by `setup.sh` when you do not supply your own certificate and key
 - `object_storage.json`: object storage settings used by HeatWave-related screens
 
-The current default profile points at `127.0.0.1:3310` and does not store passwords.
+`.runtime.env`, `profiles.json`, and `tls/` are git-ignored local state.
 
 ## Main Screens
 
