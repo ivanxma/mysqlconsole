@@ -131,6 +131,77 @@ APP_DIR="/home/opc/mysqlconsole"
 APP_USER="opc"
 APP_GROUP="opc"
 OS_FAMILY="ol9"
+SERVICE_NAME="dbconsole-https.service"
+STATE_DIR="/var/lib/dbconsole-init"
+INSTALLING_FLAG="$STATE_DIR/installing"
+INSTALLED_FLAG="$STATE_DIR/installed"
+FAILED_FLAG="$STATE_DIR/failed"
+SERVICE_FILE="$STATE_DIR/service-name"
+LOG_FILE="/var/log/dbconsole-init.log"
+PROFILE_BANNER="/etc/profile.d/dbconsole-login-banner.sh"
+
+mkdir -p "$STATE_DIR"
+chmod 0755 "$STATE_DIR"
+: > "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+touch "$INSTALLING_FLAG"
+rm -f "$INSTALLED_FLAG" "$FAILED_FLAG"
+printf '%s\n' "$SERVICE_NAME" > "$SERVICE_FILE"
+chmod 0644 "$SERVICE_FILE"
+
+cat > "$PROFILE_BANNER" <<'EOF'
+#!/bin/bash
+STATE_DIR="/var/lib/dbconsole-init"
+INSTALLING_FLAG="$STATE_DIR/installing"
+INSTALLED_FLAG="$STATE_DIR/installed"
+FAILED_FLAG="$STATE_DIR/failed"
+SERVICE_FILE="$STATE_DIR/service-name"
+LOG_FILE="/var/log/dbconsole-init.log"
+
+case $- in
+  *i*) ;;
+  *) return 0 ;;
+esac
+
+[ "${USER:-}" = "opc" ] || return 0
+
+SERVICE_NAME=""
+if [ -r "$SERVICE_FILE" ]; then
+  SERVICE_NAME="$(head -n 1 "$SERVICE_FILE")"
+fi
+
+printf '\n'
+if [ -f "$INSTALLING_FLAG" ]; then
+  printf '%s\n' "Please wait until installation to be completed."
+elif [ -f "$INSTALLED_FLAG" ]; then
+  printf '%s\n' "The service is installed."
+  if [ -n "$SERVICE_NAME" ]; then
+    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
+  fi
+elif [ -f "$FAILED_FLAG" ]; then
+  printf '%s\n' "The installation finished with errors. Review $LOG_FILE."
+  if [ -n "$SERVICE_NAME" ]; then
+    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
+  fi
+fi
+printf '\n'
+EOF
+chmod 0755 "$PROFILE_BANNER"
+
+finish_install() {
+  local exit_code="$1"
+  rm -f "$INSTALLING_FLAG"
+  if [ "$exit_code" -eq 0 ]; then
+    touch "$INSTALLED_FLAG"
+    rm -f "$FAILED_FLAG"
+  else
+    touch "$FAILED_FLAG"
+    rm -f "$INSTALLED_FLAG"
+  fi
+}
+
+trap 'finish_install $?' EXIT
 
 if command -v dnf >/dev/null 2>&1; then
   dnf install -y git
@@ -156,7 +227,17 @@ sudo -u "$APP_USER" env \
   SERVICE_USER="$APP_USER" \
   SERVICE_GROUP="$APP_GROUP" \
   bash ./setup.sh "$OS_FAMILY" https --https-port 443
+
+systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
 ```
+
+This init-script example also installs `/etc/profile.d/dbconsole-login-banner.sh` for the `opc` user:
+
+- while cloud-init is still running the setup, a new `opc` login shows `Please wait until installation to be completed.`
+- after the setup finishes, a new `opc` login shows `The service is installed.` and the current `systemctl status` output for `dbconsole-https.service`
+- if the init script fails, the banner points to `/var/log/dbconsole-init.log`
+
+Change `SERVICE_NAME` to `dbconsole-http.service` for an HTTP-only deployment. If you deploy `both`, extend the banner block to print both service statuses.
 
 `setup.sh` will:
 

@@ -261,7 +261,7 @@
   <div class="panel-header">
     <div>
       <h3>Select Database and Table</h3>
-      <span class="helper-text">Choose a database and table to inspect metadata, preview rows, and manage column definitions.</span>
+      <span class="helper-text">Choose a database, then use the table list below to inspect metadata, preview rows, and manage column definitions.</span>
     </div>
   </div>
   <form method="get" class="form-grid compact-form">
@@ -274,15 +274,6 @@
         <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
           {{ row.database_name }}{% if row.is_system %} (system){% endif %}
         </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Table
-      <select name="table" onchange="this.form.submit()">
-        <option value="">Choose a table</option>
-        {% for row in tables %}
-        <option value="{{ row.table_name }}" {% if row.table_name == selected_table %}selected{% endif %}>{{ row.table_name }}</option>
         {% endfor %}
       </select>
     </label>
@@ -386,6 +377,7 @@
       <thead>
         <tr>
           <th>Table</th>
+          <th>Table Comment</th>
           <th>Engine</th>
           <th>Rows</th>
           <th>HeatWave</th>
@@ -403,6 +395,7 @@
               {{ row.table_name }}
             </a>
           </td>
+          <td>{{ row.table_comment or "-" }}</td>
           <td>{{ row.engine }}</td>
           <td>{{ row.row_count }}</td>
           <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
@@ -413,7 +406,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="5">Choose a database to list its tables.</td>
+          <td colspan="6">Choose a database to list its tables.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -429,6 +422,7 @@
         <thead>
           <tr>
             <th>Column</th>
+            <th>Column Comment</th>
             <th>Type</th>
             <th>Nullable</th>
             <th>Key</th>
@@ -436,22 +430,23 @@
           </tr>
         </thead>
         <tbody>
-          {% for row in columns %}
-          <tr>
-            <td>{{ row.column_name }}</td>
-            <td>{{ row.column_type }}</td>
-            <td>{{ row.is_nullable }}</td>
-            <td>{{ row.column_key or "-" }}</td>
-            <td>{{ row.extra or "-" }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="5">Choose a table to inspect columns.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+        {% for row in columns %}
+        <tr>
+          <td>{{ row.column_name }}</td>
+          <td>{{ row.column_comment or "-" }}</td>
+          <td>{{ row.column_type }}</td>
+          <td>{{ row.is_nullable }}</td>
+          <td>{{ row.column_key or "-" }}</td>
+          <td>{{ row.extra or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">Choose a table to inspect columns.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   </article>
 
   <article class="panel">
@@ -633,7 +628,7 @@
       <button class="button secondary" type="button" data-dialog-close="modify-columns-dialog">Close</button>
     </div>
     {% if selected_table %}
-    <p class="helper-text">Edit the column name and the full SQL definition fragment after the name. This keeps datatype parameters like <code>decimal(10,2)</code>, <code>varchar(255)</code>, or multi-value type definitions intact.</p>
+    <p class="helper-text">Edit the column name, the SQL definition fragment after the name, and the optional comments. This keeps datatype parameters like <code>decimal(10,2)</code>, <code>varchar(255)</code>, or multi-value type definitions intact while generating the required <code>ALTER TABLE</code> clauses.</p>
     {% if column_edit_unsupported_columns %}
     <p class="helper-text error-text">Unable to load the current SHOW CREATE TABLE definition for: {{ column_edit_unsupported_columns|join(', ') }}.</p>
     {% endif %}
@@ -643,6 +638,10 @@
       <input type="hidden" name="db_action" value="modify_table_columns">
       <input type="hidden" name="database_name" value="{{ selected_database }}">
       <input type="hidden" name="table_name" value="{{ selected_table }}">
+      <label class="full-span">
+        Table Comment
+        <textarea name="table_comment" rows="3">{{ table_edit_comment }}</textarea>
+      </label>
       <div class="table-wrap full-span">
         <table class="db-admin-edit-table">
           <thead>
@@ -650,6 +649,7 @@
               <th>Current Column</th>
               <th>Column Name</th>
               <th>Column Definition</th>
+              <th>Column Comment</th>
             </tr>
           </thead>
           <tbody>
@@ -658,6 +658,7 @@
               <td>
                 <strong>{{ row.source_column_name }}</strong>
                 <div class="helper-text">{{ row.column_type }}{% if row.extra %} • {{ row.extra }}{% endif %}</div>
+                <div class="helper-text">Comment: {{ row.current_comment or "-" }}</div>
               </td>
               <td>
                 {% if row.supports_modify %}
@@ -674,10 +675,17 @@
                 <textarea class="column-definition-editor" rows="3" disabled>{{ row.edited_definition or "Current definition unavailable from SHOW CREATE TABLE." }}</textarea>
                 {% endif %}
               </td>
+              <td>
+                {% if row.supports_modify %}
+                <input name="column_comment" type="text" value="{{ row.edited_comment }}">
+                {% else %}
+                <input type="text" value="{{ row.current_comment }}" disabled>
+                {% endif %}
+              </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="3">Choose a table to edit its column definitions.</td>
+              <td colspan="4">Choose a table to edit its column definitions.</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -689,7 +697,7 @@
       </div>
     </form>
   {% else %}
-    <p class="helper-text">Choose a database and table before modifying column definitions.</p>
+    <p class="helper-text">Choose a database and then select a table from the list before modifying column definitions.</p>
     {% endif %}
   </div>
 </dialog>

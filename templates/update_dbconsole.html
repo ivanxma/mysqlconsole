@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">Admin</p>
+  <h2>Update DBConsole</h2>
+  <p>Pull the latest repository changes, rerun <code>setup.sh</code>, and restart the configured DBConsole service.</p>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Updater</h3>
+      <span class="helper-text">The updater runs in the background. During restart this page keeps polling and waits up to 30 seconds for DBConsole to come back.</span>
+    </div>
+    <form method="post">
+      <input type="hidden" name="update_action" value="start">
+      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Update DBConsole</button>
+    </form>
+  </div>
+
+  <div class="flash update-status-banner update-status-{{ update_status.state or 'idle' }}" id="update-status-banner">
+    {{ update_status.message }}
+  </div>
+
+  <div class="split-layout split-layout-top update-status-layout">
+    <article class="panel update-status-card">
+      <h3>Current Status</h3>
+      <dl class="detail-list" id="update-status-details">
+        <div>
+          <dt>State</dt>
+          <dd id="update-state-value">{{ update_status.state or "idle" }}</dd>
+        </div>
+        <div>
+          <dt>Step</dt>
+          <dd id="update-step-value">{{ update_status.step or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Started</dt>
+          <dd id="update-started-value">{{ update_status.started_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd id="update-updated-value">{{ update_status.updated_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Finished</dt>
+          <dd id="update-finished-value">{{ update_status.finished_at or "-" }}</dd>
+        </div>
+        <div>
+          <dt>Services</dt>
+          <dd id="update-services-value">{{ update_status.service_names|join(", ") if update_status.service_names else "-" }}</dd>
+        </div>
+      </dl>
+    </article>
+
+    <article class="panel update-status-card">
+      <h3>Notes</h3>
+      <ul class="plain-list">
+        <li>The repository update uses the current checked-out branch and requires a clean git worktree.</li>
+        <li><code>setup.sh</code> reruns dependency installation and platform-specific setup.</li>
+        <li>If the configured service restarts, the page can briefly lose contact and then reconnect automatically.</li>
+      </ul>
+    </article>
+  </div>
+
+  <div class="panel-header panel-header-tight">
+    <div>
+      <h3>Progress Log</h3>
+      <span class="helper-text">Newest lines stay at the bottom.</span>
+    </div>
+  </div>
+  <pre class="sql-block update-log-block" id="update-log-block">{{ update_status.log_text or "No update log output yet." }}</pre>
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const statusUrl = {{ url_for("update_dbconsole_status")|tojson }};
+    const initialStatus = {{ update_status|tojson }};
+    const restartWaitLimitMs = 30000;
+    const pollIntervalMs = 2000;
+    const state = {
+      lastStatus: initialStatus,
+      restartWaitStartedAt: null,
+    };
+
+    const elements = {
+      button: document.getElementById("update-dbconsole-button"),
+      banner: document.getElementById("update-status-banner"),
+      logBlock: document.getElementById("update-log-block"),
+      stateValue: document.getElementById("update-state-value"),
+      stepValue: document.getElementById("update-step-value"),
+      startedValue: document.getElementById("update-started-value"),
+      updatedValue: document.getElementById("update-updated-value"),
+      finishedValue: document.getElementById("update-finished-value"),
+      servicesValue: document.getElementById("update-services-value"),
+    };
+
+    const formatTimestamp = (value) => value || "-";
+
+    const updateBannerClass = (statusState) => {
+      const normalized = (statusState || "idle").toLowerCase();
+      elements.banner.classList.remove(
+        "update-status-idle",
+        "update-status-starting",
+        "update-status-running",
+        "update-status-restarting",
+        "update-status-completed",
+        "update-status-error"
+      );
+      elements.banner.classList.add("update-status-" + normalized);
+    };
+
+    const renderStatus = (status, overrideMessage = "") => {
+      const payload = status || {};
+      const services = Array.isArray(payload.service_names) && payload.service_names.length
+        ? payload.service_names.join(", ")
+        : "-";
+      const logText = payload.log_text && payload.log_text.trim()
+        ? payload.log_text
+        : "No update log output yet.";
+
+      updateBannerClass(payload.state || "idle");
+      elements.banner.textContent = overrideMessage || payload.message || "No update has been started.";
+      elements.stateValue.textContent = payload.state || "idle";
+      elements.stepValue.textContent = payload.step || "-";
+      elements.startedValue.textContent = formatTimestamp(payload.started_at);
+      elements.updatedValue.textContent = formatTimestamp(payload.updated_at);
+      elements.finishedValue.textContent = formatTimestamp(payload.finished_at);
+      elements.servicesValue.textContent = services;
+      elements.logBlock.textContent = logText;
+      if (elements.button) {
+        elements.button.disabled = !payload.can_start;
+      }
+    };
+
+    const pollStatus = async () => {
+      try {
+        const response = await window.fetch(statusUrl, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          throw new Error("Status request failed with HTTP " + response.status);
+        }
+        const payload = await response.json();
+        state.lastStatus = payload;
+        state.restartWaitStartedAt = null;
+        renderStatus(payload);
+      } catch (error) {
+        const currentState = (state.lastStatus && state.lastStatus.state) || "idle";
+        if (currentState === "restarting") {
+          if (!state.restartWaitStartedAt) {
+            state.restartWaitStartedAt = Date.now();
+          }
+          const elapsedMs = Date.now() - state.restartWaitStartedAt;
+          const waitMessage = elapsedMs >= restartWaitLimitMs
+            ? "Waiting for DBConsole to restart. The page will keep retrying until the service comes back."
+            : "Waiting for DBConsole to restart...";
+          renderStatus(state.lastStatus, waitMessage);
+        } else {
+          renderStatus(state.lastStatus, "Unable to refresh the update status right now.");
+        }
+      } finally {
+        window.setTimeout(pollStatus, pollIntervalMs);
+      }
+    };
+
+    renderStatus(initialStatus);
+    window.setTimeout(pollStatus, pollIntervalMs);
+  })();
+</script>
+{% endblock %}

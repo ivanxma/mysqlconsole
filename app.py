@@ -3,6 +3,8 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -65,6 +67,10 @@ ROOT_DIR = Path(__file__).resolve().parent
 PROFILE_STORE = ROOT_DIR / "profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 IMPORT_CACHE_DIR = Path(tempfile.gettempdir()) / "dbconsole-import-cache"
+DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
+DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
+DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
+DBCONSOLE_UPDATE_MAX_LOG_LINES = 400
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_$]+$")
 IMPORT_SQL_TYPE_RE = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)*(?:\([0-9, ]+\))?$")
@@ -105,6 +111,8 @@ SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event"}
 DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
+DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
 EVENT_SCHEDULE_OPTIONS = (
     {
         "value": "once",
@@ -197,6 +205,7 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "admin_status_variables_page", "label": "Status and Variables"},
+            {"endpoint": "update_dbconsole_page", "label": "Update DBConsole"},
             {"endpoint": "setup_object_storage_page", "label": "Setup Object Storage"},
         ],
     },
@@ -277,6 +286,188 @@ def ensure_object_storage_store():
     if OBJECT_STORAGE_STORE.exists():
         return
     OBJECT_STORAGE_STORE.write_text(json.dumps(DEFAULT_OBJECT_STORAGE, indent=2), encoding="utf-8")
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _parse_iso_datetime(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _append_dbconsole_update_log(message):
+    DBCONSOLE_UPDATE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DBCONSOLE_UPDATE_LOG_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(str(message or ""))
+        if not str(message or "").endswith("\n"):
+            handle.write("\n")
+
+
+def _write_dbconsole_update_status(payload):
+    DBCONSOLE_UPDATE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = dict(payload)
+    data["updated_at"] = _utc_now_iso()
+    temp_path = DBCONSOLE_UPDATE_STATUS_FILE.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp_path.replace(DBCONSOLE_UPDATE_STATUS_FILE)
+    return data
+
+
+def _default_dbconsole_update_status():
+    return {
+        "job_id": "",
+        "state": "idle",
+        "step": "Ready",
+        "message": "No update has been started.",
+        "started_at": "",
+        "updated_at": "",
+        "finished_at": "",
+        "worker_pid": None,
+        "service_names": [],
+        "restart_requested_at": "",
+    }
+
+
+def _pid_is_alive(pid):
+    try:
+        normalized_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if normalized_pid <= 0:
+        return False
+    try:
+        os.kill(normalized_pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _read_dbconsole_update_log_tail(max_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES):
+    if not DBCONSOLE_UPDATE_LOG_FILE.exists():
+        return []
+    try:
+        lines = DBCONSOLE_UPDATE_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    if max_lines > 0:
+        return lines[-max_lines:]
+    return lines
+
+
+def _load_dbconsole_update_status_payload():
+    if not DBCONSOLE_UPDATE_STATUS_FILE.exists():
+        return _default_dbconsole_update_status()
+    try:
+        payload = json.loads(DBCONSOLE_UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _default_dbconsole_update_status()
+    status = _default_dbconsole_update_status()
+    status.update(payload if isinstance(payload, dict) else {})
+    service_names = status.get("service_names", [])
+    if not isinstance(service_names, list):
+        status["service_names"] = []
+    return status
+
+
+def _maybe_finalize_dbconsole_update_status(status):
+    normalized_status = dict(status or _default_dbconsole_update_status())
+    restart_requested_at = _parse_iso_datetime(normalized_status.get("restart_requested_at"))
+
+    if normalized_status.get("state") == "restarting" and restart_requested_at:
+        if PROCESS_STARTED_AT > restart_requested_at:
+            _append_dbconsole_update_log("DBConsole service restart completed.")
+            normalized_status["state"] = "completed"
+            normalized_status["step"] = "Completed"
+            normalized_status["message"] = "Repository refresh, setup, and service restart completed."
+            normalized_status["finished_at"] = _utc_now_iso()
+            normalized_status = _write_dbconsole_update_status(normalized_status)
+        elif (datetime.now(timezone.utc) - restart_requested_at).total_seconds() > 120:
+            _append_dbconsole_update_log("DBConsole service restart did not complete within the expected time window.")
+            normalized_status["state"] = "error"
+            normalized_status["step"] = "Failed"
+            normalized_status["message"] = "The scheduled service restart did not complete within 120 seconds."
+            normalized_status["finished_at"] = _utc_now_iso()
+            normalized_status = _write_dbconsole_update_status(normalized_status)
+
+    if normalized_status.get("state") in {"starting", "running"} and normalized_status.get("worker_pid"):
+        if not _pid_is_alive(normalized_status.get("worker_pid")):
+            _append_dbconsole_update_log("The update worker stopped before reporting completion.")
+            normalized_status["state"] = "error"
+            normalized_status["step"] = "Failed"
+            normalized_status["message"] = "The update worker stopped unexpectedly. Review the log output."
+            normalized_status["finished_at"] = _utc_now_iso()
+            normalized_status = _write_dbconsole_update_status(normalized_status)
+
+    return normalized_status
+
+
+def get_dbconsole_update_status():
+    status = _maybe_finalize_dbconsole_update_status(_load_dbconsole_update_status_payload())
+    log_lines = _read_dbconsole_update_log_tail()
+    status["log_lines"] = log_lines
+    status["log_text"] = "\n".join(log_lines)
+    status["can_start"] = status.get("state") not in DBCONSOLE_UPDATE_RUNNING_STATES
+    return status
+
+
+def start_dbconsole_update_job():
+    current_status = get_dbconsole_update_status()
+    if not current_status.get("can_start"):
+        raise ValueError("A DBConsole update is already in progress.")
+    if not DBCONSOLE_UPDATE_WORKER.exists():
+        raise ValueError(f"Update worker script was not found at {DBCONSOLE_UPDATE_WORKER}.")
+
+    DBCONSOLE_UPDATE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DBCONSOLE_UPDATE_LOG_FILE.write_text("", encoding="utf-8")
+
+    status_payload = _write_dbconsole_update_status(
+        {
+            "job_id": _utc_now_iso().replace(":", "").replace("-", ""),
+            "state": "starting",
+            "step": "Starting",
+            "message": "Launching the DBConsole update worker.",
+            "started_at": _utc_now_iso(),
+            "finished_at": "",
+            "worker_pid": None,
+            "service_names": [],
+            "restart_requested_at": "",
+        }
+    )
+    _append_dbconsole_update_log("Launching the DBConsole update worker.")
+
+    worker_env = os.environ.copy()
+    worker_env["PYTHONUNBUFFERED"] = "1"
+    worker = subprocess.Popen(
+        [
+            sys.executable,
+            str(DBCONSOLE_UPDATE_WORKER),
+            "--repo-dir",
+            str(ROOT_DIR),
+            "--status-file",
+            str(DBCONSOLE_UPDATE_STATUS_FILE),
+            "--log-file",
+            str(DBCONSOLE_UPDATE_LOG_FILE),
+        ],
+        cwd=str(ROOT_DIR),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+        env=worker_env,
+    )
+    status_payload["worker_pid"] = worker.pid
+    status_payload["message"] = f"Update worker started with PID {worker.pid}."
+    _write_dbconsole_update_status(status_payload)
+    return get_dbconsole_update_status()
 
 
 def ensure_import_cache_dir():
@@ -420,6 +611,17 @@ def _redirect_to_login_for_mysql_unavailable(error):
     flash(f"MySQL connection is unavailable: {error}", "error")
     redirect_values = {"profile": profile_name} if profile_name else {}
     return redirect(url_for("login", **redirect_values))
+
+
+def session_login_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get("logged_in"):
+            flash("Log in to continue.", "error")
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped_view
 
 
 def login_required(view):
@@ -769,6 +971,7 @@ def fetch_tables_for_database(database_name):
           table_name AS table_name_value,
           engine AS engine_value,
           table_rows AS table_rows_value,
+          table_comment AS table_comment_value,
           create_options AS create_options_value
         FROM information_schema.tables
         WHERE table_schema = %s
@@ -785,6 +988,7 @@ def fetch_tables_for_database(database_name):
                 "table_name": row["table_name_value"],
                 "engine": row["engine_value"] or "-",
                 "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
+                "table_comment": row["table_comment_value"] or "",
                 "create_options": create_options,
                 "heatwave_configured": heatwave_configured,
             }
@@ -1396,7 +1600,8 @@ def fetch_table_columns(database_name, table_name):
           column_type AS column_type_value,
           is_nullable AS is_nullable_value,
           column_key AS column_key_value,
-          extra AS extra_value
+          extra AS extra_value,
+          column_comment AS column_comment_value
         FROM information_schema.columns
         WHERE table_schema = %s
           AND table_name = %s
@@ -1411,6 +1616,7 @@ def fetch_table_columns(database_name, table_name):
             "is_nullable": row["is_nullable_value"],
             "column_key": row["column_key_value"],
             "extra": row["extra_value"],
+            "column_comment": row["column_comment_value"] or "",
         }
         for row in rows
     ]
@@ -5036,6 +5242,33 @@ def admin_status_variables_page():
     )
 
 
+@app.route("/admin/update-dbconsole", methods=["GET", "POST"])
+@session_login_required
+def update_dbconsole_page():
+    if request.method == "POST":
+        action = str(request.form.get("update_action", "")).strip().lower()
+        if action == "start":
+            try:
+                start_dbconsole_update_job()
+                flash("DBConsole update started.", "success")
+            except Exception as error:
+                flash(str(error), "error")
+        return redirect(url_for("update_dbconsole_page"))
+
+    return render_dashboard(
+        "update_dbconsole.html",
+        page_title="Update DBConsole",
+        update_status=get_dbconsole_update_status(),
+    )
+
+
+@app.route("/admin/update-dbconsole/status")
+def update_dbconsole_status():
+    if not session.get("logged_in"):
+        return jsonify({"error": "Log in to continue."}), 401
+    return jsonify(get_dbconsole_update_status())
+
+
 @app.route("/mysql/dashboard")
 @login_required
 def mysql_dashboard_page():
@@ -5372,6 +5605,7 @@ def db_admin_page():
                 system_schemas=SYSTEM_SCHEMAS,
                 fetch_create_table_statement=fetch_create_table_statement,
                 fetch_table_columns=fetch_table_columns,
+                fetch_tables_for_database=fetch_tables_for_database,
                 fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
                 fix_missing_primary_key_table=fix_table_without_primary_key,
                 create_db_event=create_db_admin_event,

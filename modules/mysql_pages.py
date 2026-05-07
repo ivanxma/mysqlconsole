@@ -72,15 +72,121 @@ def _extract_column_definitions_from_create_statement(create_table_statement):
     return definitions
 
 
+def _normalize_db_admin_comment_text(value):
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _strip_column_comment_clause(column_definition):
+    text = str(column_definition or "").strip()
+    if not text:
+        return ""
+
+    length = len(text)
+    index = 0
+    in_single_quote = False
+    in_backtick = False
+
+    while index < length:
+        char = text[index]
+
+        if in_single_quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == "'":
+                if index + 1 < length and text[index + 1] == "'":
+                    index += 2
+                    continue
+                in_single_quote = False
+            index += 1
+            continue
+
+        if in_backtick:
+            if char == "`":
+                in_backtick = False
+            index += 1
+            continue
+
+        if char == "'":
+            in_single_quote = True
+            index += 1
+            continue
+
+        if char == "`":
+            in_backtick = True
+            index += 1
+            continue
+
+        if text[index : index + 7].upper() == "COMMENT":
+            previous_char = text[index - 1] if index > 0 else " "
+            next_char_index = index + 7
+            next_char = text[next_char_index] if next_char_index < length else " "
+            if (previous_char.isalnum() or previous_char == "_") or (next_char.isalnum() or next_char == "_"):
+                index += 1
+                continue
+
+            literal_start = next_char_index
+            while literal_start < length and text[literal_start].isspace():
+                literal_start += 1
+            if literal_start >= length or text[literal_start] != "'":
+                index += 1
+                continue
+
+            literal_end = literal_start + 1
+            while literal_end < length:
+                literal_char = text[literal_end]
+                if literal_char == "\\":
+                    literal_end += 2
+                    continue
+                if literal_char == "'":
+                    if literal_end + 1 < length and text[literal_end + 1] == "'":
+                        literal_end += 2
+                        continue
+                    literal_end += 1
+                    break
+                literal_end += 1
+
+            prefix = text[:index].rstrip()
+            suffix = text[literal_end:].lstrip()
+            if prefix and suffix:
+                return f"{prefix} {suffix}".strip()
+            return f"{prefix}{suffix}".strip()
+
+        index += 1
+
+    return text
+
+
+def _quote_sql_string_literal(value):
+    escaped_value = pymysql.converters.escape_string(_normalize_db_admin_comment_text(value))
+    if isinstance(escaped_value, bytes):
+        escaped_value = escaped_value.decode("utf-8")
+    return f"'{escaped_value}'"
+
+
+def _compose_column_definition(column_definition, column_comment):
+    normalized_definition = _strip_column_comment_clause(column_definition)
+    if not normalized_definition:
+        return ""
+    normalized_comment = _normalize_db_admin_comment_text(column_comment)
+    if normalized_comment:
+        return f"{normalized_definition} COMMENT {_quote_sql_string_literal(normalized_comment)}"
+    return normalized_definition
+
+
 def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
     definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
     submitted_name_by_source = {}
     submitted_definition_by_source = {}
+    submitted_comment_by_source = {}
 
     if payload is not None and hasattr(payload, "getlist"):
         source_values = payload.getlist("source_column_name")
         new_name_values = payload.getlist("new_column_name")
         definition_values = payload.getlist("column_definition")
+        comment_values = payload.getlist("column_comment")
         for index, source_value in enumerate(source_values):
             source_column_name = str(source_value or "").strip()
             if not source_column_name or source_column_name in submitted_name_by_source:
@@ -91,12 +197,16 @@ def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
             submitted_definition_by_source[source_column_name] = str(
                 definition_values[index] if index < len(definition_values) else ""
             ).strip()
+            submitted_comment_by_source[source_column_name] = _normalize_db_admin_comment_text(
+                comment_values[index] if index < len(comment_values) else ""
+            )
 
     rows = []
     unsupported_columns = []
     for row in columns:
         source_column_name = str(row.get("column_name") or "").strip()
         current_definition = definition_lookup.get(source_column_name, "")
+        current_column_comment = _normalize_db_admin_comment_text(row.get("column_comment"))
         supports_modify = bool(current_definition)
         if not supports_modify:
             unsupported_columns.append(source_column_name)
@@ -105,7 +215,12 @@ def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
                 "source_column_name": source_column_name,
                 "current_definition": current_definition,
                 "edited_column_name": submitted_name_by_source.get(source_column_name, source_column_name),
-                "edited_definition": submitted_definition_by_source.get(source_column_name, current_definition),
+                "edited_definition": submitted_definition_by_source.get(
+                    source_column_name,
+                    _strip_column_comment_clause(current_definition),
+                ),
+                "current_comment": current_column_comment,
+                "edited_comment": submitted_comment_by_source.get(source_column_name, current_column_comment),
                 "supports_modify": supports_modify,
                 "column_type": row.get("column_type") or "",
                 "is_nullable": row.get("is_nullable") or "",
@@ -116,7 +231,7 @@ def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
     return rows, unsupported_columns
 
 
-def _build_db_admin_change_requests(columns, ddl_statement, payload):
+def _build_db_admin_change_requests(columns, ddl_statement, payload, *, current_table_comment=""):
     if payload is None or not hasattr(payload, "getlist"):
         raise ValueError("Column update payload is missing.")
 
@@ -124,12 +239,26 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload):
     current_columns = [str(row.get("column_name") or "").strip() for row in columns]
     current_columns = [column_name for column_name in current_columns if column_name]
     current_column_set = set(current_columns)
+    current_comment_by_source = {
+        str(row.get("column_name") or "").strip(): _normalize_db_admin_comment_text(row.get("column_comment"))
+        for row in columns
+        if str(row.get("column_name") or "").strip()
+    }
 
     source_values = payload.getlist("source_column_name")
     new_name_values = payload.getlist("new_column_name")
     definition_values = payload.getlist("column_definition")
+    comment_values = payload.getlist("column_comment")
+    normalized_current_table_comment = _normalize_db_admin_comment_text(current_table_comment)
+    submitted_table_comment = _normalize_db_admin_comment_text(
+        payload.get("table_comment", normalized_current_table_comment)
+    )
     if not source_values:
-        raise ValueError("No column definitions were submitted.")
+        return {
+            "column_change_requests": [],
+            "table_comment_changed": submitted_table_comment != normalized_current_table_comment,
+            "new_table_comment": submitted_table_comment,
+        }
 
     final_name_by_source = {column_name: column_name for column_name in current_columns}
     change_requests = []
@@ -149,6 +278,9 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload):
         column_definition = str(
             definition_values[index] if index < len(definition_values) else ""
         ).strip()
+        column_comment = _normalize_db_admin_comment_text(
+            comment_values[index] if index < len(comment_values) else current_comment_by_source.get(source_column_name, "")
+        )
         current_definition = definition_lookup.get(source_column_name, "")
         if not current_definition:
             raise ValueError(
@@ -160,12 +292,18 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload):
             raise ValueError(f"Column definition is required for `{source_column_name}`.")
 
         final_name_by_source[source_column_name] = new_column_name
-        if new_column_name != source_column_name or column_definition != current_definition:
+        current_definition_without_comment = _strip_column_comment_clause(current_definition)
+        current_comment = current_comment_by_source.get(source_column_name, "")
+        if (
+            new_column_name != source_column_name
+            or column_definition != current_definition_without_comment
+            or column_comment != current_comment
+        ):
             change_requests.append(
                 {
                     "source_column_name": source_column_name,
                     "new_column_name": new_column_name,
-                    "column_definition": column_definition,
+                    "column_definition": _compose_column_definition(column_definition, column_comment),
                 }
             )
 
@@ -173,7 +311,11 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload):
     if len(set(normalized_final_names)) != len(normalized_final_names):
         raise ValueError("Column names must remain unique after the update.")
 
-    return change_requests
+    return {
+        "column_change_requests": change_requests,
+        "table_comment_changed": submitted_table_comment != normalized_current_table_comment,
+        "new_table_comment": submitted_table_comment,
+    }
 
 
 def _build_db_admin_change_column_clauses(change_requests, *, quote_identifier):
@@ -368,6 +510,7 @@ def handle_db_admin_action(
     system_schemas,
     fetch_create_table_statement=None,
     fetch_table_columns=None,
+    fetch_tables_for_database=None,
     fetch_missing_primary_key_rows=None,
     fix_missing_primary_key_table=None,
     create_db_event=None,
@@ -412,20 +555,37 @@ def handle_db_admin_action(
 
         current_columns = fetch_table_columns(normalized_name, normalized_table)
         ddl_statement = fetch_create_table_statement(normalized_name, normalized_table)
-        change_requests = _build_db_admin_change_requests(current_columns, ddl_statement, payload)
-        if not change_requests:
-            raise ValueError("No column definition changes were submitted.")
+        current_table_comment = ""
+        if fetch_tables_for_database is not None:
+            for row in fetch_tables_for_database(normalized_name):
+                if str(row.get("table_name") or "").strip() == normalized_table:
+                    current_table_comment = _normalize_db_admin_comment_text(row.get("table_comment"))
+                    break
+        change_request_payload = _build_db_admin_change_requests(
+            current_columns,
+            ddl_statement,
+            payload,
+            current_table_comment=current_table_comment,
+        )
+        change_requests = change_request_payload["column_change_requests"]
+        alter_clauses = _build_db_admin_change_column_clauses(change_requests, quote_identifier=quote_identifier)
+        if change_request_payload["table_comment_changed"]:
+            alter_clauses.append(f"COMMENT = {_quote_sql_string_literal(change_request_payload['new_table_comment'])}")
+        if not alter_clauses:
+            raise ValueError("No column or table comment changes were submitted.")
 
         safe_database = quote_identifier(normalized_name)
         safe_table = quote_identifier(normalized_table)
-        execute_statement(
-            f"ALTER TABLE {safe_database}.{safe_table} "
-            + ", ".join(_build_db_admin_change_column_clauses(change_requests, quote_identifier=quote_identifier))
-        )
+        execute_statement(f"ALTER TABLE {safe_database}.{safe_table} " + ", ".join(alter_clauses))
+        updated_parts = []
+        if change_requests:
+            updated_parts.append(f"{len(change_requests)} column definition(s)")
+        if change_request_payload["table_comment_changed"]:
+            updated_parts.append("table comment")
         return {
             "flash_category": "success",
             "flash_message": (
-                f"Updated {len(change_requests)} column definition(s) on "
+                f"Updated {' and '.join(updated_parts)} on "
                 f"`{normalized_name}.{normalized_table}`."
             ),
             "redirect_endpoint": "db_admin_page",
@@ -623,6 +783,8 @@ def build_db_admin_context(
     columns = []
     indexes = []
     partitions = _empty_partition_state()
+    selected_table_row = {}
+    table_edit_comment = ""
     column_edit_rows = []
     column_edit_unsupported_columns = []
     event_rows = []
@@ -661,6 +823,19 @@ def build_db_admin_context(
 
     if db_admin_tab == "select" and normalized_table:
         try:
+            selected_table_row = next(
+                (
+                    row
+                    for row in available_tables
+                    if str(row.get("table_name") or "").strip() == normalized_table
+                ),
+                {},
+            )
+            table_edit_comment = _normalize_db_admin_comment_text(selected_table_row.get("table_comment"))
+            if column_edit_payload is not None:
+                table_edit_comment = _normalize_db_admin_comment_text(
+                    column_edit_payload.get("table_comment", table_edit_comment)
+                )
             preview = fetch_table_preview(normalized_database, normalized_table, page=preview_page)
             ddl_statement = fetch_create_table_statement(normalized_database, normalized_table)
             columns = fetch_table_columns(normalized_database, normalized_table)
@@ -689,6 +864,8 @@ def build_db_admin_context(
         "preview": preview,
         "ddl_statement": ddl_statement,
         "columns": columns,
+        "selected_table_row": selected_table_row,
+        "table_edit_comment": table_edit_comment,
         "column_edit_rows": column_edit_rows,
         "column_edit_unsupported_columns": column_edit_unsupported_columns,
         "indexes": indexes,
@@ -746,6 +923,7 @@ def build_db_admin_export(
             "table_name": row["table_name"],
             "engine": row["engine"],
             "row_count": row["row_count"],
+            "table_comment": row.get("table_comment", ""),
             "heatwave_configured": "yes" if row["heatwave_configured"] else "no",
             "create_options": row["create_options"],
         }
@@ -753,7 +931,7 @@ def build_db_admin_export(
     ]
     return {
         "filename": f"{normalized_database or 'database'}-tables.csv",
-        "columns": ["table_name", "engine", "row_count", "heatwave_configured", "create_options"],
+        "columns": ["table_name", "engine", "row_count", "table_comment", "heatwave_configured", "create_options"],
         "rows": export_rows,
     }
 
