@@ -91,8 +91,9 @@ Examples:
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
-- open the selected HTTP/HTTPS TCP ports when the platform tooling supports it
+- synchronize the selected HTTP/HTTPS TCP ports with the host firewall when the platform tooling supports it, including removing stale or disabled DBConsole ports
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
+- when a Linux systemd service is configured to use a port below `1024`, grant `CAP_NET_BIND_SERVICE` so `80` and `443` do not require running the service as `root`
 - enable and start the systemd service that matches the selected deploy mode
 - leave the HTTPS systemd service installed but disabled only when user-supplied TLS files are missing or invalid
 
@@ -104,6 +105,8 @@ SSL_CERT_FILE=/path/to/cert.pem SSL_KEY_FILE=/path/to/key.pem ./start_https.sh
 ```
 
 The start scripts read saved defaults from `.runtime.env`. You can still override either port for a single launch with `PORT=<port>`.
+
+When you run the start scripts directly outside systemd, privileged ports below `1024` can still require `sudo` or a higher port such as `8443`.
 
 If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsole-selfsigned.crt` and `tls/dbconsole-selfsigned.key`.
 

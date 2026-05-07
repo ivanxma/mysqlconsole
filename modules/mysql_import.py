@@ -22,10 +22,45 @@ IMPORT_TYPE_OPTIONS = [
     "DATETIME",
     "JSON",
 ]
+PRIMARY_KEY_MODE_NONE = "none"
+PRIMARY_KEY_MODE_COLUMNS = "columns"
+PRIMARY_KEY_MODE_MY_ROW_ID = "my_row_id"
+PRIMARY_KEY_UNSUPPORTED_TYPE_PREFIXES = (
+    "TEXT",
+    "TINYTEXT",
+    "MEDIUMTEXT",
+    "LONGTEXT",
+    "JSON",
+    "BLOB",
+    "TINYBLOB",
+    "MEDIUMBLOB",
+    "LONGBLOB",
+)
 
 
 def _normalize_checkbox(value):
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_primary_key_mode(value):
+    normalized = str(value or "").strip().lower()
+    if normalized in {PRIMARY_KEY_MODE_NONE, PRIMARY_KEY_MODE_COLUMNS, PRIMARY_KEY_MODE_MY_ROW_ID}:
+        return normalized
+    return PRIMARY_KEY_MODE_NONE
+
+
+def _extract_primary_key_state(payload, *, default_invisible=False):
+    return {
+        "primary_key_mode": _normalize_primary_key_mode(payload.get("primary_key_mode", PRIMARY_KEY_MODE_NONE)),
+        "extra_primary_key_invisible": _normalize_checkbox(
+            payload.get("extra_primary_key_invisible", "1" if default_invisible else "")
+        ),
+    }
+
+
+def _import_type_allows_primary_key(data_type):
+    normalized = str(data_type or "").strip().upper()
+    return not normalized.startswith(PRIMARY_KEY_UNSUPPORTED_TYPE_PREFIXES)
 
 
 def _ensure_import_cache_dir():
@@ -340,6 +375,7 @@ def build_import_column_definitions(rows, column_order):
                 "column_name": candidate_name,
                 "data_type": infer_import_column_type(column_values),
                 "allow_null": any(value is None for value in column_values) or not rows,
+                "is_primary_key": False,
                 "sample_values": sample_values,
             }
         )
@@ -370,6 +406,7 @@ def _effective_import_database_name(import_state):
 def build_mysql_import_plan(upload_storage, payload, database_inventory, *, quote_identifier):
     parsed_upload = parse_import_upload(upload_storage)
     import_state = _extract_mysql_import_state(payload)
+    primary_key_state = _extract_primary_key_state(payload, default_invisible=True)
     target_database = _effective_import_database_name(import_state)
     available_database_names = {row["database_name"] for row in database_inventory}
 
@@ -394,27 +431,41 @@ def build_mysql_import_plan(upload_storage, payload, database_inventory, *, quot
         "create_database": import_state["create_database"],
         "new_database_name": import_state["new_database_name"],
         "table_name": derive_import_table_name(parsed_upload["source_filename"]),
+        "primary_key_mode": primary_key_state["primary_key_mode"],
+        "extra_primary_key_invisible": primary_key_state["extra_primary_key_invisible"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def _hydrate_import_column_definitions(plan, payload=None):
     column_definitions = []
+    primary_key_mode = (
+        _extract_primary_key_state(payload).get("primary_key_mode", PRIMARY_KEY_MODE_NONE)
+        if payload is not None
+        else _normalize_primary_key_mode(plan.get("primary_key_mode", PRIMARY_KEY_MODE_NONE))
+    )
     for index, definition in enumerate(plan.get("column_definitions", [])):
         if payload is None:
             column_name = definition.get("column_name", "")
             data_type = definition.get("data_type", "")
             allow_null = bool(definition.get("allow_null"))
+            is_primary_key = primary_key_mode == PRIMARY_KEY_MODE_COLUMNS and bool(definition.get("is_primary_key"))
         else:
             column_name = str(payload.get(f"column_name_{index}", definition.get("column_name", ""))).strip().lower()
             data_type = str(payload.get(f"column_type_{index}", definition.get("data_type", ""))).strip()
             allow_null = _normalize_checkbox(payload.get(f"column_allow_null_{index}", ""))
+            is_primary_key = primary_key_mode == PRIMARY_KEY_MODE_COLUMNS and _normalize_checkbox(
+                payload.get(f"column_primary_key_{index}", "")
+            )
+        if is_primary_key:
+            allow_null = False
         column_definitions.append(
             {
                 "source_name": definition.get("source_name", ""),
                 "column_name": column_name,
                 "data_type": data_type,
                 "allow_null": allow_null,
+                "is_primary_key": is_primary_key,
                 "sample_values": definition.get("sample_values", []),
             }
         )
@@ -431,8 +482,15 @@ def build_mysql_import_page_state(plan, database_inventory, *, fetch_table_exist
             "table_name": plan.get("table_name", "") if plan else "",
             "replace_existing_table": False,
         }
+        primary_key_state = {
+            "primary_key_mode": _normalize_primary_key_mode(plan.get("primary_key_mode", PRIMARY_KEY_MODE_NONE))
+            if plan
+            else PRIMARY_KEY_MODE_NONE,
+            "extra_primary_key_invisible": bool(plan.get("extra_primary_key_invisible", True)) if plan else True,
+        }
     else:
         import_state = _extract_mysql_import_state(payload)
+        primary_key_state = _extract_primary_key_state(payload)
 
     state = {
         "database_inventory": database_inventory,
@@ -450,6 +508,8 @@ def build_mysql_import_page_state(plan, database_inventory, *, fetch_table_exist
         "new_database_name": import_state["new_database_name"],
         "table_name": import_state["table_name"] or (plan.get("table_name", "") if plan else ""),
         "replace_existing_table": import_state["replace_existing_table"],
+        "primary_key_mode": primary_key_state["primary_key_mode"],
+        "extra_primary_key_invisible": primary_key_state["extra_primary_key_invisible"],
         "database_exists": False,
         "table_exists": False,
         "effective_database_name": "",
@@ -481,6 +541,7 @@ def validate_mysql_import_request(
     fetch_database_exists,
 ):
     import_state = _extract_mysql_import_state(payload)
+    primary_key_state = _extract_primary_key_state(payload)
     target_database = _effective_import_database_name(import_state)
     available_database_names = {row["database_name"] for row in database_inventory}
 
@@ -495,6 +556,7 @@ def validate_mysql_import_request(
 
     column_definitions = []
     seen_column_names = set()
+    primary_key_columns = []
     for index, definition in enumerate(_hydrate_import_column_definitions(plan, payload), start=1):
         column_name = str(definition.get("column_name", "")).strip()
         if not column_name:
@@ -504,13 +566,32 @@ def validate_mysql_import_request(
         if column_key in seen_column_names:
             raise ValueError(f"Duplicate import column name `{column_name}` is not allowed.")
         seen_column_names.add(column_key)
+        normalized_data_type = _normalize_import_type(definition.get("data_type", ""))
+        is_primary_key = bool(definition.get("is_primary_key"))
+        if is_primary_key and not _import_type_allows_primary_key(normalized_data_type):
+            raise ValueError(
+                f"Column `{column_name}` uses data type `{normalized_data_type}`, which cannot be used as a primary key. "
+                "Choose a non-TEXT/JSON type such as VARCHAR or BIGINT."
+            )
         column_definitions.append(
             {
                 "source_name": definition.get("source_name", ""),
                 "column_name": column_name,
-                "data_type": _normalize_import_type(definition.get("data_type", "")),
-                "allow_null": bool(definition.get("allow_null")),
+                "data_type": normalized_data_type,
+                "allow_null": False if is_primary_key else bool(definition.get("allow_null")),
+                "is_primary_key": is_primary_key,
             }
+        )
+        if is_primary_key:
+            primary_key_columns.append(column_name)
+
+    if primary_key_state["primary_key_mode"] == PRIMARY_KEY_MODE_COLUMNS and not primary_key_columns:
+        raise ValueError("Choose at least one import column for the primary key, or switch the primary key option to No primary key.")
+
+    if primary_key_state["primary_key_mode"] == PRIMARY_KEY_MODE_MY_ROW_ID and "my_row_id" in seen_column_names:
+        raise ValueError(
+            "Column name `my_row_id` is reserved for the added AUTO_INCREMENT primary key. "
+            "Rename the imported column or choose a different primary key option."
         )
 
     table_exists = fetch_table_exists(target_database, table_name) if fetch_database_exists(target_database) else False
@@ -523,6 +604,8 @@ def validate_mysql_import_request(
         "effective_database_name": target_database,
         "table_name": table_name,
         "column_definitions": column_definitions,
+        "primary_key_mode": primary_key_state["primary_key_mode"],
+        "extra_primary_key_invisible": primary_key_state["extra_primary_key_invisible"],
     }
 
 
@@ -585,10 +668,26 @@ def run_mysql_import(plan, import_request, *, quote_identifier, execute_statemen
     if import_request["create_database"]:
         execute_statement(f"CREATE DATABASE IF NOT EXISTS {safe_database}")
 
-    create_columns_sql = ", ".join(
+    create_table_parts = [
         f"{quote_identifier(column['column_name'])} {column['data_type']} {'NULL' if column['allow_null'] else 'NOT NULL'}"
         for column in column_definitions
-    )
+    ]
+    if import_request["primary_key_mode"] == PRIMARY_KEY_MODE_MY_ROW_ID:
+        row_id_sql = "`my_row_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT"
+        if import_request["extra_primary_key_invisible"]:
+            row_id_sql += " INVISIBLE"
+        create_table_parts.append(row_id_sql)
+        create_table_parts.append("PRIMARY KEY (`my_row_id`)")
+    else:
+        primary_key_columns = [
+            quote_identifier(column["column_name"])
+            for column in column_definitions
+            if column.get("is_primary_key")
+        ]
+        if primary_key_columns:
+            create_table_parts.append(f"PRIMARY KEY ({', '.join(primary_key_columns)})")
+
+    create_columns_sql = ", ".join(create_table_parts)
     insert_columns_sql = ", ".join(quote_identifier(column["column_name"]) for column in column_definitions)
     insert_placeholders = ", ".join(["%s"] * len(column_definitions))
     insert_sql = f"INSERT INTO {safe_database}.{safe_table} ({insert_columns_sql}) VALUES ({insert_placeholders})"

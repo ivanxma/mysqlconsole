@@ -74,6 +74,7 @@
     <ul class="plain-list">
       <li>Preview first to inspect sample rows and inferred column types.</li>
       <li>Edit the target table name, column names, and data types before importing.</li>
+      <li>Choose no primary key, a composite primary key from one or more imported columns, or add <code>my_row_id</code> as an AUTO_INCREMENT primary key.</li>
       <li>If the target table already exists, enable Replace Table or choose a different table name.</li>
     </ul>
     {% if import_page.plan_loaded %}
@@ -186,6 +187,56 @@
     </label>
     <p class="helper-text">Replace Table drops the existing table before recreating it from the edited definition below.</p>
 
+    <div class="full-span">
+      <span class="field-label">Primary Key Strategy</span>
+      <div class="inline-actions" data-import-primary-key-mode-group>
+        <label class="checkbox-field">
+          <input
+            type="radio"
+            name="primary_key_mode"
+            value="none"
+            {% if import_page.primary_key_mode == "none" %}checked{% endif %}
+            data-import-primary-key-mode
+          >
+          <span>No primary key</span>
+        </label>
+        <label class="checkbox-field">
+          <input
+            type="radio"
+            name="primary_key_mode"
+            value="columns"
+            {% if import_page.primary_key_mode == "columns" %}checked{% endif %}
+            data-import-primary-key-mode
+          >
+          <span>Use selected columns</span>
+        </label>
+        <label class="checkbox-field">
+          <input
+            type="radio"
+            name="primary_key_mode"
+            value="my_row_id"
+            {% if import_page.primary_key_mode == "my_row_id" %}checked{% endif %}
+            data-import-primary-key-mode
+          >
+          <span>Add <code>my_row_id</code></span>
+        </label>
+      </div>
+      <label class="checkbox-field" data-extra-primary-key-row>
+        <input
+          type="checkbox"
+          name="extra_primary_key_invisible"
+          value="1"
+          {% if import_page.extra_primary_key_invisible %}checked{% endif %}
+          {% if import_page.primary_key_mode != "my_row_id" %}disabled{% endif %}
+          data-extra-primary-key-invisible
+        >
+        <span>Make <code>my_row_id</code> invisible</span>
+      </label>
+      <p class="helper-text">
+        Primary key columns are created as <code>NOT NULL</code>. TEXT, LONGTEXT, and JSON columns cannot be used in the primary key without changing the type first.
+      </p>
+    </div>
+
     <div class="table-wrap full-span">
       <table>
         <thead>
@@ -193,6 +244,7 @@
             <th>Source Column</th>
             <th>Target Column</th>
             <th>Data Type</th>
+            <th>Primary Key</th>
             <th>Nullable</th>
             <th>Sample Values</th>
           </tr>
@@ -211,9 +263,24 @@
               <label class="checkbox-field">
                 <input
                   type="checkbox"
+                  name="column_primary_key_{{ loop.index0 }}"
+                  value="1"
+                  {% if column.is_primary_key %}checked{% endif %}
+                  {% if import_page.primary_key_mode != "columns" %}disabled{% endif %}
+                  data-import-primary-key-column
+                >
+                <span>PK</span>
+              </label>
+            </td>
+            <td>
+              <label class="checkbox-field">
+                <input
+                  type="checkbox"
                   name="column_allow_null_{{ loop.index0 }}"
                   value="1"
                   {% if column.allow_null %}checked{% endif %}
+                  {% if column.is_primary_key %}disabled{% endif %}
+                  data-import-nullable-column
                 >
                 <span>NULL</span>
               </label>
@@ -303,6 +370,42 @@
     if (!importForm) {
       return;
     }
+
+    const primaryKeyModeFields = Array.from(importForm.querySelectorAll("[data-import-primary-key-mode]"));
+    const primaryKeyColumnFields = Array.from(importForm.querySelectorAll("[data-import-primary-key-column]"));
+    const nullableColumnFields = Array.from(importForm.querySelectorAll("[data-import-nullable-column]"));
+    const extraPrimaryKeyInvisibleField = importForm.querySelector("[data-extra-primary-key-invisible]");
+
+    const syncPrimaryKeyFields = () => {
+      const selectedModeField = importForm.querySelector("[data-import-primary-key-mode]:checked");
+      const selectedMode = selectedModeField ? selectedModeField.value : "none";
+
+      primaryKeyColumnFields.forEach((field, index) => {
+        const useColumnPrimaryKey = selectedMode === "columns";
+        field.disabled = !useColumnPrimaryKey;
+        const nullableField = nullableColumnFields[index];
+        const isPrimaryKey = useColumnPrimaryKey && field.checked;
+        if (nullableField) {
+          nullableField.disabled = isPrimaryKey;
+          if (isPrimaryKey) {
+            nullableField.checked = false;
+          }
+        }
+      });
+
+      if (extraPrimaryKeyInvisibleField) {
+        const useGeneratedPrimaryKey = selectedMode === "my_row_id";
+        extraPrimaryKeyInvisibleField.disabled = !useGeneratedPrimaryKey;
+      }
+    };
+
+    primaryKeyModeFields.forEach((field) => {
+      field.addEventListener("change", syncPrimaryKeyFields);
+    });
+    primaryKeyColumnFields.forEach((field) => {
+      field.addEventListener("change", syncPrimaryKeyFields);
+    });
+    syncPrimaryKeyFields();
 
     importForm.addEventListener("submit", (event) => {
       const replaceField = importForm.querySelector("[data-replace-existing-table]");

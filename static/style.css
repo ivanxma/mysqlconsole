@@ -1558,3 +1558,15 @@ code {
     border-radius: 20px;
   }
 }
+.field-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+

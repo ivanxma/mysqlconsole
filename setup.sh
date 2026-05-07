@@ -180,6 +180,12 @@ normalize_port() {
   echo "$port_value"
 }
 
+port_requires_privileged_bind() {
+  local port_value="$1"
+
+  (( port_value > 0 && port_value < 1024 ))
+}
+
 load_existing_runtime_env() {
   if [[ ! -f "$RUNTIME_ENV_FILE" ]]; then
     return 0
@@ -367,6 +373,96 @@ open_firewall_port() {
   echo "Firewall tool not found. Open ${port_value}/tcp for ${protocol_label} manually on this host." >&2
 }
 
+close_firewall_port() {
+  local protocol_label="$1"
+  local port_value="$2"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "macOS does not expose Linux-style port closing here. Remove ${port_value}/tcp for ${protocol_label} manually in the macOS firewall if needed." >&2
+    return 0
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    if sudo firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
+      sudo firewall-cmd --permanent --remove-port="${port_value}/tcp"
+      sudo firewall-cmd --reload
+      echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+    else
+      echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in firewall-cmd."
+    fi
+    return 0
+  fi
+
+  if command -v ufw >/dev/null 2>&1; then
+    if sudo ufw status | grep -Fq "${port_value}/tcp"; then
+      sudo ufw --force delete allow "${port_value}/tcp"
+      echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with ufw."
+    else
+      echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in ufw."
+    fi
+    return 0
+  fi
+
+  echo "Firewall tool not found. Close ${port_value}/tcp for ${protocol_label} manually on this host." >&2
+}
+
+port_list_contains() {
+  local target_port="$1"
+  shift || true
+  local port_value
+
+  for port_value in "$@"; do
+    if [[ "$port_value" == "$target_port" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+sync_firewall_ports() {
+  local deploy_mode="$1"
+  local http_port="$2"
+  local https_port="$3"
+  local existing_http_port="$4"
+  local existing_https_port="$5"
+  local desired_ports=()
+  local candidate_ports=("$http_port" "$https_port" "$existing_http_port" "$existing_https_port")
+  local handled_ports=()
+  local port_value
+
+  case "$deploy_mode" in
+    http)
+      desired_ports+=("$http_port")
+      ;;
+    https)
+      desired_ports+=("$https_port")
+      ;;
+    both)
+      desired_ports+=("$http_port" "$https_port")
+      ;;
+    none)
+      ;;
+  esac
+
+  for port_value in "${candidate_ports[@]}"; do
+    if [[ -z "$port_value" ]]; then
+      continue
+    fi
+
+    if port_list_contains "$port_value" "${handled_ports[@]}"; then
+      continue
+    fi
+    handled_ports+=("$port_value")
+
+    if port_list_contains "$port_value" "${desired_ports[@]}"; then
+      open_firewall_port "DBConsole" "$port_value"
+    else
+      close_firewall_port "DBConsole" "$port_value"
+    fi
+  done
+}
+
 write_runtime_env() {
   local http_port="$1"
   local https_port="$2"
@@ -510,12 +606,14 @@ install_systemd_service() {
   local exec_script="$3"
   local service_user="$4"
   local service_group="$5"
+  local needs_privileged_bind="$6"
   local unit_path="/etc/systemd/system/${service_name}.service"
   local bash_bin
 
   bash_bin="$(resolve_bash_bin)" || return 1
 
-  sudo tee "$unit_path" >/dev/null <<EOF
+  {
+    cat <<EOF
 [Unit]
 Description=$description
 After=network-online.target
@@ -530,10 +628,20 @@ EnvironmentFile=-$RUNTIME_ENV_FILE
 ExecStart=$bash_bin $exec_script
 Restart=on-failure
 RestartSec=5
+EOF
 
+    if [[ "$needs_privileged_bind" == "yes" ]]; then
+      cat <<EOF
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+EOF
+    fi
+
+    cat <<EOF
 [Install]
 WantedBy=multi-user.target
 EOF
+  } | sudo tee "$unit_path" >/dev/null
 }
 
 enable_systemd_service() {
@@ -571,8 +679,12 @@ setup_systemd_services() {
   local deploy_mode="$2"
   local ssl_cert_file="$3"
   local ssl_key_file="$4"
+  local http_port="$5"
+  local https_port="$6"
   local service_user
   local service_group
+  local http_needs_privileged_bind="no"
+  local https_needs_privileged_bind="no"
 
   case "$os_family" in
     ol8|ol9|ubuntu) ;;
@@ -589,8 +701,16 @@ setup_systemd_services() {
   service_user="$(resolve_service_user)"
   service_group="$(resolve_service_group "$service_user")"
 
-  install_systemd_service "dbconsole-http" "DBConsole HTTP service" "$SCRIPT_DIR/start_http.sh" "$service_user" "$service_group"
-  install_systemd_service "dbconsole-https" "DBConsole HTTPS service" "$SCRIPT_DIR/start_https.sh" "$service_user" "$service_group"
+  if port_requires_privileged_bind "$http_port"; then
+    http_needs_privileged_bind="yes"
+  fi
+
+  if port_requires_privileged_bind "$https_port"; then
+    https_needs_privileged_bind="yes"
+  fi
+
+  install_systemd_service "dbconsole-http" "DBConsole HTTP service" "$SCRIPT_DIR/start_http.sh" "$service_user" "$service_group" "$http_needs_privileged_bind"
+  install_systemd_service "dbconsole-https" "DBConsole HTTPS service" "$SCRIPT_DIR/start_https.sh" "$service_user" "$service_group" "$https_needs_privileged_bind"
   sudo systemctl daemon-reload
   echo "Installed systemd unit files for dbconsole."
 
@@ -619,6 +739,49 @@ setup_systemd_services() {
       disable_systemd_service "dbconsole-http"
       disable_systemd_service "dbconsole-https"
       echo "Installed systemd units but left them disabled because deploy mode is 'none'."
+      ;;
+  esac
+}
+
+print_privileged_port_guidance() {
+  local os_family="$1"
+  local deploy_mode="$2"
+  local http_port="$3"
+  local https_port="$4"
+  local http_needs_privileged_bind="no"
+  local https_needs_privileged_bind="no"
+
+  case "$deploy_mode" in
+    http|both)
+      if port_requires_privileged_bind "$http_port"; then
+        http_needs_privileged_bind="yes"
+      fi
+      ;;
+  esac
+
+  case "$deploy_mode" in
+    https|both)
+      if port_requires_privileged_bind "$https_port"; then
+        https_needs_privileged_bind="yes"
+      fi
+      ;;
+  esac
+
+  if [[ "$http_needs_privileged_bind" != "yes" && "$https_needs_privileged_bind" != "yes" ]]; then
+    return 0
+  fi
+
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      if command -v systemctl >/dev/null 2>&1; then
+        echo "Privileged port note: generated systemd services include CAP_NET_BIND_SERVICE for ports below 1024."
+        echo "Directly running start scripts outside systemd on those ports can still require sudo."
+      else
+        echo "Privileged port note: ports below 1024 require elevated privileges when not started through systemd."
+      fi
+      ;;
+    macos)
+      echo "Privileged port note: macOS requires sudo or a non-privileged port above 1023 for ports below 1024."
       ;;
   esac
 }
@@ -748,23 +911,11 @@ main() {
 
   run_mysqlsh_installer "$os_family"
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file"
-  setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file"
+  setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 
-  case "$deploy_mode" in
-    http)
-      open_firewall_port "HTTP" "$http_port"
-      ;;
-    https)
-      open_firewall_port "HTTPS" "$https_port"
-      ;;
-    both)
-      open_firewall_port "HTTP" "$http_port"
-      open_firewall_port "HTTPS" "$https_port"
-      ;;
-    none)
-      echo "Skipping firewall changes because deploy mode is 'none'."
-      ;;
-  esac
+  sync_firewall_ports "$deploy_mode" "$http_port" "$https_port" "$EXISTING_DEFAULT_HTTP_PORT" "$EXISTING_DEFAULT_HTTPS_PORT"
+
+  print_privileged_port_guidance "$os_family" "$deploy_mode" "$http_port" "$https_port"
 
   echo "Setup completed."
   echo "Virtual environment: $VENV_DIR"
