@@ -494,6 +494,79 @@ dialog.management-dialog::backdrop {
   word-break: break-word;
 }
 
+.db-admin-event-list-form {
+  display: grid;
+  gap: 14px;
+}
+
+.db-admin-event-toolbar {
+  gap: 10px 12px;
+}
+
+.db-admin-event-select-all {
+  grid-column: auto;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.db-admin-event-select-all input[type="checkbox"],
+.db-admin-event-table input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.db-admin-event-selection-text {
+  margin-left: auto;
+}
+
+.db-admin-event-action svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.db-admin-event-focus-row td {
+  background: rgba(169, 58, 26, 0.12);
+}
+
+.db-admin-event-schedule-field.is-hidden {
+  display: none;
+}
+
+.db-admin-event-output h4 {
+  margin-top: 0;
+}
+
+.event-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.event-status-enabled {
+  color: #1b5f35;
+  background: rgba(47, 116, 66, 0.14);
+  border-color: rgba(47, 116, 66, 0.18);
+}
+
+.event-status-disabled {
+  color: #8f261b;
+  background: rgba(161, 47, 39, 0.16);
+  border-color: rgba(161, 47, 39, 0.2);
+}
+
 .column-definition-editor {
   min-height: 88px;
   resize: vertical;

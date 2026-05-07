@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">MySQL</p>
   <h2>DB Admin</h2>
-  <p>Create databases, inspect table definitions, and browse live rows from the connected server.</p>
+  <p>Create databases, inspect table definitions, manage scheduler events, and browse live rows from the connected server.</p>
 </section>
 
 <section class="tab-shell">
@@ -24,6 +24,14 @@
       href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table) }}"
     >
       Select Database and Table
+    </a>
+    <a
+      class="tab-link {% if db_admin_tab == 'event' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'event' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='event', database=selected_database, table=selected_table) }}"
+    >
+      Event
     </a>
     <a
       class="tab-link {% if db_admin_tab == 'missing-primary-key' %}active{% endif %}"
@@ -138,6 +146,117 @@
     </table>
   </div>
   {% endif %}
+  {% elif db_admin_tab == 'event' %}
+  <div class="panel-header">
+    <div>
+      <h3>Event List</h3>
+      <span class="helper-text">Review user-schema scheduler events, then enable or disable the selected rows with the toolbar.</span>
+    </div>
+  </div>
+  {% if event_error %}
+  <p class="helper-text error-text">{{ event_error }}</p>
+  {% else %}
+  <form method="post" class="db-admin-event-list-form" data-event-selection-form>
+    <input type="hidden" name="db_admin_tab" value="event">
+    <div class="panel-actions db-admin-event-toolbar">
+      <label class="checkbox-field db-admin-event-select-all">
+        <input type="checkbox" data-event-select-all {% if not event_rows %}disabled{% endif %}>
+        <span>Select all</span>
+      </label>
+      <button
+        class="button secondary db-admin-event-action"
+        type="submit"
+        name="db_action"
+        value="enable_events"
+        title="Enable selected events"
+        aria-label="Enable selected events"
+        data-event-selection-action
+        {% if not event_rows %}disabled{% endif %}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12l4 4 10-10"></path>
+        </svg>
+        <span>Enable</span>
+      </button>
+      <button
+        class="button secondary db-admin-event-action"
+        type="submit"
+        name="db_action"
+        value="disable_events"
+        title="Disable selected events"
+        aria-label="Disable selected events"
+        data-event-selection-action
+        {% if not event_rows %}disabled{% endif %}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h14"></path>
+        </svg>
+        <span>Disable</span>
+      </button>
+      <button
+        class="button secondary danger db-admin-event-action"
+        type="submit"
+        name="db_action"
+        value="delete_events"
+        title="Delete selected events"
+        aria-label="Delete selected events"
+        data-event-selection-action
+        onclick="return confirm('Delete the selected events?');"
+        {% if not event_rows %}disabled{% endif %}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 9v8"></path>
+          <path d="M15 9v8"></path>
+          <path d="M4 6h16"></path>
+          <path d="M10 4h4"></path>
+          <path d="M6 6l1 14h10l1-14"></path>
+        </svg>
+        <span>Delete</span>
+      </button>
+      <span class="helper-text db-admin-event-selection-text" data-event-selection-count>0 selected</span>
+    </div>
+    <div class="table-wrap">
+      <table class="db-admin-event-table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Database</th>
+            <th>Event</th>
+            <th>Status</th>
+            <th>Schedule</th>
+            <th>Created</th>
+            <th>Last Altered</th>
+            <th>Last Executed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in event_rows %}
+          <tr class="{% if row.is_focus %}active-table-row db-admin-event-focus-row{% endif %}">
+            <td>
+              <input type="checkbox" name="selected_event_key" value="{{ row.event_key }}" data-event-select-row>
+            </td>
+            <td>{{ row.database_name }}</td>
+            <td><strong>{{ row.event_name }}</strong></td>
+            <td>
+              <span class="event-status-badge {% if row.is_enabled %}event-status-enabled{% else %}event-status-disabled{% endif %}">
+                {{ row.status_label }}
+              </span>
+            </td>
+            <td>{{ row.schedule_label }}</td>
+            <td>{{ row.created }}</td>
+            <td>{{ row.last_altered }}</td>
+            <td>{{ row.last_executed }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8">No user-schema events were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% endif %}
   {% else %}
   <div class="panel-header">
     <div>
@@ -179,6 +298,80 @@
   {% endif %}
   {% endif %}
 </section>
+
+{% if db_admin_tab == 'event' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Create Event</h3>
+      <span class="helper-text">Choose the schema, schedule, and SQL body for a new MySQL event. One-time schedules preserve metadata after execution.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="db_admin_tab" value="event">
+    <input type="hidden" name="db_action" value="create_event">
+    <label>
+      Database *
+      <select name="event_database_name" required>
+        <option value="">Choose a database</option>
+        {% for row in database_inventory %}
+        {% if not row.is_system %}
+        <option value="{{ row.database_name }}" {% if row.database_name == event_form.database_name %}selected{% endif %}>
+          {{ row.database_name }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Event Name *
+      <input name="event_name" type="text" value="{{ event_form.event_name }}" placeholder="nightly_cleanup" required>
+    </label>
+    <label>
+      Schedule *
+      <select name="event_schedule_name" required data-event-schedule-select>
+        {% for option in event_schedule_options %}
+        <option
+          value="{{ option.value }}"
+          data-requires-at="{{ 'true' if option.requires_at else 'false' }}"
+          {% if option.value == event_form.schedule_name %}selected{% endif %}
+        >
+          {{ option.label }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label
+      class="db-admin-event-schedule-field {% if not event_form.schedule_requires_at %}is-hidden{% endif %}"
+      data-event-schedule-at-field
+      {% if not event_form.schedule_requires_at %}hidden{% endif %}
+    >
+      Run At *
+      <input
+        name="event_schedule_at"
+        type="datetime-local"
+        value="{{ event_form.schedule_at }}"
+        {% if event_form.schedule_requires_at %}required{% endif %}
+        data-event-schedule-at-input
+      >
+    </label>
+    <label class="full-span">
+      Event Content *
+      <textarea name="event_body_sql" class="column-definition-editor" rows="8" placeholder="UPDATE reporting.daily_rollup SET refreshed_at = NOW();" required>{{ event_form.body_sql }}</textarea>
+    </label>
+    <p class="helper-text">Recurring schedules start immediately with <code>STARTS CURRENT_TIMESTAMP</code>. The event body can be a single statement or a <code>BEGIN ... END</code> block.</p>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Create Event</button>
+    </div>
+    {% if event_action_output %}
+    <div class="full-span db-admin-event-output">
+      <h4>{{ event_action_output.title }}</h4>
+      <div class="flash {{ event_action_output.category }}">{{ event_action_output.message }}</div>
+    </div>
+    {% endif %}
+  </form>
+</section>
+{% endif %}
 
 {% if db_admin_tab == 'select' %}
 <section class="panel">
@@ -543,6 +736,59 @@
         }
       });
     });
+
+    const eventSelectionForm = document.querySelector("[data-event-selection-form]");
+    if (eventSelectionForm) {
+      const selectAllCheckbox = eventSelectionForm.querySelector("[data-event-select-all]");
+      const rowCheckboxes = Array.from(eventSelectionForm.querySelectorAll("[data-event-select-row]"));
+      const actionButtons = Array.from(eventSelectionForm.querySelectorAll("[data-event-selection-action]"));
+      const countLabels = Array.from(eventSelectionForm.querySelectorAll("[data-event-selection-count]"));
+
+      const syncEventSelectionState = () => {
+        const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = rowCheckboxes.length > 0 && checkedCount === rowCheckboxes.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedCount} selected`;
+        });
+      };
+
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          rowCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAllCheckbox.checked;
+          });
+          syncEventSelectionState();
+        });
+      }
+
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncEventSelectionState);
+      });
+
+      syncEventSelectionState();
+    }
+
+    const scheduleSelect = document.querySelector("[data-event-schedule-select]");
+    const scheduleAtField = document.querySelector("[data-event-schedule-at-field]");
+    const scheduleAtInput = document.querySelector("[data-event-schedule-at-input]");
+    if (scheduleSelect && scheduleAtField && scheduleAtInput) {
+      const syncScheduleField = () => {
+        const selectedOption = scheduleSelect.options[scheduleSelect.selectedIndex];
+        const requiresAt = Boolean(selectedOption) && selectedOption.dataset.requiresAt === "true";
+        scheduleAtField.hidden = !requiresAt;
+        scheduleAtField.classList.toggle("is-hidden", !requiresAt);
+        scheduleAtInput.required = requiresAt;
+      };
+
+      scheduleSelect.addEventListener("change", syncScheduleField);
+      syncScheduleField();
+    }
 
     const autoDialog = {{ db_open_dialog|tojson }};
     if (autoDialog) {

@@ -7,7 +7,7 @@ It provides:
 - login/profile-based MySQL access with optional SSH tunnel settings
 - `Admin > Status and Variables` with grouped status and variable views
 - `MySQL > Admin Dashboard` for server, object, security, diagnostics, and HeatWave summary views
-- `MySQL > DB Admin` for schema/table browsing, DDL preview, indexes, partitions, row preview, and column-definition changes
+- `MySQL > DB Admin` for schema/table browsing, event management, DDL preview, indexes, partitions, row preview, and column-definition changes
 - `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, and session history
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory and `HW Admin` management actions
@@ -172,10 +172,14 @@ The current default profile points at `127.0.0.1:3310` and does not store passwo
 
 `DB Admin` supports:
 
-- tabbed create-database and select-database/table views
+- tabbed create-database, select-database/table, event, and tables-without-primary-key views
 - tabbed report for tables without a primary key
 - create and drop database
 - select database and table from dropdowns or table list
+- list user-schema events with checkbox selection
+- enable, disable, or delete selected events
+- create events with database selection, event name, schedule selection, and event body SQL
+- refresh the event list after create or bulk actions and surface event action output in the page
 - view column metadata
 - view `CREATE TABLE`
 - view index metadata

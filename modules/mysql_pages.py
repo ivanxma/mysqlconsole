@@ -255,6 +255,108 @@ def _summarize_name_list(items, *, max_items=3):
     return ", ".join(normalized_items[:max_items]) + f", and {remaining_count} more"
 
 
+def _default_event_schedule_name(schedule_options):
+    for option in schedule_options or []:
+        value = str(option.get("value") or "").strip().lower()
+        if value:
+            return value
+    return "once"
+
+
+def _normalize_event_schedule_name(schedule_name, *, schedule_options):
+    normalized_name = str(schedule_name or "").strip().lower()
+    option_values = {
+        str(option.get("value") or "").strip().lower()
+        for option in schedule_options or []
+        if str(option.get("value") or "").strip()
+    }
+    if normalized_name and normalized_name in option_values:
+        return normalized_name
+    return _default_event_schedule_name(schedule_options)
+
+
+def _event_schedule_requires_at(schedule_name, *, schedule_options):
+    normalized_name = _normalize_event_schedule_name(schedule_name, schedule_options=schedule_options)
+    for option in schedule_options or []:
+        if str(option.get("value") or "").strip().lower() != normalized_name:
+            continue
+        return bool(option.get("requires_at"))
+    return normalized_name == "once"
+
+
+def _empty_db_admin_event_form(*, schedule_options=()):
+    schedule_name = _default_event_schedule_name(schedule_options)
+    return {
+        "database_name": "",
+        "event_name": "",
+        "schedule_name": schedule_name,
+        "schedule_at": "",
+        "body_sql": "",
+        "schedule_requires_at": _event_schedule_requires_at(schedule_name, schedule_options=schedule_options),
+    }
+
+
+def _build_db_admin_event_form(database_inventory, *, payload=None, fallback_database="", schedule_options=()):
+    form = _empty_db_admin_event_form(schedule_options=schedule_options)
+    available_database_names = {
+        row["database_name"]
+        for row in database_inventory
+        if not row.get("is_system")
+    }
+    fallback_name = str(fallback_database or "").strip()
+    if fallback_name in available_database_names:
+        form["database_name"] = fallback_name
+
+    if payload is not None:
+        submitted_database_name = str(payload.get("event_database_name", form["database_name"]) or "").strip()
+        if submitted_database_name in available_database_names:
+            form["database_name"] = submitted_database_name
+        form["event_name"] = str(payload.get("event_name", form["event_name"]) or "").strip()
+        form["schedule_name"] = _normalize_event_schedule_name(
+            payload.get("event_schedule_name", form["schedule_name"]),
+            schedule_options=schedule_options,
+        )
+        form["schedule_at"] = str(payload.get("event_schedule_at", form["schedule_at"]) or "").strip()
+        form["body_sql"] = str(payload.get("event_body_sql", form["body_sql"]) or "")
+
+    form["schedule_requires_at"] = _event_schedule_requires_at(
+        form["schedule_name"],
+        schedule_options=schedule_options,
+    )
+    return form
+
+
+def _order_db_admin_event_rows(rows, *, focused_event_database="", focused_event_name=""):
+    ordered_rows = [dict(row) for row in rows or []]
+    for row in ordered_rows:
+        row["is_focus"] = False
+
+    ordered_rows.sort(
+        key=lambda row: (
+            str(row.get("database_name") or "").lower(),
+            str(row.get("event_name") or "").lower(),
+        )
+    )
+    ordered_rows.sort(key=lambda row: str(row.get("sort_created_value") or ""), reverse=True)
+
+    focused_database = str(focused_event_database or "").strip()
+    focused_event = str(focused_event_name or "").strip()
+    if focused_database and focused_event:
+        focused_key = (focused_database, focused_event)
+        ordered_rows.sort(
+            key=lambda row: (
+                str(row.get("database_name") or "").strip(),
+                str(row.get("event_name") or "").strip(),
+            ) != focused_key
+        )
+        for row in ordered_rows:
+            row["is_focus"] = (
+                str(row.get("database_name") or "").strip() == focused_database
+                and str(row.get("event_name") or "").strip() == focused_event
+            )
+    return ordered_rows
+
+
 def handle_db_admin_action(
     action,
     database_name,
@@ -268,6 +370,9 @@ def handle_db_admin_action(
     fetch_table_columns=None,
     fetch_missing_primary_key_rows=None,
     fix_missing_primary_key_table=None,
+    create_db_event=None,
+    set_db_events_enabled=None,
+    delete_db_events=None,
 ):
     normalized_action = str(action or "").strip()
     normalized_name = str(database_name or "").strip()
@@ -423,6 +528,30 @@ def handle_db_admin_action(
             "redirect_values": {"db_admin_tab": "missing-primary-key"},
         }
 
+    if normalized_action == "create_event":
+        if create_db_event is None or payload is None:
+            raise ValueError("Event creation helper is not available.")
+        return create_db_event(
+            payload.get("event_database_name", ""),
+            payload.get("event_name", ""),
+            payload.get("event_schedule_name", ""),
+            payload.get("event_schedule_at", ""),
+            payload.get("event_body_sql", ""),
+        )
+
+    if normalized_action in {"enable_events", "disable_events"}:
+        if set_db_events_enabled is None or payload is None or not hasattr(payload, "getlist"):
+            raise ValueError("Event status helper is not available.")
+        return set_db_events_enabled(
+            payload.getlist("selected_event_key"),
+            enabled=normalized_action == "enable_events",
+        )
+
+    if normalized_action == "delete_events":
+        if delete_db_events is None or payload is None or not hasattr(payload, "getlist"):
+            raise ValueError("Event delete helper is not available.")
+        return delete_db_events(payload.getlist("selected_event_key"))
+
     raise ValueError("Unsupported DB Admin action.")
 
 
@@ -454,6 +583,11 @@ def build_db_admin_context(
     fetch_table_partitions,
     fetch_missing_primary_key_rows=None,
     column_edit_payload=None,
+    fetch_event_rows=None,
+    event_form_payload=None,
+    event_schedule_options=(),
+    focused_event_database="",
+    focused_event_name="",
 ):
     inventory = fetch_database_inventory()
     available_database_names = {row["database_name"] for row in inventory}
@@ -491,6 +625,13 @@ def build_db_admin_context(
     partitions = _empty_partition_state()
     column_edit_rows = []
     column_edit_unsupported_columns = []
+    event_rows = []
+    event_error = ""
+    event_form = _build_db_admin_event_form(
+        inventory,
+        fallback_database=normalized_database,
+        schedule_options=event_schedule_options,
+    )
 
     if db_admin_tab == "missing-primary-key":
         try:
@@ -500,6 +641,23 @@ def build_db_admin_context(
         except Exception as error:  # pragma: no cover - depends on server features
             missing_primary_key_report = _empty_missing_primary_key_report()
             missing_primary_key_report["error"] = str(error)
+
+    if db_admin_tab == "event":
+        event_form = _build_db_admin_event_form(
+            inventory,
+            payload=event_form_payload,
+            fallback_database=focused_event_database or normalized_database,
+            schedule_options=event_schedule_options,
+        )
+        try:
+            event_rows = _order_db_admin_event_rows(
+                fetch_event_rows() if fetch_event_rows is not None else [],
+                focused_event_database=focused_event_database,
+                focused_event_name=focused_event_name,
+            )
+        except Exception as error:  # pragma: no cover - depends on server features
+            event_rows = []
+            event_error = str(error)
 
     if db_admin_tab == "select" and normalized_table:
         try:
@@ -536,6 +694,9 @@ def build_db_admin_context(
         "indexes": indexes,
         "partitions": partitions,
         "missing_primary_key_report": missing_primary_key_report,
+        "event_rows": event_rows,
+        "event_error": event_error,
+        "event_form": event_form,
     }
 
 

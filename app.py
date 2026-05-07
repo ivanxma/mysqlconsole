@@ -102,8 +102,60 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
-DB_ADMIN_TABS = {"create", "select", "missing-primary-key"}
+DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event"}
 DB_ADMIN_DEFAULT_TAB = "select"
+DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
+EVENT_SCHEDULE_OPTIONS = (
+    {
+        "value": "once",
+        "label": "One Time",
+        "schedule_type": "AT",
+        "interval_value": "",
+        "interval_field": "",
+        "requires_at": True,
+    },
+    {
+        "value": "every-minute",
+        "label": "Every Minute",
+        "schedule_type": "EVERY",
+        "interval_value": 1,
+        "interval_field": "MINUTE",
+        "requires_at": False,
+    },
+    {
+        "value": "every-hour",
+        "label": "Every Hour",
+        "schedule_type": "EVERY",
+        "interval_value": 1,
+        "interval_field": "HOUR",
+        "requires_at": False,
+    },
+    {
+        "value": "every-day",
+        "label": "Every Day",
+        "schedule_type": "EVERY",
+        "interval_value": 1,
+        "interval_field": "DAY",
+        "requires_at": False,
+    },
+    {
+        "value": "every-week",
+        "label": "Every Week",
+        "schedule_type": "EVERY",
+        "interval_value": 1,
+        "interval_field": "WEEK",
+        "requires_at": False,
+    },
+    {
+        "value": "every-month",
+        "label": "Every Month",
+        "schedule_type": "EVERY",
+        "interval_value": 1,
+        "interval_field": "MONTH",
+        "requires_at": False,
+    },
+)
+DEFAULT_EVENT_SCHEDULE_NAME = EVENT_SCHEDULE_OPTIONS[0]["value"]
 DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = {
     "binary",
     "bit",
@@ -402,6 +454,22 @@ def normalize_db_admin_tab(value):
     if normalized not in DB_ADMIN_TABS:
         return DB_ADMIN_DEFAULT_TAB
     return normalized
+
+
+def normalize_event_schedule_name(value):
+    normalized = str(value or "").strip().lower()
+    if any(option["value"] == normalized for option in EVENT_SCHEDULE_OPTIONS):
+        return normalized
+    return DEFAULT_EVENT_SCHEDULE_NAME
+
+
+def get_event_schedule_option(value):
+    normalized = normalize_event_schedule_name(value)
+    return next(
+        option
+        for option in EVENT_SCHEDULE_OPTIONS
+        if option["value"] == normalized
+    )
 
 
 def normalize_sql_workspace_secondary_engine(value):
@@ -722,6 +790,276 @@ def fetch_tables_for_database(database_name):
             }
         )
     return tables
+
+
+def _format_datetime_label(value, *, empty="-"):
+    if not value:
+        return empty
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)
+
+
+def _summarize_identifier_list(items, *, max_items=3):
+    normalized_items = [str(item or "").strip() for item in items if str(item or "").strip()]
+    if not normalized_items:
+        return ""
+    if len(normalized_items) <= max_items:
+        return ", ".join(normalized_items)
+    remaining_count = len(normalized_items) - max_items
+    return ", ".join(normalized_items[:max_items]) + f", and {remaining_count} more"
+
+
+def _build_event_schedule_label(
+    *,
+    event_type="",
+    execute_at=None,
+    interval_value=None,
+    interval_field="",
+    starts=None,
+    ends=None,
+):
+    normalized_event_type = str(event_type or "").strip().upper()
+    if normalized_event_type == "ONE TIME":
+        execute_at_label = _format_datetime_label(execute_at, empty="")
+        return f"At {execute_at_label}" if execute_at_label else "One Time"
+
+    interval_field_label = str(interval_field or "").strip().replace("_", " ").lower()
+    try:
+        interval_number = int(interval_value)
+    except (TypeError, ValueError):
+        interval_number = 0
+    if not interval_field_label:
+        schedule_label = "Recurring"
+    elif interval_number == 1:
+        schedule_label = f"Every 1 {interval_field_label}"
+    else:
+        plural_label = interval_field_label if interval_field_label.endswith("s") else f"{interval_field_label}s"
+        schedule_label = f"Every {interval_number or interval_value} {plural_label}"
+
+    starts_label = _format_datetime_label(starts, empty="")
+    ends_label = _format_datetime_label(ends, empty="")
+    if starts_label:
+        schedule_label += f" starting {starts_label}"
+    if ends_label:
+        schedule_label += f" until {ends_label}"
+    return schedule_label
+
+
+def _parse_event_schedule_at(raw_value):
+    normalized_value = str(raw_value or "").strip()
+    if not normalized_value:
+        raise ValueError("Choose a date and time for one-time event schedules.")
+    try:
+        schedule_at = datetime.fromisoformat(normalized_value)
+    except ValueError as error:
+        raise ValueError("Choose a valid date and time for one-time event schedules.") from error
+    return schedule_at.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_selected_event_keys(raw_values):
+    event_keys = []
+    seen_keys = set()
+    for raw_value in raw_values or []:
+        database_name, separator, event_name = str(raw_value or "").strip().partition(".")
+        if not separator or not database_name or not event_name:
+            raise ValueError("One or more selected events are invalid.")
+        quote_identifier(database_name)
+        quote_identifier(event_name)
+        event_key = (database_name, event_name)
+        if event_key in seen_keys:
+            continue
+        seen_keys.add(event_key)
+        event_keys.append(event_key)
+    return event_keys
+
+
+def fetch_db_admin_event_rows():
+    rows = execute_query(
+        """
+        SELECT
+          event_schema AS database_name_value,
+          event_name AS event_name_value,
+          status AS status_value,
+          event_type AS event_type_value,
+          execute_at AS execute_at_value,
+          interval_value AS interval_value_value,
+          interval_field AS interval_field_value,
+          starts AS starts_value,
+          ends AS ends_value,
+          on_completion AS on_completion_value,
+          definer AS definer_value,
+          created AS created_value,
+          last_altered AS last_altered_value,
+          last_executed AS last_executed_value,
+          COALESCE(created, last_altered, starts, execute_at) AS sort_created_value
+        FROM information_schema.events
+        WHERE event_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND event_schema NOT LIKE 'mysql@_%%' ESCAPE '@'
+        ORDER BY COALESCE(created, last_altered, starts, execute_at) DESC, event_schema, event_name
+        """
+    )
+    event_rows = []
+    for row in rows:
+        database_name = row["database_name_value"]
+        event_name = row["event_name_value"]
+        status = str(row["status_value"] or "").strip().upper()
+        event_rows.append(
+            {
+                "database_name": database_name,
+                "event_name": event_name,
+                "event_key": f"{database_name}.{event_name}",
+                "status": status,
+                "status_label": status.replace("_", " ").title() if status else "-",
+                "is_enabled": status == "ENABLED",
+                "event_type": row["event_type_value"] or "-",
+                "schedule_label": _build_event_schedule_label(
+                    event_type=row["event_type_value"],
+                    execute_at=row["execute_at_value"],
+                    interval_value=row["interval_value_value"],
+                    interval_field=row["interval_field_value"],
+                    starts=row["starts_value"],
+                    ends=row["ends_value"],
+                ),
+                "created": _format_datetime_label(row["created_value"]),
+                "last_altered": _format_datetime_label(row["last_altered_value"]),
+                "last_executed": _format_datetime_label(row["last_executed_value"]),
+                "on_completion": row["on_completion_value"] or "-",
+                "definer": row["definer_value"] or "-",
+                "sort_created_value": _format_datetime_label(row["sort_created_value"], empty=""),
+            }
+        )
+    return event_rows
+
+
+def create_db_admin_event(database_name, event_name, schedule_name, schedule_at, body_sql):
+    normalized_database = str(database_name or "").strip()
+    normalized_event_name = str(event_name or "").strip()
+    normalized_body_sql = str(body_sql or "").strip()
+    normalized_body_statement = normalized_body_sql.rstrip().rstrip(";").strip()
+
+    if not normalized_database:
+        raise ValueError("Choose a database for the event.")
+    if is_system_schema_name(normalized_database):
+        raise ValueError("System schemas cannot be changed here.")
+    if not fetch_database_exists(normalized_database):
+        raise ValueError(f"Database `{normalized_database}` was not found.")
+    if not normalized_event_name:
+        raise ValueError("Event name is required.")
+    if not normalized_body_statement:
+        raise ValueError("Event content is required.")
+
+    schedule_option = get_event_schedule_option(schedule_name)
+    schedule_label = schedule_option["label"]
+    if schedule_option["requires_at"]:
+        schedule_at_value = _parse_event_schedule_at(schedule_at)
+        schedule_clause = f"AT TIMESTAMP('{schedule_at_value}')"
+        schedule_label = f"{schedule_option['label']} at {schedule_at_value}"
+    else:
+        schedule_clause = (
+            f"EVERY {int(schedule_option['interval_value'])} {schedule_option['interval_field']} "
+            "STARTS CURRENT_TIMESTAMP"
+        )
+
+    safe_database = quote_identifier(normalized_database)
+    safe_event_name = quote_identifier(normalized_event_name)
+    statement = (
+        f"CREATE EVENT {safe_database}.{safe_event_name} "
+        f"ON SCHEDULE {schedule_clause} "
+        "ON COMPLETION PRESERVE "
+        "ENABLE "
+        f"DO {normalized_body_statement}"
+    )
+    execute_statement(statement, database=normalized_database)
+
+    message = f"Created event `{normalized_database}.{normalized_event_name}` with schedule {schedule_label}."
+    return {
+        "flash_category": "success",
+        "flash_message": message,
+        "redirect_endpoint": "db_admin_page",
+        "redirect_values": {
+            "db_admin_tab": "event",
+            "database": normalized_database,
+            "focus_event_database": normalized_database,
+            "focus_event_name": normalized_event_name,
+        },
+        "event_action_output": {
+            "title": "Create Event",
+            "category": "success",
+            "message": message,
+        },
+    }
+
+
+def set_db_admin_events_enabled(selected_event_keys, *, enabled):
+    event_keys = _parse_selected_event_keys(selected_event_keys)
+    if not event_keys:
+        action_label = "enable" if enabled else "disable"
+        raise ValueError(f"Select at least one event to {action_label}.")
+
+    status_keyword = "ENABLE" if enabled else "DISABLE"
+    action_label = "enabled" if enabled else "disabled"
+    qualified_event_names = []
+    for database_name, event_name in event_keys:
+        if is_system_schema_name(database_name):
+            raise ValueError("System schema events cannot be changed here.")
+        execute_statement(
+            f"ALTER EVENT {quote_identifier(database_name)}.{quote_identifier(event_name)} {status_keyword}",
+            database=database_name,
+        )
+        qualified_event_names.append(f"`{database_name}.{event_name}`")
+
+    message = f"{action_label.title()} {len(event_keys)} event(s): {_summarize_identifier_list(qualified_event_names)}."
+    redirect_values = {"db_admin_tab": "event"}
+    if len(event_keys) == 1:
+        redirect_values["database"] = event_keys[0][0]
+        redirect_values["focus_event_database"] = event_keys[0][0]
+        redirect_values["focus_event_name"] = event_keys[0][1]
+
+    return {
+        "flash_category": "success",
+        "flash_message": message,
+        "redirect_endpoint": "db_admin_page",
+        "redirect_values": redirect_values,
+        "event_action_output": {
+            "title": "Event Status",
+            "category": "success",
+            "message": message,
+        },
+    }
+
+
+def delete_db_admin_events(selected_event_keys):
+    event_keys = _parse_selected_event_keys(selected_event_keys)
+    if not event_keys:
+        raise ValueError("Select at least one event to delete.")
+
+    qualified_event_names = []
+    for database_name, event_name in event_keys:
+        if is_system_schema_name(database_name):
+            raise ValueError("System schema events cannot be changed here.")
+        execute_statement(
+            f"DROP EVENT {quote_identifier(database_name)}.{quote_identifier(event_name)}",
+            database=database_name,
+        )
+        qualified_event_names.append(f"`{database_name}.{event_name}`")
+
+    message = f"Deleted {len(event_keys)} event(s): {_summarize_identifier_list(qualified_event_names)}."
+    redirect_values = {"db_admin_tab": "event"}
+    if len(event_keys) == 1:
+        redirect_values["database"] = event_keys[0][0]
+
+    return {
+        "flash_category": "success",
+        "flash_message": message,
+        "redirect_endpoint": "db_admin_page",
+        "redirect_values": redirect_values,
+        "event_action_output": {
+            "title": "Delete Event",
+            "category": "success",
+            "message": message,
+        },
+    }
 
 
 def _fetch_primary_key_status_rows(*, database_name="", table_name="", only_missing_primary_key):
@@ -5008,15 +5346,21 @@ def db_admin_page():
     db_admin_tab = normalize_db_admin_tab(request.values.get("db_admin_tab", DB_ADMIN_DEFAULT_TAB))
     selected_database = str(request.values.get("database", "")).strip()
     selected_table = str(request.values.get("table", "")).strip()
+    focus_event_database = str(request.args.get("focus_event_database", "")).strip()
+    focus_event_name = str(request.args.get("focus_event_name", "")).strip()
     preview_page = normalize_page_number(request.args.get("page", "1"))
     db_open_dialog = "modify-columns-dialog" if str(request.args.get("dialog", "")).strip() == "modify-columns" else ""
     db_admin_edit_payload = None
+    db_admin_event_form_payload = None
+    event_action_output = session.pop(DB_ADMIN_EVENT_OUTPUT_SESSION_KEY, None)
 
     if request.method == "POST":
         action = str(request.form.get("db_action", "")).strip()
         db_admin_tab = normalize_db_admin_tab(request.form.get("db_admin_tab", db_admin_tab))
         selected_database = str(request.form.get("database_name", selected_database)).strip()
         selected_table = str(request.form.get("table_name", selected_table)).strip()
+        if action == "create_event":
+            selected_database = str(request.form.get("event_database_name", selected_database)).strip()
         try:
             action_result = module_handle_db_admin_action(
                 action,
@@ -5030,7 +5374,12 @@ def db_admin_page():
                 fetch_table_columns=fetch_table_columns,
                 fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
                 fix_missing_primary_key_table=fix_table_without_primary_key,
+                create_db_event=create_db_admin_event,
+                set_db_events_enabled=set_db_admin_events_enabled,
+                delete_db_events=delete_db_admin_events,
             )
+            if action_result.get("event_action_output"):
+                session[DB_ADMIN_EVENT_OUTPUT_SESSION_KEY] = action_result["event_action_output"]
             flash(action_result["flash_message"], action_result["flash_category"])
             redirect_values = dict(action_result["redirect_values"])
             redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
@@ -5040,6 +5389,19 @@ def db_admin_page():
             if action == "modify_table_columns":
                 db_open_dialog = "modify-columns-dialog"
                 db_admin_edit_payload = request.form
+            elif action == "create_event":
+                db_admin_event_form_payload = request.form
+                event_action_output = {
+                    "title": "Create Event",
+                    "category": "error",
+                    "message": str(error),
+                }
+            elif action in {"enable_events", "disable_events", "delete_events"}:
+                event_action_output = {
+                    "title": "Delete Event" if action == "delete_events" else "Event Status",
+                    "category": "error",
+                    "message": str(error),
+                }
 
     page_context = module_build_db_admin_context(
         selected_database,
@@ -5056,6 +5418,11 @@ def db_admin_page():
         fetch_table_partitions=fetch_table_partitions,
         fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
         column_edit_payload=db_admin_edit_payload,
+        fetch_event_rows=fetch_db_admin_event_rows,
+        event_form_payload=db_admin_event_form_payload,
+        event_schedule_options=EVENT_SCHEDULE_OPTIONS,
+        focused_event_database=focus_event_database,
+        focused_event_name=focus_event_name,
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])
@@ -5068,6 +5435,8 @@ def db_admin_page():
         page_title="DB Admin",
         db_open_dialog=db_open_dialog,
         db_admin_tab=db_admin_tab,
+        event_schedule_options=EVENT_SCHEDULE_OPTIONS,
+        event_action_output=event_action_output,
         **page_context,
     )
 
