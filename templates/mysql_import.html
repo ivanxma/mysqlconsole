@@ -210,28 +210,38 @@
           >
           <span>Use selected columns</span>
         </label>
-        <label class="checkbox-field">
-          <input
-            type="radio"
-            name="primary_key_mode"
-            value="my_row_id"
-            {% if import_page.primary_key_mode == "my_row_id" %}checked{% endif %}
-            data-import-primary-key-mode
+        <span class="import-primary-key-generated-option">
+          <label class="checkbox-field">
+            <input
+              type="radio"
+              name="primary_key_mode"
+              value="my_row_id"
+              {% if import_page.primary_key_mode == "my_row_id" %}checked{% endif %}
+              data-import-primary-key-mode
+            >
+            <span>Add <code>my_row_id</code></span>
+          </label>
+          <span
+            class="import-extra-primary-key-option{% if import_page.primary_key_mode != "my_row_id" %} is-disabled{% endif %}"
+            data-extra-primary-key-row
+            {% if import_page.primary_key_mode != "my_row_id" %}aria-disabled="true"{% else %}aria-disabled="false"{% endif %}
           >
-          <span>Add <code>my_row_id</code></span>
-        </label>
+            <span class="import-extra-primary-key-bracket">(</span>
+            <label class="checkbox-field import-extra-primary-key-toggle">
+              <input
+                type="checkbox"
+                name="extra_primary_key_invisible"
+                value="1"
+                {% if import_page.extra_primary_key_invisible %}checked{% endif %}
+                {% if import_page.primary_key_mode != "my_row_id" %}disabled{% endif %}
+                data-extra-primary-key-invisible
+              >
+              <span>Make <code>my_row_id</code> invisible</span>
+            </label>
+            <span class="import-extra-primary-key-bracket">)</span>
+          </span>
+        </span>
       </div>
-      <label class="checkbox-field" data-extra-primary-key-row>
-        <input
-          type="checkbox"
-          name="extra_primary_key_invisible"
-          value="1"
-          {% if import_page.extra_primary_key_invisible %}checked{% endif %}
-          {% if import_page.primary_key_mode != "my_row_id" %}disabled{% endif %}
-          data-extra-primary-key-invisible
-        >
-        <span>Make <code>my_row_id</code> invisible</span>
-      </label>
       <p class="helper-text">
         Primary key columns are created as <code>NOT NULL</code>. TEXT, LONGTEXT, and JSON columns cannot be used in the primary key without changing the type first.
       </p>
@@ -375,6 +385,7 @@
     const primaryKeyColumnFields = Array.from(importForm.querySelectorAll("[data-import-primary-key-column]"));
     const nullableColumnFields = Array.from(importForm.querySelectorAll("[data-import-nullable-column]"));
     const extraPrimaryKeyInvisibleField = importForm.querySelector("[data-extra-primary-key-invisible]");
+    const extraPrimaryKeyRow = importForm.querySelector("[data-extra-primary-key-row]");
 
     const syncPrimaryKeyFields = () => {
       const selectedModeField = importForm.querySelector("[data-import-primary-key-mode]:checked");
@@ -396,6 +407,10 @@
       if (extraPrimaryKeyInvisibleField) {
         const useGeneratedPrimaryKey = selectedMode === "my_row_id";
         extraPrimaryKeyInvisibleField.disabled = !useGeneratedPrimaryKey;
+        if (extraPrimaryKeyRow) {
+          extraPrimaryKeyRow.classList.toggle("is-disabled", !useGeneratedPrimaryKey);
+          extraPrimaryKeyRow.setAttribute("aria-disabled", useGeneratedPrimaryKey ? "false" : "true");
+        }
       }
     };
 

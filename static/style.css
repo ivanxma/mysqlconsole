@@ -1394,6 +1394,37 @@ h4 {
   gap: 12px 18px;
 }
 
+.import-primary-key-generated-option {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.import-extra-primary-key-option {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  transition: color 0.16s ease, opacity 0.16s ease;
+}
+
+.import-extra-primary-key-option.is-disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.import-extra-primary-key-toggle {
+  grid-column: auto;
+}
+
+.import-extra-primary-key-bracket {
+  font-weight: 600;
+  color: inherit;
+}
+
 .import-target-row {
   grid-column: 1 / -1;
   display: grid;
@@ -1414,7 +1445,9 @@ h4 {
   white-space: nowrap;
 }
 
-.checkbox-field {
+.checkbox-field,
+.form-grid label.checkbox-field,
+.inline-form label.checkbox-field {
   display: inline-flex;
   flex-direction: row;
   flex-wrap: nowrap;
