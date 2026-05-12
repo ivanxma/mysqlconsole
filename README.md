@@ -30,6 +30,7 @@ Key files:
 - `templates/`: Jinja templates
 - `static/style.css`: shared styling
 - `setup.sh`: environment setup and MySQL Shell Innovation install
+- `oci_compute_init.sh`: reusable OCI Compute first-boot installer with login-banner status
 - `start_http.sh`: start on the saved HTTP default port, `80` unless changed by `setup.sh`
 - `start_https.sh`: start on the saved HTTPS default port, `443` unless changed by `setup.sh`
 
@@ -137,78 +138,52 @@ curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh 
 
 ### OCI Compute Quick Start
 
-Create a normal OCI Compute instance, then paste one of these snippets into `Advanced options` > `Management` > `Initialization script`. Keep the network rules aligned with the deploy mode:
+Use the reusable `oci_compute_init.sh` for first-boot installs. The script clones the repository, runs `setup.sh`, records install state, and installs a login banner that shows setup progress, failure details, or service status.
 
-- choose your compartment, availability domain, shape, boot volume, VCN/subnet, public IP, and SSH public key as usual
-- use an Oracle Linux 9 or Ubuntu image
-- HTTPS only: allow TCP `443`
-- HTTP only: allow TCP `80`
-- both: allow TCP `80` and `443`
+Instance values to choose in OCI:
+
+- Compartment: `<compartment>`
+- Platform: `ol9` or `ubuntu`
+- Image: Oracle Linux 9 or Ubuntu
+- Shape: `<shape>`
+- VCN/Subnet: `<vcn>` / `<subnet>`
+- Public IPv4: enabled when you want direct browser/SSH access
+- SSH public key: your SSH public key
+- Deploy mode: `https`, `http`, or `both`
+
+Open ingress only for the selected deploy mode:
+
+- SSH: TCP `22` from your admin CIDR
+- HTTPS: TCP `443` when deploy mode is `https` or `both`
+- HTTP: TCP `80` when deploy mode is `http` or `both`
+
+In the OCI Console:
+
+1. Create a Compute instance with the chosen platform image.
+2. Select the VCN/subnet and public IP setting.
+3. Add your SSH public key.
+4. Open `Advanced options` > `Management`.
+5. Paste the matching initialization script below.
+6. Create the instance and wait for first boot to finish.
+7. SSH to the instance and check the login banner.
 
 Oracle Linux 9 images use the `opc` login user:
 
 ```bash
 #!/bin/bash
 set -euxo pipefail
-APP_USER=opc
-APP_GROUP=opc
-OS_FAMILY=ol9
-SERVICE_NAME=dbconsole-https.service
-STATE_DIR=/var/lib/dbconsole-init
-LOG_FILE=/var/log/dbconsole-init.log
-BANNER_FILE=/etc/profile.d/dbconsole-setup-status.sh
+dnf install -y curl
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh -o /tmp/oci_compute_init.sh
+chmod 0755 /tmp/oci_compute_init.sh
 
-mkdir -p "$STATE_DIR"
-printf '%s\n' installing > "$STATE_DIR/status"
-printf '%s\n' "$SERVICE_NAME" > "$STATE_DIR/service"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-cat > "$BANNER_FILE" <<'BANNER'
-#!/bin/bash
-case $- in *i*) ;; *) return 0 ;; esac
-STATE_DIR=/var/lib/dbconsole-init
-LOG_FILE=/var/log/dbconsole-init.log
-STATUS="$(cat "$STATE_DIR/status" 2>/dev/null || true)"
-SERVICE_NAME="$(cat "$STATE_DIR/service" 2>/dev/null || true)"
-
-printf '\nDBConsole setup status: %s\n' "${STATUS:-unknown}"
-if [ "$STATUS" = "installing" ]; then
-  printf '%s\n' "Please wait until DBConsole setup has completed."
-elif [ "$STATUS" = "failed" ]; then
-  printf '%s\n' "DBConsole setup failed. Recent setup log:"
-  tail -n 30 "$LOG_FILE" 2>/dev/null || true
-elif [ "$STATUS" = "installed" ]; then
-  printf '%s\n' "DBConsole setup has completed."
-  if [ -n "$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" 2>/dev/null || true
-  fi
-fi
-printf '\n'
-BANNER
-chmod 0755 "$BANNER_FILE"
-
-finish_setup() {
-  local exit_code="$1"
-  if [ "$exit_code" -eq 0 ]; then
-    printf '%s\n' installed > "$STATE_DIR/status"
-  else
-    printf '%s\n' failed > "$STATE_DIR/status"
-  fi
-  systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
-}
-trap 'finish_setup $?' EXIT
-
-dnf install -y curl git
-cd "/home/$APP_USER"
-sudo -u "$APP_USER" env \
-  BOOTSTRAP_PARENT_DIR="/home/$APP_USER" \
-  BOOTSTRAP_CLONE_DIR=mysqlconsole \
-  HOST=0.0.0.0 \
-  SERVICE_USER="$APP_USER" \
-  SERVICE_GROUP="$APP_GROUP" \
-  bash -lc "curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- $OS_FAMILY https --https-port 443"
-
-systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
+APP_USER=opc \
+APP_GROUP=opc \
+APP_DIR=/home/opc/mysqlconsole \
+OS_FAMILY=ol9 \
+DEPLOY_MODE=https \
+HTTPS_PORT=443 \
+SERVICE_NAME=dbconsole-https.service \
+bash /tmp/oci_compute_init.sh
 ```
 
 Ubuntu images usually use the `ubuntu` login user:
@@ -216,66 +191,19 @@ Ubuntu images usually use the `ubuntu` login user:
 ```bash
 #!/bin/bash
 set -euxo pipefail
-APP_USER=ubuntu
-APP_GROUP=ubuntu
-OS_FAMILY=ubuntu
-SERVICE_NAME=dbconsole-https.service
-STATE_DIR=/var/lib/dbconsole-init
-LOG_FILE=/var/log/dbconsole-init.log
-BANNER_FILE=/etc/profile.d/dbconsole-setup-status.sh
-
-mkdir -p "$STATE_DIR"
-printf '%s\n' installing > "$STATE_DIR/status"
-printf '%s\n' "$SERVICE_NAME" > "$STATE_DIR/service"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-cat > "$BANNER_FILE" <<'BANNER'
-#!/bin/bash
-case $- in *i*) ;; *) return 0 ;; esac
-STATE_DIR=/var/lib/dbconsole-init
-LOG_FILE=/var/log/dbconsole-init.log
-STATUS="$(cat "$STATE_DIR/status" 2>/dev/null || true)"
-SERVICE_NAME="$(cat "$STATE_DIR/service" 2>/dev/null || true)"
-
-printf '\nDBConsole setup status: %s\n' "${STATUS:-unknown}"
-if [ "$STATUS" = "installing" ]; then
-  printf '%s\n' "Please wait until DBConsole setup has completed."
-elif [ "$STATUS" = "failed" ]; then
-  printf '%s\n' "DBConsole setup failed. Recent setup log:"
-  tail -n 30 "$LOG_FILE" 2>/dev/null || true
-elif [ "$STATUS" = "installed" ]; then
-  printf '%s\n' "DBConsole setup has completed."
-  if [ -n "$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" 2>/dev/null || true
-  fi
-fi
-printf '\n'
-BANNER
-chmod 0755 "$BANNER_FILE"
-
-finish_setup() {
-  local exit_code="$1"
-  if [ "$exit_code" -eq 0 ]; then
-    printf '%s\n' installed > "$STATE_DIR/status"
-  else
-    printf '%s\n' failed > "$STATE_DIR/status"
-  fi
-  systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
-}
-trap 'finish_setup $?' EXIT
-
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl git
-cd "/home/$APP_USER"
-sudo -u "$APP_USER" env \
-  BOOTSTRAP_PARENT_DIR="/home/$APP_USER" \
-  BOOTSTRAP_CLONE_DIR=mysqlconsole \
-  HOST=0.0.0.0 \
-  SERVICE_USER="$APP_USER" \
-  SERVICE_GROUP="$APP_GROUP" \
-  bash -lc "curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- $OS_FAMILY https --https-port 443"
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh -o /tmp/oci_compute_init.sh
+chmod 0755 /tmp/oci_compute_init.sh
 
-systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
+APP_USER=ubuntu \
+APP_GROUP=ubuntu \
+APP_DIR=/home/ubuntu/mysqlconsole \
+OS_FAMILY=ubuntu \
+DEPLOY_MODE=https \
+HTTPS_PORT=443 \
+SERVICE_NAME=dbconsole-https.service \
+bash /tmp/oci_compute_init.sh
 ```
 
 OCI verification:
@@ -284,14 +212,14 @@ OCI verification:
 ssh opc@<public-ip>              # Oracle Linux
 ssh ubuntu@<public-ip>           # Ubuntu
 sudo tail -n 120 /var/log/dbconsole-init.log
-cat /var/lib/dbconsole-init/status
+sudo ls -l /var/lib/dbconsole-init
 systemctl --no-pager status dbconsole-https.service
 curl -kI https://<public-ip>/
 ```
 
-Use `http --http-port 80` and `dbconsole-http.service` instead of the HTTPS values when deploying HTTP only. Use `both --http-port 80 --https-port 443` when both listeners are required.
+For HTTP only, set `DEPLOY_MODE=http`, `HTTP_PORT=80`, `HTTPS_PORT=`, and `SERVICE_NAME=dbconsole-http.service` in the wrapper. For both listeners, set `DEPLOY_MODE=both`, `HTTP_PORT=80`, `HTTPS_PORT=443`, and choose the service you want the banner to show.
 
-The login banner is installed at `/etc/profile.d/dbconsole-setup-status.sh`. During first boot, a new SSH login shows `installing`; if setup fails, it shows the last 30 lines of `/var/log/dbconsole-init.log`; after success, it shows the current `systemctl status` for the configured DBConsole service.
+The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
 ### What `setup.sh` Does
 

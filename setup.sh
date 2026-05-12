@@ -675,12 +675,12 @@ sync_firewall_ports() {
       continue
     fi
 
-    if port_list_contains "$port_value" "${handled_ports[@]}"; then
+    if [[ "${#handled_ports[@]}" -gt 0 ]] && port_list_contains "$port_value" "${handled_ports[@]}"; then
       continue
     fi
     handled_ports+=("$port_value")
 
-    if port_list_contains "$port_value" "${desired_ports[@]}"; then
+    if [[ "${#desired_ports[@]}" -gt 0 ]] && port_list_contains "$port_value" "${desired_ports[@]}"; then
       open_firewall_port "DBConsole" "$port_value"
     else
       close_firewall_port "DBConsole" "$port_value"
