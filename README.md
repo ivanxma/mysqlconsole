@@ -265,7 +265,7 @@ The `Admin > Auto-Update` page works best when the DBConsole service user can ru
 
 In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
 
-DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs from the local version. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch.
+DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs from the local version. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch. HTTPS version checks use `certifi` by default; set `DBCONSOLE_VERSION_CA_BUNDLE` to a specific CA bundle path if your environment requires one.
 
 If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
 
@@ -288,6 +288,8 @@ For `setup.sh`:
 - `BOOTSTRAP_REPO_URL`
 - `BOOTSTRAP_CLONE_DIR`
 - `BOOTSTRAP_PARENT_DIR`
+- `DBCONSOLE_VERSION_URL`
+- `DBCONSOLE_VERSION_CA_BUNDLE`
 
 For `start_http.sh` and `start_https.sh`:
 

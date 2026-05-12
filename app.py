@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -550,6 +551,17 @@ def infer_app_version_url():
     return f"https://raw.githubusercontent.com/{owner_repo}/{branch_name}/appver.json"
 
 
+def build_repository_version_ssl_context():
+    ca_bundle = os.environ.get("DBCONSOLE_VERSION_CA_BUNDLE", "").strip()
+    if ca_bundle:
+        return ssl.create_default_context(cafile=os.path.expanduser(ca_bundle))
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def fetch_repository_app_version(timeout=2):
     version_url = infer_app_version_url()
     if not version_url:
@@ -560,13 +572,28 @@ def fetch_repository_app_version(timeout=2):
         }
     try:
         request_object = urllib.request.Request(version_url, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(request_object, timeout=timeout) as response:
+        ssl_context = build_repository_version_ssl_context() if version_url.lower().startswith("https://") else None
+        with urllib.request.urlopen(request_object, timeout=timeout, context=ssl_context) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+    except ssl.SSLError as error:
         return {
             "repo_version": "-",
             "version_url": version_url,
-            "error": str(error),
+            "error": f"TLS certificate verification failed. Set DBCONSOLE_VERSION_CA_BUNDLE to a valid CA bundle path. Details: {error}",
+        }
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+        reason = getattr(error, "reason", None)
+        if isinstance(reason, ssl.SSLError):
+            error_message = (
+                "TLS certificate verification failed. Set DBCONSOLE_VERSION_CA_BUNDLE to a valid CA bundle path. "
+                f"Details: {reason}"
+            )
+        else:
+            error_message = str(error)
+        return {
+            "repo_version": "-",
+            "version_url": version_url,
+            "error": error_message,
         }
     repo_version = str(payload.get("version", "")).strip() or "-"
     return {
