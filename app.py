@@ -1,3 +1,4 @@
+import base64
 import csv
 import io
 import json
@@ -551,6 +552,26 @@ def infer_app_version_url():
     return f"https://raw.githubusercontent.com/{owner_repo}/{branch_name}/appver.json"
 
 
+def normalize_repository_version_request_url(version_url):
+    raw_match = re.fullmatch(
+        r"https://raw\.githubusercontent\.com/([^/]+/[^/]+)/([^/]+)/appver\.json(?:\?.*)?",
+        str(version_url or "").strip(),
+    )
+    if raw_match:
+        owner_repo, branch_name = raw_match.groups()
+        return f"https://api.github.com/repos/{owner_repo}/contents/appver.json?ref={branch_name}"
+
+    github_raw_match = re.fullmatch(
+        r"https://github\.com/([^/]+/[^/]+)/raw/([^/]+)/appver\.json(?:\?.*)?",
+        str(version_url or "").strip(),
+    )
+    if github_raw_match:
+        owner_repo, branch_name = github_raw_match.groups()
+        return f"https://api.github.com/repos/{owner_repo}/contents/appver.json?ref={branch_name}"
+
+    return version_url
+
+
 def build_repository_version_ssl_context():
     ca_bundle = os.environ.get("DBCONSOLE_VERSION_CA_BUNDLE", "").strip()
     if ca_bundle:
@@ -562,6 +583,17 @@ def build_repository_version_ssl_context():
     return ssl.create_default_context(cafile=certifi.where())
 
 
+def read_repository_version_payload(response_body):
+    payload = json.loads(response_body.decode("utf-8"))
+    if "version" in payload:
+        return payload
+    encoded_content = payload.get("content")
+    if encoded_content:
+        decoded_body = base64.b64decode(str(encoded_content).encode("utf-8"))
+        return json.loads(decoded_body.decode("utf-8"))
+    return payload
+
+
 def fetch_repository_app_version(timeout=2):
     version_url = infer_app_version_url()
     if not version_url:
@@ -571,10 +603,18 @@ def fetch_repository_app_version(timeout=2):
             "error": "Set DBCONSOLE_VERSION_URL to enable repository version checks.",
         }
     try:
-        request_object = urllib.request.Request(version_url, headers={"Accept": "application/json"})
-        ssl_context = build_repository_version_ssl_context() if version_url.lower().startswith("https://") else None
+        request_url = normalize_repository_version_request_url(version_url)
+        request_object = urllib.request.Request(
+            request_url,
+            headers={
+                "Accept": "application/vnd.github.raw+json, application/json",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+        )
+        ssl_context = build_repository_version_ssl_context() if request_url.lower().startswith("https://") else None
         with urllib.request.urlopen(request_object, timeout=timeout, context=ssl_context) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            payload = read_repository_version_payload(response.read())
     except ssl.SSLError as error:
         return {
             "repo_version": "-",
