@@ -150,19 +150,65 @@ Oracle Linux 9 images use the `opc` login user:
 ```bash
 #!/bin/bash
 set -euxo pipefail
-exec > >(tee -a /var/log/dbconsole-init.log) 2>&1
+APP_USER=opc
+APP_GROUP=opc
+OS_FAMILY=ol9
+SERVICE_NAME=dbconsole-https.service
+STATE_DIR=/var/lib/dbconsole-init
+LOG_FILE=/var/log/dbconsole-init.log
+BANNER_FILE=/etc/profile.d/dbconsole-setup-status.sh
+
+mkdir -p "$STATE_DIR"
+printf '%s\n' installing > "$STATE_DIR/status"
+printf '%s\n' "$SERVICE_NAME" > "$STATE_DIR/service"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+cat > "$BANNER_FILE" <<'BANNER'
+#!/bin/bash
+case $- in *i*) ;; *) return 0 ;; esac
+STATE_DIR=/var/lib/dbconsole-init
+LOG_FILE=/var/log/dbconsole-init.log
+STATUS="$(cat "$STATE_DIR/status" 2>/dev/null || true)"
+SERVICE_NAME="$(cat "$STATE_DIR/service" 2>/dev/null || true)"
+
+printf '\nDBConsole setup status: %s\n' "${STATUS:-unknown}"
+if [ "$STATUS" = "installing" ]; then
+  printf '%s\n' "Please wait until DBConsole setup has completed."
+elif [ "$STATUS" = "failed" ]; then
+  printf '%s\n' "DBConsole setup failed. Recent setup log:"
+  tail -n 30 "$LOG_FILE" 2>/dev/null || true
+elif [ "$STATUS" = "installed" ]; then
+  printf '%s\n' "DBConsole setup has completed."
+  if [ -n "$SERVICE_NAME" ]; then
+    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" 2>/dev/null || true
+  fi
+fi
+printf '\n'
+BANNER
+chmod 0755 "$BANNER_FILE"
+
+finish_setup() {
+  local exit_code="$1"
+  if [ "$exit_code" -eq 0 ]; then
+    printf '%s\n' installed > "$STATE_DIR/status"
+  else
+    printf '%s\n' failed > "$STATE_DIR/status"
+  fi
+  systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
+}
+trap 'finish_setup $?' EXIT
 
 dnf install -y curl git
-cd /home/opc
-sudo -u opc env \
-  BOOTSTRAP_PARENT_DIR=/home/opc \
+cd "/home/$APP_USER"
+sudo -u "$APP_USER" env \
+  BOOTSTRAP_PARENT_DIR="/home/$APP_USER" \
   BOOTSTRAP_CLONE_DIR=mysqlconsole \
   HOST=0.0.0.0 \
-  SERVICE_USER=opc \
-  SERVICE_GROUP=opc \
-  bash -lc 'curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ol9 https --https-port 443'
+  SERVICE_USER="$APP_USER" \
+  SERVICE_GROUP="$APP_GROUP" \
+  bash -lc "curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- $OS_FAMILY https --https-port 443"
 
-systemctl --no-pager --full --lines=12 status dbconsole-https.service || true
+systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
 ```
 
 Ubuntu images usually use the `ubuntu` login user:
@@ -170,20 +216,66 @@ Ubuntu images usually use the `ubuntu` login user:
 ```bash
 #!/bin/bash
 set -euxo pipefail
-exec > >(tee -a /var/log/dbconsole-init.log) 2>&1
+APP_USER=ubuntu
+APP_GROUP=ubuntu
+OS_FAMILY=ubuntu
+SERVICE_NAME=dbconsole-https.service
+STATE_DIR=/var/lib/dbconsole-init
+LOG_FILE=/var/log/dbconsole-init.log
+BANNER_FILE=/etc/profile.d/dbconsole-setup-status.sh
+
+mkdir -p "$STATE_DIR"
+printf '%s\n' installing > "$STATE_DIR/status"
+printf '%s\n' "$SERVICE_NAME" > "$STATE_DIR/service"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+cat > "$BANNER_FILE" <<'BANNER'
+#!/bin/bash
+case $- in *i*) ;; *) return 0 ;; esac
+STATE_DIR=/var/lib/dbconsole-init
+LOG_FILE=/var/log/dbconsole-init.log
+STATUS="$(cat "$STATE_DIR/status" 2>/dev/null || true)"
+SERVICE_NAME="$(cat "$STATE_DIR/service" 2>/dev/null || true)"
+
+printf '\nDBConsole setup status: %s\n' "${STATUS:-unknown}"
+if [ "$STATUS" = "installing" ]; then
+  printf '%s\n' "Please wait until DBConsole setup has completed."
+elif [ "$STATUS" = "failed" ]; then
+  printf '%s\n' "DBConsole setup failed. Recent setup log:"
+  tail -n 30 "$LOG_FILE" 2>/dev/null || true
+elif [ "$STATUS" = "installed" ]; then
+  printf '%s\n' "DBConsole setup has completed."
+  if [ -n "$SERVICE_NAME" ]; then
+    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" 2>/dev/null || true
+  fi
+fi
+printf '\n'
+BANNER
+chmod 0755 "$BANNER_FILE"
+
+finish_setup() {
+  local exit_code="$1"
+  if [ "$exit_code" -eq 0 ]; then
+    printf '%s\n' installed > "$STATE_DIR/status"
+  else
+    printf '%s\n' failed > "$STATE_DIR/status"
+  fi
+  systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
+}
+trap 'finish_setup $?' EXIT
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl git
-cd /home/ubuntu
-sudo -u ubuntu env \
-  BOOTSTRAP_PARENT_DIR=/home/ubuntu \
+cd "/home/$APP_USER"
+sudo -u "$APP_USER" env \
+  BOOTSTRAP_PARENT_DIR="/home/$APP_USER" \
   BOOTSTRAP_CLONE_DIR=mysqlconsole \
   HOST=0.0.0.0 \
-  SERVICE_USER=ubuntu \
-  SERVICE_GROUP=ubuntu \
-  bash -lc 'curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ubuntu https --https-port 443'
+  SERVICE_USER="$APP_USER" \
+  SERVICE_GROUP="$APP_GROUP" \
+  bash -lc "curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- $OS_FAMILY https --https-port 443"
 
-systemctl --no-pager --full --lines=12 status dbconsole-https.service || true
+systemctl --no-pager --full --lines=20 status "$SERVICE_NAME" || true
 ```
 
 OCI verification:
@@ -192,11 +284,14 @@ OCI verification:
 ssh opc@<public-ip>              # Oracle Linux
 ssh ubuntu@<public-ip>           # Ubuntu
 sudo tail -n 120 /var/log/dbconsole-init.log
+cat /var/lib/dbconsole-init/status
 systemctl --no-pager status dbconsole-https.service
 curl -kI https://<public-ip>/
 ```
 
 Use `http --http-port 80` and `dbconsole-http.service` instead of the HTTPS values when deploying HTTP only. Use `both --http-port 80 --https-port 443` when both listeners are required.
+
+The login banner is installed at `/etc/profile.d/dbconsole-setup-status.sh`. During first boot, a new SSH login shows `installing`; if setup fails, it shows the last 30 lines of `/var/log/dbconsole-init.log`; after success, it shows the current `systemctl status` for the configured DBConsole service.
 
 ### What `setup.sh` Does
 
