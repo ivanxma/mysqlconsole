@@ -197,7 +197,13 @@
     <h3>HeatWave Table Inventory</h3>
     <span class="helper-text">Inventory rows are HeatWave-tracked tables from <code>rpd_table_id</code>/<code>rpd_tables</code>. Green rows are 100% loaded, yellow rows are partial progress, and red rows have a non-available load status. Any status that starts with <code>AVAIL_</code> is treated as normal.</span>
     <div class="panel-actions">
-      <a class="button secondary" href="{{ url_for('hw_table_download') }}">Download CSV</a>
+      <a class="icon-link" href="{{ url_for('hw_table_download') }}" title="Download CSV" aria-label="Download CSV">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <path d="M7 10l5 5 5-5"></path>
+          <path d="M12 15V3"></path>
+        </svg>
+      </a>
     </div>
   </div>
   {% if inventory_error %}

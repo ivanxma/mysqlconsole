@@ -12,6 +12,14 @@ It provides:
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory and `HW Admin` management actions
 - `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
+- authenticated top-right user icon with app version, update status, user, profile, connection summary, and logout
+- shared interactive table styling with sortable headers, resizable columns, saved column widths, reset-layout controls, and compact download/action icons
+
+## Login, Sessions, and Updates
+
+DBConsole keeps database credentials out of browser-visible session state. The Flask cookie uses the app-specific `dbconsole_session` name and stores only non-secret profile data plus an opaque server-side session id. Live MySQL username/password values are held in server-owned memory for the active process and are cleared on logout, connection loss, or session reset.
+
+After a successful login, DBConsole reads local `appver.json` and compares it with the repository version file. If the repository version string differs, the user is redirected to `Admin > Auto-Update`; otherwise the normal MySQL dashboard opens. The user icon in the top-right corner shows the current app version and update availability, and clicking it opens the profile/connection details and logout actions.
 
 ## Layout
 
@@ -280,6 +288,8 @@ The `Admin > Auto-Update` page works best when the DBConsole service user can ru
 - restarting the current DBConsole systemd service by letting systemd recover after the running service process exits
 
 In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
+
+DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs from the local version. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch.
 
 If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
 

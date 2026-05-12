@@ -14,22 +14,49 @@
           <p class="eyebrow">MySQL HeatWave</p>
           <h1><a class="topbar-home-link" href="{{ url_for('mysql_dashboard_page') }}">{{ app_title }}</a></h1>
         </div>
-        <div class="topbar-meta">
-          <div>
-            <span class="meta-label">User</span>
-            <strong>{{ current_user or "-" }}</strong>
+        <div class="user-menu" data-user-menu>
+          <button class="user-menu-button" type="button" aria-label="User settings" aria-expanded="false" data-user-menu-button>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="12" cy="8" r="4"></circle>
+              <path d="M4 21a8 8 0 0 1 16 0"></path>
+            </svg>
+          </button>
+          <div class="user-menu-panel" data-user-menu-panel hidden>
+            <dl class="user-menu-details">
+              <div>
+                <dt>App Version</dt>
+                <dd>{{ app_version or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Update</dt>
+                <dd>
+                  {% if version_check and version_check.update_available %}
+                  Available: {{ version_check.repo_version }}
+                  {% else %}
+                  Up to date
+                  {% endif %}
+                </dd>
+              </div>
+              <div>
+                <dt>User</dt>
+                <dd>{{ current_user or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Profile</dt>
+                <dd>{{ current_profile_name or "-" }}</dd>
+              </div>
+              <div>
+                <dt>Connection</dt>
+                <dd>{{ connection_summary or "-" }}</dd>
+              </div>
+            </dl>
+            <div class="user-menu-actions">
+              <a class="button secondary" href="{{ url_for('update_dbconsole_page') }}">Update</a>
+              <form method="post" action="{{ url_for('logout') }}">
+                <button class="button secondary" type="submit">Logout</button>
+              </form>
+            </div>
           </div>
-          <div>
-            <span class="meta-label">Profile</span>
-            <strong>{{ current_profile_name or "-" }}</strong>
-          </div>
-          <div>
-            <span class="meta-label">Connection</span>
-            <strong>{{ connection_summary or "-" }}</strong>
-          </div>
-          <form method="post" action="{{ url_for('logout') }}">
-            <button class="button secondary" type="submit">Logout</button>
-          </form>
         </div>
       </header>
 
@@ -123,6 +150,154 @@
           }
           button.addEventListener("click", () => {
             setOpenGroup(group.classList.contains("open") ? null : group);
+          });
+        });
+      })();
+      (() => {
+        const menu = document.querySelector("[data-user-menu]");
+        if (!menu) {
+          return;
+        }
+        const button = menu.querySelector("[data-user-menu-button]");
+        const panel = menu.querySelector("[data-user-menu-panel]");
+        const setOpen = (isOpen) => {
+          panel.hidden = !isOpen;
+          button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          menu.classList.toggle("open", isOpen);
+        };
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setOpen(panel.hidden);
+        });
+        document.addEventListener("click", (event) => {
+          if (!menu.contains(event.target)) {
+            setOpen(false);
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+        });
+      })();
+      (() => {
+        const tableWraps = Array.from(document.querySelectorAll(".table-wrap"));
+        const parseCellValue = (row, index) => (row.cells[index]?.innerText || "").trim();
+        const compareValues = (a, b) => {
+          const numberA = Number(a.replace(/,/g, ""));
+          const numberB = Number(b.replace(/,/g, ""));
+          if (!Number.isNaN(numberA) && !Number.isNaN(numberB) && a !== "" && b !== "") {
+            return numberA - numberB;
+          }
+          return a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});
+        };
+        const iconMarkup = `
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+            <path d="M3 3v6h6"></path>
+          </svg>
+        `;
+
+        tableWraps.forEach((wrap, tableIndex) => {
+          const table = wrap.querySelector("table");
+          if (!table || table.dataset.enhancedTable) {
+            return;
+          }
+          const headerRow = table.tHead?.rows[0];
+          if (!headerRow) {
+            return;
+          }
+          const storageKey = `dbconsole-table-layout:${window.location.pathname}:${tableIndex}`;
+          const headers = Array.from(headerRow.cells);
+          const savedLayout = (() => {
+            try {
+              return JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+            } catch {
+              return {};
+            }
+          })();
+          table.dataset.enhancedTable = "true";
+
+          const toolbar = document.createElement("div");
+          toolbar.className = "table-layout-toolbar";
+          const resetButton = document.createElement("button");
+          resetButton.className = "icon-button";
+          resetButton.type = "button";
+          resetButton.title = "Reset table layout";
+          resetButton.setAttribute("aria-label", "Reset table layout");
+          resetButton.innerHTML = iconMarkup;
+          resetButton.addEventListener("click", () => {
+            window.localStorage.removeItem(storageKey);
+            headers.forEach((header) => {
+              header.style.width = "";
+            });
+          });
+          toolbar.appendChild(resetButton);
+          wrap.prepend(toolbar);
+
+          const persistWidths = () => {
+            const widths = headers.map((header) => Math.round(header.getBoundingClientRect().width));
+            window.localStorage.setItem(storageKey, JSON.stringify({widths}));
+          };
+
+          headers.forEach((header, columnIndex) => {
+            if (savedLayout.widths && savedLayout.widths[columnIndex]) {
+              header.style.width = `${savedLayout.widths[columnIndex]}px`;
+            }
+            const originalText = header.textContent.trim();
+            if (originalText) {
+              header.textContent = "";
+              const button = document.createElement("button");
+              button.className = "table-sort-button";
+              button.type = "button";
+              button.innerHTML = `<span>${originalText}</span><span class="table-sort-indicator" aria-hidden="true"></span>`;
+              button.addEventListener("click", () => {
+                const currentDirection = header.dataset.sortDirection === "asc" ? "desc" : "asc";
+                headers.forEach((item) => {
+                  item.dataset.sortDirection = "";
+                  const indicator = item.querySelector(".table-sort-indicator");
+                  if (indicator) {
+                    indicator.textContent = "";
+                  }
+                });
+                header.dataset.sortDirection = currentDirection;
+                button.querySelector(".table-sort-indicator").textContent = currentDirection === "asc" ? "asc" : "desc";
+                Array.from(table.tBodies).forEach((tbody) => {
+                  Array.from(tbody.rows)
+                    .sort((rowA, rowB) => {
+                      const result = compareValues(parseCellValue(rowA, columnIndex), parseCellValue(rowB, columnIndex));
+                      return currentDirection === "asc" ? result : -result;
+                    })
+                    .forEach((row) => tbody.appendChild(row));
+                });
+              });
+              header.appendChild(button);
+            }
+
+            const handle = document.createElement("span");
+            handle.className = "table-resize-handle";
+            handle.setAttribute("aria-hidden", "true");
+            handle.addEventListener("pointerdown", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const startX = event.clientX;
+              const startWidth = header.getBoundingClientRect().width;
+              handle.setPointerCapture(event.pointerId);
+              const onMove = (moveEvent) => {
+                const nextWidth = Math.max(80, startWidth + moveEvent.clientX - startX);
+                header.style.width = `${nextWidth}px`;
+              };
+              const onUp = () => {
+                persistWidths();
+                handle.removeEventListener("pointermove", onMove);
+                handle.removeEventListener("pointerup", onUp);
+                handle.removeEventListener("pointercancel", onUp);
+              };
+              handle.addEventListener("pointermove", onMove);
+              handle.addEventListener("pointerup", onUp);
+              handle.addEventListener("pointercancel", onUp);
+            });
+            header.appendChild(handle);
           });
         });
       })();

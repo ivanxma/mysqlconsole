@@ -34,10 +34,16 @@
       </form>
       {% endif %}
       <a
-        class="button secondary"
+        class="icon-link"
         href="{{ url_for(download_endpoint, current_ml_connection_only='1' if current_ml_connection_only else '0') if current_endpoint == 'monitoring_ml_page' else url_for(download_endpoint) }}"
+        title="Download CSV"
+        aria-label="Download CSV"
       >
-        Download CSV
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <path d="M7 10l5 5 5-5"></path>
+          <path d="M12 15V3"></path>
+        </svg>
       </a>
     </div>
   </div>

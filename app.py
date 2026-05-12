@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
@@ -66,6 +68,7 @@ APP_TITLE = "MySQL DBConsole"
 ROOT_DIR = Path(__file__).resolve().parent
 PROFILE_STORE = ROOT_DIR / "profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
+APP_VERSION_FILE = ROOT_DIR / "appver.json"
 IMPORT_CACHE_DIR = Path(tempfile.gettempdir()) / "dbconsole-import-cache"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
@@ -96,6 +99,8 @@ DBCONSOLE_SESSION_SCOPE_KEY = "_dbconsole_session_scope"
 DBCONSOLE_SESSION_SCOPE_VALUE = "dbconsole"
 DBCONSOLE_SESSION_VERSION_KEY = "_dbconsole_session_version"
 DBCONSOLE_SESSION_VERSION = 1
+DBCONSOLE_CREDENTIAL_SESSION_KEY = "dbconsole_server_session_id"
+DBCONSOLE_VERSION_CHECK_SESSION_KEY = "dbconsole_version_check"
 DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
@@ -113,6 +118,7 @@ DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
 DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
+ACTIVE_DBCONSOLE_SESSIONS = {}
 EVENT_SCHEDULE_OPTIONS = (
     {
         "value": "once",
@@ -274,6 +280,15 @@ def ensure_dbconsole_session_scope():
         return
     session.clear()
     _prime_dbconsole_session_scope()
+
+
+@app.after_request
+def add_authenticated_no_store_headers(response):
+    if session.get("logged_in"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 def ensure_profile_store():
@@ -474,6 +489,110 @@ def start_dbconsole_update_job():
     return get_dbconsole_update_status()
 
 
+def get_local_app_version():
+    if not APP_VERSION_FILE.exists():
+        return "-"
+    try:
+        payload = json.loads(APP_VERSION_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "-"
+    version = str(payload.get("version", "")).strip()
+    return version or "-"
+
+
+def _normalize_git_remote_url(remote_url):
+    remote = str(remote_url or "").strip()
+    if remote.startswith("git@github.com:"):
+        remote = "https://github.com/" + remote[len("git@github.com:"):]
+    if remote.startswith("https://github.com/"):
+        if remote.endswith(".git"):
+            remote = remote[:-4]
+        if remote.count("/") >= 4:
+            return remote
+    return ""
+
+
+def infer_app_version_url():
+    configured_url = os.environ.get("DBCONSOLE_VERSION_URL", "").strip()
+    if configured_url:
+        return configured_url
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    remote_url = _normalize_git_remote_url(result.stdout)
+    if not remote_url:
+        return ""
+    try:
+        branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        branch_name = ""
+    else:
+        branch_name = branch_result.stdout.strip()
+    branch_name = branch_name or os.environ.get("DBCONSOLE_VERSION_BRANCH", "").strip() or "main"
+    owner_repo = remote_url[len("https://github.com/"):].strip("/")
+    return f"https://raw.githubusercontent.com/{owner_repo}/{branch_name}/appver.json"
+
+
+def fetch_repository_app_version(timeout=2):
+    version_url = infer_app_version_url()
+    if not version_url:
+        return {
+            "repo_version": "-",
+            "version_url": "",
+            "error": "Set DBCONSOLE_VERSION_URL to enable repository version checks.",
+        }
+    try:
+        request_object = urllib.request.Request(version_url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request_object, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+        return {
+            "repo_version": "-",
+            "version_url": version_url,
+            "error": str(error),
+        }
+    repo_version = str(payload.get("version", "")).strip() or "-"
+    return {
+        "repo_version": repo_version,
+        "version_url": version_url,
+        "error": "",
+    }
+
+
+def refresh_repo_version_check():
+    local_version = get_local_app_version()
+    repo_result = fetch_repository_app_version()
+    repo_version = repo_result.get("repo_version") or "-"
+    update_available = bool(repo_version != "-" and local_version != "-" and repo_version != local_version)
+    version_check = {
+        "local_version": local_version,
+        "repo_version": repo_version,
+        "update_available": update_available,
+        "checked_at": _utc_now_iso(),
+        "error": repo_result.get("error", ""),
+        "version_url": repo_result.get("version_url", ""),
+    }
+    session[DBCONSOLE_VERSION_CHECK_SESSION_KEY] = version_check
+    return version_check
+
+
 def ensure_import_cache_dir():
     IMPORT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -592,14 +711,56 @@ def set_session_profile(profile):
     session["profile_name"] = normalize_profile(profile)["name"]
 
 
+def _get_server_session_id():
+    return str(session.get(DBCONSOLE_CREDENTIAL_SESSION_KEY, "")).strip()
+
+
+def _get_server_session_entry():
+    server_session_id = _get_server_session_id()
+    if not server_session_id:
+        return None
+    entry = ACTIVE_DBCONSOLE_SESSIONS.get(server_session_id)
+    return entry if isinstance(entry, dict) else None
+
+
+def set_session_credentials(username, password):
+    old_session_id = _get_server_session_id()
+    if old_session_id:
+        ACTIVE_DBCONSOLE_SESSIONS.pop(old_session_id, None)
+    server_session_id = uuid4().hex
+    ACTIVE_DBCONSOLE_SESSIONS[server_session_id] = {
+        "username": str(username or "").strip(),
+        "password": password or "",
+        "created_at": _utc_now_iso(),
+    }
+    session[DBCONSOLE_CREDENTIAL_SESSION_KEY] = server_session_id
+
+
 def get_session_credentials():
+    entry = _get_server_session_entry()
+    if entry is not None:
+        return {
+            "username": str(entry.get("username", "")).strip(),
+            "password": entry.get("password", ""),
+        }
     return {
-        "username": str(session.get("mysql_username", "")).strip(),
-        "password": session.get("mysql_password", ""),
+        "username": "",
+        "password": "",
     }
 
 
+def get_session_username():
+    return get_session_credentials()["username"]
+
+
+def has_active_login_state():
+    return bool(session.get("logged_in") and _get_server_session_entry())
+
+
 def clear_login_state(keep_profile=True):
+    server_session_id = _get_server_session_id()
+    if server_session_id:
+        ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
     profile = session.get("connection_profile") if keep_profile else None
     profile_name = session.get("profile_name") if keep_profile else None
     session.clear()
@@ -620,8 +781,9 @@ def _redirect_to_login_for_mysql_unavailable(error):
 def session_login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if not session.get("logged_in"):
+        if not has_active_login_state():
             flash("Log in to continue.", "error")
+            clear_login_state(keep_profile=True)
             return redirect(url_for("login"))
         return view(*args, **kwargs)
 
@@ -631,8 +793,9 @@ def session_login_required(view):
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if not session.get("logged_in"):
+        if not has_active_login_state():
             flash("Log in to continue.", "error")
+            clear_login_state(keep_profile=True)
             return redirect(url_for("login"))
         try:
             with mysql_connection(connect_timeout=3):
@@ -5089,7 +5252,7 @@ def render_dashboard(template_name, **context):
         template_name,
         app_title=APP_TITLE,
         logged_in=bool(session.get("logged_in")),
-        current_user=session.get("mysql_username", ""),
+        current_user=get_session_username(),
         current_profile_name=session.get("profile_name", ""),
         connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
         nav_groups=NAV_GROUPS,
@@ -5097,6 +5260,8 @@ def render_dashboard(template_name, **context):
         session_profile=profile,
         setup_status=fetch_setup_status(),
         server_overview=overview,
+        app_version=get_local_app_version(),
+        version_check=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY, {}),
         **context,
     )
 
@@ -5127,12 +5292,18 @@ def login():
                 clear_login_state(keep_profile=False)
                 session["connection_profile"] = profile
                 session["profile_name"] = profile["name"]
-                session["mysql_username"] = username
-                session["mysql_password"] = password
+                set_session_credentials(username, password)
                 with mysql_connection(connect_timeout=5):
                     pass
                 session["logged_in"] = True
+                version_check = refresh_repo_version_check()
                 flash("Connected to MySQL.", "success")
+                if version_check.get("update_available"):
+                    flash(
+                        f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
+                        "success",
+                    )
+                    return redirect(url_for("update_dbconsole_page"))
                 return redirect(url_for("mysql_dashboard_page"))
             except Exception as error:
                 clear_login_state(keep_profile=True)
@@ -5257,12 +5428,32 @@ def update_dbconsole_page():
                 flash("Auto-update started.", "success")
             except Exception as error:
                 flash(str(error), "error")
+        elif action == "retrieve-version":
+            version_check = refresh_repo_version_check()
+            if version_check.get("error"):
+                flash(f"Repository version check failed: {version_check['error']}", "error")
+            elif version_check.get("update_available"):
+                flash(
+                    f"Repository version {version_check.get('repo_version')} differs from local version {version_check.get('local_version')}.",
+                    "success",
+                )
+            else:
+                flash("Repository version matches the local app version.", "success")
         return redirect(url_for("update_dbconsole_page"))
 
     return render_dashboard(
         "update_dbconsole.html",
         page_title="Auto-Update",
         update_status=get_dbconsole_update_status(),
+        app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
+        or {
+            "local_version": get_local_app_version(),
+            "repo_version": "-",
+            "update_available": False,
+            "checked_at": "",
+            "error": "",
+            "version_url": infer_app_version_url(),
+        },
     )
 
 

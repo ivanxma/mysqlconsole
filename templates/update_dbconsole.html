@@ -13,11 +13,44 @@
       <h3>Updater</h3>
       <span class="helper-text">The updater runs in the background. During restart this page keeps polling and waits up to 30 seconds for DBConsole to come back.</span>
     </div>
-    <form method="post">
-      <input type="hidden" name="update_action" value="start">
-      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
-    </form>
+    <div class="panel-actions">
+      <form method="post">
+        <input type="hidden" name="update_action" value="retrieve-version">
+        <button class="button secondary" type="submit">Retrieve Repo Version</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="update_action" value="start">
+        <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
+      </form>
+    </div>
   </div>
+
+  <dl class="version-status-grid">
+    <div>
+      <dt>Current App Version</dt>
+      <dd>{{ app_version_info.local_version or app_version or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Repository Version</dt>
+      <dd>{{ app_version_info.repo_version or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Version Checked</dt>
+      <dd>{{ app_version_info.checked_at or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Version Status</dt>
+      <dd>
+        {% if app_version_info.update_available %}
+        Update available
+        {% elif app_version_info.error %}
+        {{ app_version_info.error }}
+        {% else %}
+        No update detected
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
 
   <div class="flash update-status-banner update-status-{{ update_status.state or 'idle' }}" id="update-status-banner">
     {{ update_status.message }}

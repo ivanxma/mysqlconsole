@@ -70,7 +70,13 @@
       <span class="helper-text">Review non-system base tables that do not currently expose a PRIMARY KEY and apply the requested repair strategy.</span>
     </div>
     <div class="panel-actions">
-      <a class="button secondary" href="{{ url_for('db_admin_download', db_admin_tab='missing-primary-key') }}">Download CSV</a>
+      <a class="icon-link" href="{{ url_for('db_admin_download', db_admin_tab='missing-primary-key') }}" title="Download CSV" aria-label="Download CSV">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <path d="M7 10l5 5 5-5"></path>
+          <path d="M12 15V3"></path>
+        </svg>
+      </a>
       <form method="post" onsubmit="return confirm('Apply the primary-key fix to every eligible table listed here?');">
         <input type="hidden" name="db_admin_tab" value="missing-primary-key">
         <input type="hidden" name="db_action" value="fix_missing_primary_key_all">
@@ -129,12 +135,27 @@
               <input type="hidden" name="db_action" value="fix_missing_primary_key">
               <input type="hidden" name="database_name" value="{{ row.database_name }}">
               <input type="hidden" name="table_name" value="{{ row.table_name }}">
-              <button class="button secondary" type="submit">Apply Fix</button>
+              <button class="icon-button" type="submit" title="Apply fix" aria-label="Apply fix">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+              </button>
             </form>
             {% else %}
-            <button class="button secondary" type="button" disabled>Manual Review</button>
+            <button class="icon-button" type="button" title="Manual review required" aria-label="Manual review required" disabled>
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 8v4"></path>
+                <path d="M12 16h.01"></path>
+              </svg>
+            </button>
             {% endif %}
-            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=row.database_name, table=row.table_name) }}">Inspect</a>
+            <a class="icon-link" href="{{ url_for('db_admin_page', db_admin_tab='select', database=row.database_name, table=row.table_name) }}" title="Inspect table" aria-label="Inspect table">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </a>
           </td>
         </tr>
         {% else %}
@@ -369,7 +390,13 @@
   <div class="panel-header">
     <h3>Tables{% if selected_database %} in {{ selected_database }}{% endif %}</h3>
     {% if selected_database %}
-    <a class="button secondary" href="{{ url_for('db_admin_download', database=selected_database, db_admin_tab='select') }}">Download CSV</a>
+    <a class="icon-link" href="{{ url_for('db_admin_download', database=selected_database, db_admin_tab='select') }}" title="Download CSV" aria-label="Download CSV">
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <path d="M7 10l5 5 5-5"></path>
+        <path d="M12 15V3"></path>
+      </svg>
+    </a>
     {% endif %}
   </div>
   <div class="table-wrap">
@@ -401,7 +428,12 @@
           <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
           <td class="table-action-cell">
             <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}">Select</a>
-            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name, dialog='modify-columns') }}">Modify</a>
+            <a class="icon-link" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name, dialog='modify-columns') }}" title="Modify columns" aria-label="Modify columns">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+              </svg>
+            </a>
           </td>
         </tr>
         {% else %}
