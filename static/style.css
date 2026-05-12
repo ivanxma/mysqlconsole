@@ -591,15 +591,15 @@ dialog.management-dialog::backdrop {
 
 .dashboard-security-stack {
   display: grid;
-  gap: 16px;
+  gap: 10px;
 }
 
 .dashboard-compact-card {
   display: grid;
-  gap: 14px;
-  padding: 16px 18px;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(255, 252, 248, 0.88);
 }
 
@@ -614,8 +614,22 @@ dialog.management-dialog::backdrop {
 
 .dashboard-compact-table th,
 .dashboard-compact-table td {
+  padding: 8px 10px;
+  line-height: 1.35;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.dashboard-security-table td {
+  vertical-align: middle;
+}
+
+.dashboard-cell-clamp {
+  display: -webkit-box;
+  max-height: 3.8em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .dashboard-dialog-table-wrap {
@@ -793,7 +807,8 @@ dialog.management-dialog::backdrop {
   color: #932e21;
 }
 
-.priority-filter-option input[type="checkbox"] {
+.priority-filter-option input[type="checkbox"],
+.priority-filter-option input[type="radio"] {
   width: auto;
   min-height: 0;
   margin: 0;

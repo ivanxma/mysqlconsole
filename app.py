@@ -114,6 +114,12 @@ DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECUR
 }
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
+ERROR_LOG_PERIOD_OPTIONS = (
+    {"value": "1h", "label": "1 hour", "hours": 1},
+    {"value": "2h", "label": "2 hours", "hours": 2},
+    {"value": "1d", "label": "1 day", "hours": 24},
+    {"value": "all", "label": "ALL", "hours": None},
+)
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event"}
 DB_ADMIN_DEFAULT_TAB = "select"
@@ -2783,6 +2789,12 @@ def fetch_security_feature_rows(installed_components):
     return security_rows
 
 
+def normalize_error_log_period(value):
+    candidate = str(value or "").strip().lower()
+    allowed = {option["value"]: option for option in ERROR_LOG_PERIOD_OPTIONS}
+    return allowed.get(candidate, allowed["1d"])
+
+
 def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
     normalized_priorities = _normalize_error_log_priorities(priorities)
     column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
@@ -2810,12 +2822,16 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
     sql = (
         "SELECT {columns} "
         "FROM performance_schema.error_log "
-        "WHERE {logged_column} >= NOW() - INTERVAL %s HOUR"
+        "WHERE 1 = 1"
     ).format(
         columns=", ".join(selected_columns),
-        logged_column=quote_identifier(logged_column),
     )
-    params = [int(hours)]
+    params = []
+    if hours is not None:
+        sql += " AND {logged_column} >= NOW() - INTERVAL %s HOUR".format(
+            logged_column=quote_identifier(logged_column),
+        )
+        params.append(int(hours))
     if prio_column and normalized_priorities:
         sql += " AND UPPER(COALESCE({priority_column}, '')) IN ({placeholders})".format(
             priority_column=quote_identifier(prio_column),
@@ -2840,8 +2856,9 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
     ]
 
 
-def fetch_server_overview(recent_error_log_priorities=None):
+def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_period=None):
     selected_error_log_priorities = _normalize_error_log_priorities(recent_error_log_priorities)
+    selected_error_log_period = normalize_error_log_period(recent_error_log_period)
     version = fetch_scalar("SELECT VERSION()", default="-")
     current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
     default_database = fetch_scalar("SELECT DATABASE()", default="-")
@@ -2922,7 +2939,7 @@ def fetch_server_overview(recent_error_log_priorities=None):
 
     try:
         recent_error_log_rows = fetch_recent_error_log_rows(
-            hours=24,
+            hours=selected_error_log_period["hours"],
             limit=50,
             priorities=selected_error_log_priorities,
         )
@@ -2970,8 +2987,10 @@ def fetch_server_overview(recent_error_log_priorities=None):
         "security_feature_count": len(security_features),
         "enabled_security_feature_count": sum(1 for row in security_features if row["is_enabled"]),
         "error_log_priority_options": list(ERROR_LOG_PRIORITY_OPTIONS),
+        "error_log_period_options": list(ERROR_LOG_PERIOD_OPTIONS),
         "selected_error_log_priorities": selected_error_log_priorities,
         "selected_error_log_priority_label": ", ".join(selected_error_log_priorities),
+        "selected_error_log_period": selected_error_log_period,
         "recent_error_log_rows": recent_error_log_rows,
         "recent_error_log_error": recent_error_log_error,
         "recent_error_log_count": len(recent_error_log_rows),
@@ -5550,13 +5569,15 @@ def mysql_dashboard_page():
     if dashboard_tab not in {"security", "error-log"}:
         dashboard_tab = "security"
     selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
+    selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
     return render_dashboard(
         "mysql_dashboard.html",
         page_title="Admin Dashboard",
         dashboard_tab=dashboard_tab,
         **module_build_mysql_dashboard_context(
             fetch_server_overview=lambda: fetch_server_overview(
-                recent_error_log_priorities=selected_error_log_priorities
+                recent_error_log_priorities=selected_error_log_priorities,
+                recent_error_log_period=selected_error_log_period["value"],
             ),
             fetch_database_inventory=fetch_database_inventory,
             fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,

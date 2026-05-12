@@ -245,7 +245,7 @@
   <div class="panel-header">
     <div>
       <h3>Security and Diagnostics</h3>
-      <span class="helper-text">Compact tabbed view for component inventory, security features, and the last 24 hours of <code>performance_schema.error_log</code>.</span>
+      <span class="helper-text">Compact tabbed view for component inventory, security features, and filtered <code>performance_schema.error_log</code> rows.</span>
     </div>
   </div>
   <div class="tab-bar" role="tablist" aria-label="Security and diagnostics tabs">
@@ -294,7 +294,7 @@
             <dd>{{ server_overview.enabled_security_feature_count }}</dd>
           </div>
           <div>
-            <dt>Error Log Rows (24h)</dt>
+            <dt>Error Log Rows</dt>
             <dd>{{ server_overview.recent_error_log_count }}</dd>
           </div>
         </dl>
@@ -308,9 +308,9 @@
 
       <section class="split-layout split-layout-compact">
         <article class="dashboard-compact-card">
-          <h4>Security Components and Plugins</h4>
+          <h4>Components and Plugins</h4>
           <div class="table-wrap">
-            <table class="dashboard-compact-table">
+            <table class="dashboard-compact-table dashboard-security-table">
               <thead>
                 <tr>
                   <th>Type</th>
@@ -327,7 +327,7 @@
                   <td>{{ row.feature_name }}</td>
                   <td>{{ row.status_label }}</td>
                   <td>{{ "Yes" if row.is_enabled else "No" }}</td>
-                  <td>{{ row.details }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.details }}</span></td>
                 </tr>
                 {% else %}
                 <tr>
@@ -342,7 +342,7 @@
         <article class="dashboard-compact-card">
           <h4>Component List</h4>
           <div class="table-wrap">
-            <table class="dashboard-compact-table">
+            <table class="dashboard-compact-table dashboard-security-table">
               <thead>
                 <tr>
                   <th>Component</th>
@@ -354,7 +354,7 @@
                 {% for row in server_overview.installed_components %}
                 <tr>
                   <td>{{ row.component_name }}</td>
-                  <td>{{ row.component_urn }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.component_urn }}</span></td>
                   <td>{{ "Yes" if row.is_security_related else "No" }}</td>
                 </tr>
                 {% else %}
@@ -379,6 +379,23 @@
     <form method="get" class="form-grid compact-form">
       <input type="hidden" name="dashboard_tab" value="error-log">
       <div class="priority-filter-shell full-span">
+        <span class="metric-label">Period</span>
+        <div class="priority-filter-list error-log-period-list">
+          {% for option in server_overview.error_log_period_options %}
+          <label class="priority-filter-option">
+            <input
+              type="radio"
+              name="error_period"
+              value="{{ option.value }}"
+              {% if option.value == server_overview.selected_error_log_period.value %}checked{% endif %}
+            >
+            <span>{{ option.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <span class="helper-text">Choose how far back to read from <code>performance_schema.error_log</code>.</span>
+      </div>
+      <div class="priority-filter-shell full-span">
         <span class="metric-label">PRIO Selection</span>
         <div class="priority-filter-list">
           {% for priority in server_overview.error_log_priority_options %}
@@ -397,6 +414,10 @@
       </div>
     </form>
     <dl class="detail-list dashboard-detail-list">
+      <div>
+        <dt>Period</dt>
+        <dd>{{ server_overview.selected_error_log_period.label }}</dd>
+      </div>
       <div>
         <dt>Selected PRIO</dt>
         <dd>{{ server_overview.selected_error_log_priority_label }}</dd>
@@ -431,7 +452,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">No rows were returned for the selected priorities in the last 24 hours.</td>
+            <td colspan="5">No rows were returned for the selected period and priorities.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -564,7 +585,7 @@
       });
     });
 
-    document.querySelectorAll('.priority-filter-list input[name="error_prio"]').forEach((checkbox) => {
+    document.querySelectorAll('.priority-filter-list input[name="error_prio"], .priority-filter-list input[name="error_period"]').forEach((checkbox) => {
       checkbox.addEventListener("change", () => {
         if (!checkbox.form) {
           return;
