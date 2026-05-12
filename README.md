@@ -6,7 +6,7 @@ It provides:
 
 - login/profile-based MySQL access with optional SSH tunnel settings
 - `Admin > Status and Variables` with grouped status and variable views
-- `MySQL > Admin Dashboard` for server, object, security, diagnostics, and HeatWave summary views
+- `Admin > Dashboard` for server, object, security, diagnostics, and HeatWave summary views
 - `MySQL > DB Admin` for schema/table browsing, event management, DDL preview, indexes, partitions, row preview, and column-definition changes
 - `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, and session history
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
@@ -67,14 +67,23 @@ That starts the app on `127.0.0.1:5001` in debug mode.
 
 ## Deployment Scripts
 
-`setup.sh` supports:
+`setup.sh` is the only deployment entry point. It creates the Python virtual environment, installs requirements, installs MySQL Shell Innovation for the target platform, writes `.runtime.env`, and optionally configures Linux systemd services and firewall ports.
+
+Supported OS families:
 
 - `ol8`
 - `ol9`
 - `ubuntu`
 - `macos`
 
-### Existing Clone
+Supported deploy modes:
+
+- `http`: install/start `dbconsole-http.service`
+- `https`: install/start `dbconsole-https.service`
+- `both`: install/start both services
+- `none`: prepare the local environment only
+
+### Existing Clone Setup
 
 Usage:
 
@@ -93,9 +102,11 @@ Examples:
 ./setup.sh ubuntu https --https-port 8443
 ```
 
-### Fresh Host Bootstrap With `curl | sh`
+Interactive runs prompt for omitted values. Non-interactive runs should pass the OS family, deploy mode, and listener ports explicitly or set the matching environment variables.
 
-On a fresh host you can bootstrap the repo clone and then re-run the real file-backed `setup.sh` in one step:
+### Fresh Host Bootstrap
+
+On a fresh host, stream `setup.sh` once. The bootstrap path installs `git` if needed, clones the repository, then re-executes the cloned `setup.sh`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ol9 https --https-port 443
@@ -124,128 +135,70 @@ BOOTSTRAP_CLONE_DIR=dbconsole \
 curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ubuntu both --http-port 80 --https-port 443
 ```
 
-### OCI Compute Instance Init Script
+### OCI Compute Quick Start
 
-For OCI Compute it is usually cleaner to clone the repo into the target user's home directory and run `setup.sh` as that user while still allowing `sudo` for systemd, firewall, and privileged-port setup.
+Create a normal OCI Compute instance, then paste one of these snippets into `Advanced options` > `Management` > `Initialization script`. Keep the network rules aligned with the deploy mode:
 
-Example init script:
+- choose your compartment, availability domain, shape, boot volume, VCN/subnet, public IP, and SSH public key as usual
+- use an Oracle Linux 9 or Ubuntu image
+- HTTPS only: allow TCP `443`
+- HTTP only: allow TCP `80`
+- both: allow TCP `80` and `443`
+
+Oracle Linux 9 images use the `opc` login user:
 
 ```bash
 #!/bin/bash
 set -euxo pipefail
+exec > >(tee -a /var/log/dbconsole-init.log) 2>&1
 
-APP_REPO="https://github.com/ivanxma/mysqlconsole.git"
-APP_DIR="/home/opc/mysqlconsole"
-APP_USER="opc"
-APP_GROUP="opc"
-OS_FAMILY="ol9"
-SERVICE_NAME="dbconsole-https.service"
-STATE_DIR="/var/lib/dbconsole-init"
-INSTALLING_FLAG="$STATE_DIR/installing"
-INSTALLED_FLAG="$STATE_DIR/installed"
-FAILED_FLAG="$STATE_DIR/failed"
-SERVICE_FILE="$STATE_DIR/service-name"
-LOG_FILE="/var/log/dbconsole-init.log"
-PROFILE_BANNER="/etc/profile.d/dbconsole-login-banner.sh"
-
-mkdir -p "$STATE_DIR"
-chmod 0755 "$STATE_DIR"
-: > "$LOG_FILE"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-touch "$INSTALLING_FLAG"
-rm -f "$INSTALLED_FLAG" "$FAILED_FLAG"
-printf '%s\n' "$SERVICE_NAME" > "$SERVICE_FILE"
-chmod 0644 "$SERVICE_FILE"
-
-cat > "$PROFILE_BANNER" <<'EOF'
-#!/bin/bash
-STATE_DIR="/var/lib/dbconsole-init"
-INSTALLING_FLAG="$STATE_DIR/installing"
-INSTALLED_FLAG="$STATE_DIR/installed"
-FAILED_FLAG="$STATE_DIR/failed"
-SERVICE_FILE="$STATE_DIR/service-name"
-LOG_FILE="/var/log/dbconsole-init.log"
-
-case $- in
-  *i*) ;;
-  *) return 0 ;;
-esac
-
-[ "${USER:-}" = "opc" ] || return 0
-
-SERVICE_NAME=""
-if [ -r "$SERVICE_FILE" ]; then
-  SERVICE_NAME="$(head -n 1 "$SERVICE_FILE")"
-fi
-
-printf '\n'
-if [ -f "$INSTALLING_FLAG" ]; then
-  printf '%s\n' "Please wait until installation to be completed."
-elif [ -f "$INSTALLED_FLAG" ]; then
-  printf '%s\n' "The service is installed."
-  if [ -n "$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
-  fi
-elif [ -f "$FAILED_FLAG" ]; then
-  printf '%s\n' "The installation finished with errors. Review $LOG_FILE."
-  if [ -n "$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
-  fi
-fi
-printf '\n'
-EOF
-chmod 0755 "$PROFILE_BANNER"
-
-finish_install() {
-  local exit_code="$1"
-  rm -f "$INSTALLING_FLAG"
-  if [ "$exit_code" -eq 0 ]; then
-    touch "$INSTALLED_FLAG"
-    rm -f "$FAILED_FLAG"
-  else
-    touch "$FAILED_FLAG"
-    rm -f "$INSTALLED_FLAG"
-  fi
-}
-
-trap 'finish_install $?' EXIT
-
-if command -v dnf >/dev/null 2>&1; then
-  dnf install -y git
-elif command -v yum >/dev/null 2>&1; then
-  yum install -y git
-elif command -v apt-get >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y git
-else
-  echo "Unable to install git automatically." >&2
-  exit 1
-fi
-
-if [ -d "$APP_DIR" ]; then
-  mv "$APP_DIR" "${APP_DIR}.$(date +%Y%m%d%H%M%S)"
-fi
-
-sudo -u "$APP_USER" git clone "$APP_REPO" "$APP_DIR"
-cd "$APP_DIR"
-
-sudo -u "$APP_USER" env \
+dnf install -y curl git
+cd /home/opc
+sudo -u opc env \
+  BOOTSTRAP_PARENT_DIR=/home/opc \
+  BOOTSTRAP_CLONE_DIR=mysqlconsole \
   HOST=0.0.0.0 \
-  SERVICE_USER="$APP_USER" \
-  SERVICE_GROUP="$APP_GROUP" \
-  bash ./setup.sh "$OS_FAMILY" https --https-port 443
+  SERVICE_USER=opc \
+  SERVICE_GROUP=opc \
+  bash -lc 'curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ol9 https --https-port 443'
 
-systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true
+systemctl --no-pager --full --lines=12 status dbconsole-https.service || true
 ```
 
-This init-script example also installs `/etc/profile.d/dbconsole-login-banner.sh` for the `opc` user:
+Ubuntu images usually use the `ubuntu` login user:
 
-- while cloud-init is still running the setup, a new `opc` login shows `Please wait until installation to be completed.`
-- after the setup finishes, a new `opc` login shows `The service is installed.` and the current `systemctl status` output for `dbconsole-https.service`
-- if the init script fails, the banner points to `/var/log/dbconsole-init.log`
+```bash
+#!/bin/bash
+set -euxo pipefail
+exec > >(tee -a /var/log/dbconsole-init.log) 2>&1
 
-Change `SERVICE_NAME` to `dbconsole-http.service` for an HTTP-only deployment. If you deploy `both`, extend the banner block to print both service statuses.
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl git
+cd /home/ubuntu
+sudo -u ubuntu env \
+  BOOTSTRAP_PARENT_DIR=/home/ubuntu \
+  BOOTSTRAP_CLONE_DIR=mysqlconsole \
+  HOST=0.0.0.0 \
+  SERVICE_USER=ubuntu \
+  SERVICE_GROUP=ubuntu \
+  bash -lc 'curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- ubuntu https --https-port 443'
+
+systemctl --no-pager --full --lines=12 status dbconsole-https.service || true
+```
+
+OCI verification:
+
+```bash
+ssh opc@<public-ip>              # Oracle Linux
+ssh ubuntu@<public-ip>           # Ubuntu
+sudo tail -n 120 /var/log/dbconsole-init.log
+systemctl --no-pager status dbconsole-https.service
+curl -kI https://<public-ip>/
+```
+
+Use `http --http-port 80` and `dbconsole-http.service` instead of the HTTPS values when deploying HTTP only. Use `both --http-port 80 --https-port 443` when both listeners are required.
+
+### What `setup.sh` Does
 
 `setup.sh` will:
 
@@ -293,7 +246,9 @@ DBConsole stores the local application version in `appver.json`. On successful l
 
 If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
 
-Environment overrides for `setup.sh`:
+### Environment Overrides
+
+For `setup.sh`:
 
 - `OS_FAMILY`
 - `DEPLOY_MODE`
@@ -311,7 +266,7 @@ Environment overrides for `setup.sh`:
 - `BOOTSTRAP_CLONE_DIR`
 - `BOOTSTRAP_PARENT_DIR`
 
-Environment overrides for `start_http.sh` and `start_https.sh`:
+For `start_http.sh` and `start_https.sh`:
 
 - `PYTHON_BIN`
 - `PORT`
@@ -333,13 +288,14 @@ Environment overrides for `start_http.sh` and `start_https.sh`:
 
 ### Admin
 
+- `Dashboard`
 - `Profile`
 - `Status and Variables`
 - `Setup Object Storage`
+- `Auto-Update`
 
 ### MySQL
 
-- `Admin Dashboard`
 - `DB Admin`
 - `SQL Workspace`
 - `Import`

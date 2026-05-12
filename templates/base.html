@@ -191,12 +191,53 @@
           }
           return a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});
         };
-        const iconMarkup = `
+        const resetIconMarkup = `
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M3 12a9 9 0 1 0 3-6.7"></path>
             <path d="M3 3v6h6"></path>
           </svg>
         `;
+        const downloadIconMarkup = `
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <path d="M7 10l5 5 5-5"></path>
+            <path d="M12 15V3"></path>
+          </svg>
+        `;
+        const toCsvCell = (value) => {
+          const raw = String(value ?? "");
+          if (raw.includes(",") || raw.includes('"') || raw.includes("\n")) {
+            return `"${raw.replaceAll('"', '""')}"`;
+          }
+          return raw;
+        };
+        const downloadTableCsv = (table, tableIndex) => {
+          const headerCells = Array.from(table.tHead?.rows[0]?.cells || []);
+          const headers = headerCells.map((cell) => {
+            const labelNode = cell.querySelector(".table-sort-button span:first-child");
+            return (labelNode?.textContent || cell.innerText || "").trim();
+          });
+          const bodyRows = Array.from(table.tBodies)
+            .flatMap((tbody) => Array.from(tbody.rows));
+          const fallbackRows = bodyRows.length ? bodyRows : Array.from(table.rows);
+          const fallbackColumnCount = Math.max(...fallbackRows.map((row) => row.cells.length), 0);
+          const normalizedHeaders = headers.length
+            ? headers
+            : Array.from({length: fallbackColumnCount}, (_, index) => `Column ${index + 1}`);
+          const rows = fallbackRows.map((row) => Array.from(row.cells).map((cell) => cell.innerText.trim()));
+          const csvText = [normalizedHeaders, ...rows].map((row) => row.map(toCsvCell).join(",")).join("\n");
+          const blob = new Blob([csvText], {type: "text/csv;charset=utf-8"});
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          const pageName = (document.title || "dbconsole").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "dbconsole";
+          const timestamp = new Date().toISOString().replaceAll(":", "-");
+          link.href = url;
+          link.download = `${pageName}-table-${tableIndex + 1}-${timestamp}.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        };
 
         tableWraps.forEach((wrap, tableIndex) => {
           const table = wrap.querySelector("table");
@@ -204,11 +245,8 @@
             return;
           }
           const headerRow = table.tHead?.rows[0];
-          if (!headerRow) {
-            return;
-          }
           const storageKey = `dbconsole-table-layout:${window.location.pathname}:${tableIndex}`;
-          const headers = Array.from(headerRow.cells);
+          const headers = headerRow ? Array.from(headerRow.cells) : [];
           const savedLayout = (() => {
             try {
               return JSON.parse(window.localStorage.getItem(storageKey) || "{}");
@@ -220,18 +258,28 @@
 
           const toolbar = document.createElement("div");
           toolbar.className = "table-layout-toolbar";
+          const downloadButton = document.createElement("button");
+          downloadButton.className = "icon-button";
+          downloadButton.type = "button";
+          downloadButton.title = "Download table CSV";
+          downloadButton.setAttribute("aria-label", "Download table CSV");
+          downloadButton.innerHTML = downloadIconMarkup;
+          downloadButton.addEventListener("click", () => {
+            downloadTableCsv(table, tableIndex);
+          });
           const resetButton = document.createElement("button");
           resetButton.className = "icon-button";
           resetButton.type = "button";
           resetButton.title = "Reset table layout";
           resetButton.setAttribute("aria-label", "Reset table layout");
-          resetButton.innerHTML = iconMarkup;
+          resetButton.innerHTML = resetIconMarkup;
           resetButton.addEventListener("click", () => {
             window.localStorage.removeItem(storageKey);
             headers.forEach((header) => {
               header.style.width = "";
             });
           });
+          toolbar.appendChild(downloadButton);
           toolbar.appendChild(resetButton);
           wrap.prepend(toolbar);
 

@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">Monitoring</p>
   <h2>Charts</h2>
-  <p>Live monitoring cards for MySQL, replication, and HeatWave activity. Cards can be refreshed, closed, reordered, downloaded, and popped out.</p>
+  <p>Live monitoring cards for MySQL, replication, and HeatWave activity. Cards can be closed, reordered, downloaded, and popped out.</p>
 </section>
 
 <section class="tab-shell">
@@ -25,16 +25,35 @@
 <section class="panel chart-toolbar-panel">
   <div class="chart-toolbar">
     <div class="chart-toolbar-controls">
-      <button class="button secondary" id="chart-refresh-button" type="button">Refresh</button>
-      <label class="chart-period-field">
-        <span>Refresh Period</span>
-        <select id="chart-refresh-period">
-          <option value="5">5s</option>
-          <option value="15">15s</option>
-          <option value="30">30s</option>
-          <option value="60">60s</option>
-        </select>
-      </label>
+      <fieldset class="chart-period-field">
+        <legend>Refresh Period</legend>
+        <div class="chart-period-options" id="chart-refresh-period-options">
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="0">
+            <span>None</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="2">
+            <span>2s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="5">
+            <span>5s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="15">
+            <span>15s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="30">
+            <span>30s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="chart_refresh_period" type="radio" value="60">
+            <span>60s</span>
+          </label>
+        </div>
+      </fieldset>
     </div>
     <div class="chart-toolbar-status">
       <strong id="chart-last-updated">-</strong>
@@ -64,7 +83,7 @@
       refreshPeriod: "dbconsole-monitoring-chart-refresh-period"
     };
     const maxHistoryPoints = 24;
-    const allowedPeriods = [5, 15, 30, 60];
+    const allowedPeriods = [0, 2, 5, 15, 30, 60];
     const iconMarkup = {
       drag: `
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -99,8 +118,7 @@
     };
     const elements = {
       grid: document.getElementById("chart-grid"),
-      refreshButton: document.getElementById("chart-refresh-button"),
-      refreshPeriod: document.getElementById("chart-refresh-period"),
+      refreshPeriodOptions: document.getElementById("chart-refresh-period-options"),
       lastUpdated: document.getElementById("chart-last-updated"),
       refreshStatus: document.getElementById("chart-refresh-status"),
       hiddenPanel: document.getElementById("hidden-chart-panel"),
@@ -555,7 +573,6 @@
         return;
       }
       state.loading = true;
-      elements.refreshButton.disabled = true;
       setRefreshStatus("Refreshing chart snapshot...");
       try {
         const response = await window.fetch(dataUrl, {
@@ -572,18 +589,22 @@
         }
         state.snapshot = await response.json();
         renderCharts();
-        setRefreshStatus(`Auto-refresh every ${state.refreshPeriod}s.`);
+        setRefreshStatus(state.refreshPeriod ? `Auto-refresh every ${state.refreshPeriod}s.` : "Auto-refresh off.");
       } catch (error) {
         setRefreshStatus(error.message || "Refresh failed.", true);
       } finally {
         state.loading = false;
-        elements.refreshButton.disabled = false;
       }
     }
 
     function scheduleRefresh() {
       if (state.timerId) {
         window.clearInterval(state.timerId);
+        state.timerId = null;
+      }
+      if (!state.refreshPeriod) {
+        setRefreshStatus("Auto-refresh off.");
+        return;
       }
       state.timerId = window.setInterval(() => {
         refreshCharts();
@@ -591,15 +612,24 @@
       setRefreshStatus(`Auto-refresh every ${state.refreshPeriod}s.`);
     }
 
-    elements.refreshButton.addEventListener("click", () => {
-      refreshCharts();
-    });
-
-    elements.refreshPeriod.value = String(state.refreshPeriod);
-    elements.refreshPeriod.addEventListener("change", () => {
-      state.refreshPeriod = normalizeRefreshPeriod(elements.refreshPeriod.value);
+    function renderRefreshPeriodSelection() {
+      elements.refreshPeriodOptions.querySelectorAll("input[name='chart_refresh_period']").forEach((input) => {
+        const isSelected = Number(input.value) === state.refreshPeriod;
+        input.checked = isSelected;
+        input.closest(".chart-period-option")?.classList.toggle("active", isSelected);
+      });
+    }
+    renderRefreshPeriodSelection();
+    elements.refreshPeriodOptions.addEventListener("change", (event) => {
+      const periodInput = event.target.closest("input[name='chart_refresh_period']");
+      if (!periodInput) {
+        return;
+      }
+      state.refreshPeriod = normalizeRefreshPeriod(periodInput.value);
       saveJson(storageKeys.refreshPeriod, state.refreshPeriod);
+      renderRefreshPeriodSelection();
       scheduleRefresh();
+      refreshCharts();
     });
 
     elements.grid.addEventListener("click", (event) => {
