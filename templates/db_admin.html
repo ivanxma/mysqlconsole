@@ -69,20 +69,6 @@
       <h3>Tables Without Primary Key</h3>
       <span class="helper-text">Review non-system base tables that do not currently expose a PRIMARY KEY and apply the requested repair strategy.</span>
     </div>
-    <div class="panel-actions">
-      <a class="icon-link" href="{{ url_for('db_admin_download', db_admin_tab='missing-primary-key') }}" title="Download CSV" aria-label="Download CSV">
-        <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <path d="M7 10l5 5 5-5"></path>
-          <path d="M12 15V3"></path>
-        </svg>
-      </a>
-      <form method="post" onsubmit="return confirm('Apply the primary-key fix to every eligible table listed here?');">
-        <input type="hidden" name="db_admin_tab" value="missing-primary-key">
-        <input type="hidden" name="db_action" value="fix_missing_primary_key_all">
-        <button class="button primary" type="submit" {% if missing_primary_key_report.error or not missing_primary_key_report.fixable_table_count %}disabled{% endif %}>Apply Fix to All</button>
-      </form>
-    </div>
   </div>
   <div class="count-summary-grid">
     <article class="count-link-card">
@@ -106,66 +92,70 @@
   <p class="helper-text error-text">{{ missing_primary_key_report.error }}</p>
   {% else %}
   <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Database</th>
-          <th>Table</th>
-          <th>Engine</th>
-          <th>Rows</th>
-          <th>AUTO_INCREMENT Column</th>
-          <th>Fix Plan</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in missing_primary_key_report.rows %}
-        <tr>
-          <td>{{ row.database_name }}</td>
-          <td>{{ row.table_name }}</td>
-          <td>{{ row.engine }}</td>
-          <td>{{ row.row_count }}</td>
-          <td>{{ row.auto_increment_column_name or '-' }}</td>
-          <td>{{ row.fix_method_label }}</td>
-          <td class="table-action-cell">
-            {% if row.is_fixable %}
-            <form method="post" onsubmit="return confirm('Apply the primary-key fix to {{ row.full_table_name }}?');">
-              <input type="hidden" name="db_admin_tab" value="missing-primary-key">
-              <input type="hidden" name="db_action" value="fix_missing_primary_key">
-              <input type="hidden" name="database_name" value="{{ row.database_name }}">
-              <input type="hidden" name="table_name" value="{{ row.table_name }}">
-              <button class="icon-button" type="submit" title="Apply fix" aria-label="Apply fix">
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path d="M20 6 9 17l-5-5"></path>
-                </svg>
-              </button>
-            </form>
-            {% else %}
-            <button class="icon-button" type="button" title="Manual review required" aria-label="Manual review required" disabled>
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10"></circle>
-                <path d="M12 8v4"></path>
-                <path d="M12 16h.01"></path>
-              </svg>
-            </button>
-            {% endif %}
-            <a class="icon-link" href="{{ url_for('db_admin_page', db_admin_tab='select', database=row.database_name, table=row.table_name) }}" title="Inspect table" aria-label="Inspect table">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"></path>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-            </a>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7">Every non-system base table already has a PRIMARY KEY.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form onsubmit="return confirm('Apply the primary-key fix to the selected eligible tables?');">
+    <input type="hidden" name="db_admin_tab" value="missing-primary-key">
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-missing-pk-toolbar">
+        <label class="checkbox-field db-admin-missing-pk-select-all">
+          <input type="checkbox" data-missing-pk-select-all {% if not missing_primary_key_report.fixable_table_count %}disabled{% endif %}>
+          <span>Select all</span>
+        </label>
+        <button
+          class="icon-button db-admin-missing-pk-action"
+          type="submit"
+          name="db_action"
+          value="fix_missing_primary_key_selected"
+          title="Apply fix to selected tables"
+          aria-label="Apply fix to selected tables"
+          data-missing-pk-selection-action
+          {% if not missing_primary_key_report.fixable_table_count %}disabled{% endif %}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M20 6 9 17l-5-5"></path>
+          </svg>
+        </button>
+        <span class="helper-text db-admin-missing-pk-selection-text" data-missing-pk-selection-count>0 selected</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+            <th>AUTO_INCREMENT Column</th>
+            <th>Fix Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in missing_primary_key_report.rows %}
+          <tr>
+            <td>
+              <input
+                type="checkbox"
+                name="selected_missing_primary_key"
+                value="{{ row.database_name }}.{{ row.table_name }}"
+                data-missing-pk-select-row
+                {% if not row.is_fixable %}disabled{% endif %}
+              >
+            </td>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.auto_increment_column_name or '-' }}</td>
+            <td>{{ row.fix_method_label }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7">Every non-system base table already has a PRIMARY KEY.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
   {% endif %}
   {% elif db_admin_tab == 'event' %}
   <div class="panel-header">
@@ -179,64 +169,61 @@
   {% else %}
   <form method="post" class="db-admin-event-list-form" data-event-selection-form>
     <input type="hidden" name="db_admin_tab" value="event">
-    <div class="panel-actions db-admin-event-toolbar">
-      <label class="checkbox-field db-admin-event-select-all">
-        <input type="checkbox" data-event-select-all {% if not event_rows %}disabled{% endif %}>
-        <span>Select all</span>
-      </label>
-      <button
-        class="button db-admin-event-action"
-        type="submit"
-        name="db_action"
-        value="enable_events"
-        title="Enable selected events"
-        aria-label="Enable selected events"
-        data-event-selection-action
-        {% if not event_rows %}disabled{% endif %}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 12l4 4 10-10"></path>
-        </svg>
-        <span>Enable</span>
-      </button>
-      <button
-        class="button db-admin-event-action"
-        type="submit"
-        name="db_action"
-        value="disable_events"
-        title="Disable selected events"
-        aria-label="Disable selected events"
-        data-event-selection-action
-        {% if not event_rows %}disabled{% endif %}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 12h14"></path>
-        </svg>
-        <span>Disable</span>
-      </button>
-      <button
-        class="button db-admin-event-action"
-        type="submit"
-        name="db_action"
-        value="delete_events"
-        title="Delete selected events"
-        aria-label="Delete selected events"
-        data-event-selection-action
-        onclick="return confirm('Delete the selected events?');"
-        {% if not event_rows %}disabled{% endif %}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 9v8"></path>
-          <path d="M15 9v8"></path>
-          <path d="M4 6h16"></path>
-          <path d="M10 4h4"></path>
-          <path d="M6 6l1 14h10l1-14"></path>
-        </svg>
-        <span>Delete</span>
-      </button>
-      <span class="helper-text db-admin-event-selection-text" data-event-selection-count>0 selected</span>
-    </div>
     <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-event-toolbar">
+        <label class="checkbox-field db-admin-event-select-all">
+          <input type="checkbox" data-event-select-all {% if not event_rows %}disabled{% endif %}>
+          <span>Select all</span>
+        </label>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="enable_events"
+          title="Enable selected events"
+          aria-label="Enable selected events"
+          data-event-selection-action
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12l4 4 10-10"></path>
+          </svg>
+        </button>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="disable_events"
+          title="Disable selected events"
+          aria-label="Disable selected events"
+          data-event-selection-action
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14"></path>
+          </svg>
+        </button>
+        <button
+          class="icon-button db-admin-event-action"
+          type="submit"
+          name="db_action"
+          value="delete_events"
+          title="Delete selected events"
+          aria-label="Delete selected events"
+          data-event-selection-action
+          onclick="return confirm('Delete the selected events?');"
+          {% if not event_rows %}disabled{% endif %}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 9v8"></path>
+            <path d="M15 9v8"></path>
+            <path d="M4 6h16"></path>
+            <path d="M10 4h4"></path>
+            <path d="M6 6l1 14h10l1-14"></path>
+          </svg>
+        </button>
+        <span class="helper-text db-admin-event-selection-text" data-event-selection-count>0 selected</span>
+      </div>
       <table class="db-admin-event-table">
         <thead>
           <tr>
@@ -776,6 +763,43 @@
         }
       });
     });
+
+    const missingPkSelectionForm = document.querySelector("[data-missing-pk-selection-form]");
+    if (missingPkSelectionForm) {
+      const selectAllCheckbox = missingPkSelectionForm.querySelector("[data-missing-pk-select-all]");
+      const rowCheckboxes = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-select-row]:not(:disabled)"));
+      const actionButtons = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-selection-action]"));
+      const countLabels = Array.from(missingPkSelectionForm.querySelectorAll("[data-missing-pk-selection-count]"));
+
+      const syncMissingPkSelectionState = () => {
+        const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = rowCheckboxes.length > 0 && checkedCount === rowCheckboxes.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedCount} selected`;
+        });
+      };
+
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          rowCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAllCheckbox.checked;
+          });
+          syncMissingPkSelectionState();
+        });
+      }
+
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncMissingPkSelectionState);
+      });
+
+      syncMissingPkSelectionState();
+    }
 
     const eventSelectionForm = document.querySelector("[data-event-selection-form]");
     if (eventSelectionForm) {

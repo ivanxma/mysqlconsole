@@ -638,40 +638,63 @@ dialog.management-dialog::backdrop {
   gap: 14px;
 }
 
-.db-admin-event-toolbar {
+.db-admin-missing-pk-form {
+  display: grid;
+  gap: 14px;
+}
+
+.db-admin-event-toolbar,
+.db-admin-missing-pk-toolbar {
+  justify-content: flex-start;
+  align-items: center;
   gap: 10px 12px;
 }
 
-.db-admin-event-select-all {
+.db-admin-event-select-all,
+.db-admin-missing-pk-select-all {
   grid-column: auto;
   min-height: 42px;
   white-space: nowrap;
 }
 
 .db-admin-event-select-all input[type="checkbox"],
-.db-admin-event-table input[type="checkbox"] {
+.db-admin-event-table input[type="checkbox"],
+.db-admin-missing-pk-select-all input[type="checkbox"],
+[data-missing-pk-select-row] {
   width: auto;
   min-height: 0;
   margin: 0;
   padding: 0;
 }
 
-.db-admin-event-selection-text {
+.db-admin-event-selection-text,
+.db-admin-missing-pk-selection-text {
   margin-left: auto;
 }
 
-.db-admin-event-action {
+.db-admin-event-action,
+.db-admin-missing-pk-action {
   color: #fff;
   border-color: transparent;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
 }
 
 .db-admin-event-action:hover:not(:disabled),
-.db-admin-event-action:focus-visible:not(:disabled) {
+.db-admin-event-action:focus-visible:not(:disabled),
+.db-admin-missing-pk-action:hover:not(:disabled),
+.db-admin-missing-pk-action:focus-visible:not(:disabled) {
   background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
 }
 
-.db-admin-event-action svg {
+.db-admin-event-action:disabled,
+.db-admin-missing-pk-action:disabled {
+  color: #8e867d;
+  border-color: rgba(33, 29, 24, 0.1);
+  background: #ddd5cb;
+}
+
+.db-admin-event-action svg,
+.db-admin-missing-pk-action svg {
   width: 18px;
   height: 18px;
   fill: none;

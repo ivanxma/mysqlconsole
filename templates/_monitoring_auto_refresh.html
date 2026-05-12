@@ -1,16 +1,35 @@
 <section class="panel chart-toolbar-panel" data-monitoring-refresh>
   <div class="chart-toolbar">
     <div class="chart-toolbar-controls">
-      <button class="button secondary" data-monitoring-refresh-button type="button">Refresh</button>
-      <label class="chart-period-field">
-        <span>Auto Refresh</span>
-        <select data-monitoring-refresh-period>
-          <option value="5">5s</option>
-          <option value="15">15s</option>
-          <option value="30">30s</option>
-          <option value="60">60s</option>
-        </select>
-      </label>
+      <fieldset class="chart-period-field">
+        <legend>Auto Refresh</legend>
+        <div class="chart-period-options" data-monitoring-refresh-period-options>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="0">
+            <span>None</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="2">
+            <span>2s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="5">
+            <span>5s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="15">
+            <span>15s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="30">
+            <span>30s</span>
+          </label>
+          <label class="checkbox-field chart-period-option">
+            <input name="monitoring_refresh_period" type="radio" value="60">
+            <span>60s</span>
+          </label>
+        </div>
+      </fieldset>
     </div>
     <div class="chart-toolbar-status">
       <strong data-monitoring-refresh-updated>-</strong>
@@ -27,14 +46,14 @@
     }
 
     const storageKey = "dbconsole-monitoring-page-refresh-period";
-    const allowedPeriods = [5, 15, 30, 60];
+    const allowedPeriods = [0, 2, 5, 15, 30, 60];
     const elements = {
-      button: panel.querySelector("[data-monitoring-refresh-button]"),
-      period: panel.querySelector("[data-monitoring-refresh-period]"),
+      periodOptions: panel.querySelector("[data-monitoring-refresh-period-options]"),
       updated: panel.querySelector("[data-monitoring-refresh-updated]"),
       status: panel.querySelector("[data-monitoring-refresh-status]")
     };
     let timerId = null;
+    let refreshPeriod = loadRefreshPeriod();
 
     function loadRefreshPeriod() {
       try {
@@ -61,25 +80,41 @@
 
     function scheduleRefresh() {
       window.clearTimeout(timerId);
-      setStatus(`Auto-refresh every ${elements.period.value}s.`);
+      timerId = null;
+      if (!refreshPeriod) {
+        setStatus("Auto-refresh off.");
+        return;
+      }
+      setStatus(`Auto-refresh every ${refreshPeriod}s.`);
       timerId = window.setTimeout(() => {
         setStatus("Refreshing page...");
         window.location.reload();
-      }, Number(elements.period.value) * 1000);
+      }, refreshPeriod * 1000);
     }
 
-    elements.button.addEventListener("click", () => {
+    function renderRefreshPeriodSelection() {
+      elements.periodOptions.querySelectorAll("input[name='monitoring_refresh_period']").forEach((input) => {
+        const isSelected = Number(input.value) === refreshPeriod;
+        input.checked = isSelected;
+        input.closest(".chart-period-option")?.classList.toggle("active", isSelected);
+      });
+    }
+
+    elements.periodOptions.addEventListener("change", (event) => {
+      const periodInput = event.target.closest("input[name='monitoring_refresh_period']");
+      if (!periodInput) {
+        return;
+      }
+      refreshPeriod = Number(periodInput.value);
+      saveRefreshPeriod(refreshPeriod);
+      renderRefreshPeriodSelection();
+      scheduleRefresh();
       setStatus("Refreshing page...");
       window.location.reload();
     });
 
-    elements.period.value = String(loadRefreshPeriod());
-    elements.period.addEventListener("change", () => {
-      saveRefreshPeriod(Number(elements.period.value));
-      scheduleRefresh();
-    });
-
     updateTimestamp();
+    renderRefreshPeriodSelection();
     scheduleRefresh();
     window.addEventListener("beforeunload", () => window.clearTimeout(timerId));
   })();

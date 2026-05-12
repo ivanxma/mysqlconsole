@@ -256,8 +256,9 @@
           })();
           table.dataset.enhancedTable = "true";
 
-          const toolbar = document.createElement("div");
-          toolbar.className = "table-layout-toolbar";
+          const existingToolbar = Array.from(wrap.children).find((child) => child.classList?.contains("table-layout-toolbar"));
+          const toolbar = existingToolbar || document.createElement("div");
+          toolbar.classList.add("table-layout-toolbar");
           const downloadButton = document.createElement("button");
           downloadButton.className = "icon-button";
           downloadButton.type = "button";
@@ -281,7 +282,9 @@
           });
           toolbar.appendChild(downloadButton);
           toolbar.appendChild(resetButton);
-          wrap.prepend(toolbar);
+          if (!existingToolbar) {
+            wrap.prepend(toolbar);
+          }
 
           const persistWidths = () => {
             const widths = headers.map((header) => Math.round(header.getBoundingClientRect().width));

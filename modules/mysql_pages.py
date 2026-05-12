@@ -499,6 +499,67 @@ def _order_db_admin_event_rows(rows, *, focused_event_database="", focused_event
     return ordered_rows
 
 
+def _build_missing_primary_key_fix_result(rows, fix_missing_primary_key_table):
+    fixed_with_auto_increment = []
+    fixed_with_row_id = []
+    already_fixed = []
+    manual_review = [row["full_table_name"] for row in rows if not row["is_fixable"]]
+    failures = []
+
+    for row in rows:
+        if not row["is_fixable"]:
+            continue
+        try:
+            fix_result = fix_missing_primary_key_table(row["database_name"], row["table_name"])
+        except Exception as error:
+            failures.append(f"{row['full_table_name']}: {error}")
+            continue
+
+        status = str(fix_result.get("status") or "").strip().lower()
+        strategy = str(fix_result.get("strategy") or "").strip().lower()
+        if status == "already_has_primary_key":
+            already_fixed.append(row["full_table_name"])
+            continue
+        if strategy == "use_auto_increment":
+            fixed_with_auto_increment.append(row["full_table_name"])
+        else:
+            fixed_with_row_id.append(row["full_table_name"])
+
+    message_parts = []
+    fixed_count = len(fixed_with_auto_increment) + len(fixed_with_row_id)
+    if fixed_count:
+        detail_parts = []
+        if fixed_with_auto_increment:
+            detail_parts.append(f"{len(fixed_with_auto_increment)} reused an AUTO_INCREMENT column")
+        if fixed_with_row_id:
+            detail_parts.append(f"{len(fixed_with_row_id)} added invisible `my_row_id`")
+        message = f"Fixed {fixed_count} table(s)"
+        if detail_parts:
+            message += f": {'; '.join(detail_parts)}."
+        else:
+            message += "."
+        message_parts.append(message)
+    if already_fixed:
+        message_parts.append(
+            f"{len(already_fixed)} already had a primary key by the time the fix ran."
+        )
+    if manual_review:
+        message_parts.append(
+            f"{len(manual_review)} require manual review: {_summarize_name_list(manual_review)}."
+        )
+    if failures:
+        message_parts.append(
+            f"{len(failures)} failed: {_summarize_name_list(failures)}."
+        )
+    if not message_parts:
+        message_parts.append("No primary key fixes were applied.")
+
+    flash_category = "success"
+    if failures or (manual_review and not fixed_count and not already_fixed):
+        flash_category = "error"
+    return flash_category, " ".join(message_parts)
+
+
 def handle_db_admin_action(
     action,
     database_name,
@@ -611,6 +672,40 @@ def handle_db_admin_action(
             },
         }
 
+    if normalized_action == "fix_missing_primary_key_selected":
+        if fetch_missing_primary_key_rows is None or fix_missing_primary_key_table is None:
+            raise ValueError("Primary key repair helpers are not available.")
+        if payload is None or not hasattr(payload, "getlist"):
+            raise ValueError("Choose one or more tables before applying the primary key fix.")
+
+        selected_keys = {
+            str(value or "").strip()
+            for value in payload.getlist("selected_missing_primary_key")
+            if str(value or "").strip()
+        }
+        if not selected_keys:
+            raise ValueError("Choose one or more tables before applying the primary key fix.")
+
+        report = _build_missing_primary_key_report(fetch_missing_primary_key_rows())
+        selected_rows = [
+            row
+            for row in report["rows"]
+            if f"{row['database_name']}.{row['table_name']}" in selected_keys
+        ]
+        if not selected_rows:
+            raise ValueError("The selected tables were not found in the current missing-primary-key report.")
+
+        flash_category, flash_message = _build_missing_primary_key_fix_result(
+            selected_rows,
+            fix_missing_primary_key_table,
+        )
+        return {
+            "flash_category": flash_category,
+            "flash_message": flash_message,
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {"db_admin_tab": "missing-primary-key"},
+        }
+
     if normalized_action == "fix_missing_primary_key_all":
         if fetch_missing_primary_key_rows is None or fix_missing_primary_key_table is None:
             raise ValueError("Primary key repair helpers are not available.")
@@ -624,66 +719,13 @@ def handle_db_admin_action(
                 "redirect_values": {"db_admin_tab": "missing-primary-key"},
             }
 
-        fixed_with_auto_increment = []
-        fixed_with_row_id = []
-        already_fixed = []
-        manual_review = [row["full_table_name"] for row in report["rows"] if not row["is_fixable"]]
-        failures = []
-
-        for row in report["rows"]:
-            if not row["is_fixable"]:
-                continue
-            try:
-                fix_result = fix_missing_primary_key_table(row["database_name"], row["table_name"])
-            except Exception as error:
-                failures.append(f"{row['full_table_name']}: {error}")
-                continue
-
-            status = str(fix_result.get("status") or "").strip().lower()
-            strategy = str(fix_result.get("strategy") or "").strip().lower()
-            if status == "already_has_primary_key":
-                already_fixed.append(row["full_table_name"])
-                continue
-            if strategy == "use_auto_increment":
-                fixed_with_auto_increment.append(row["full_table_name"])
-            else:
-                fixed_with_row_id.append(row["full_table_name"])
-
-        message_parts = []
-        fixed_count = len(fixed_with_auto_increment) + len(fixed_with_row_id)
-        if fixed_count:
-            detail_parts = []
-            if fixed_with_auto_increment:
-                detail_parts.append(f"{len(fixed_with_auto_increment)} reused an AUTO_INCREMENT column")
-            if fixed_with_row_id:
-                detail_parts.append(f"{len(fixed_with_row_id)} added invisible `my_row_id`")
-            message = f"Fixed {fixed_count} table(s)"
-            if detail_parts:
-                message += f": {'; '.join(detail_parts)}."
-            else:
-                message += "."
-            message_parts.append(message)
-        if already_fixed:
-            message_parts.append(
-                f"{len(already_fixed)} already had a primary key by the time the fix ran."
-            )
-        if manual_review:
-            message_parts.append(
-                f"{len(manual_review)} require manual review: {_summarize_name_list(manual_review)}."
-            )
-        if failures:
-            message_parts.append(
-                f"{len(failures)} failed: {_summarize_name_list(failures)}."
-            )
-        if not message_parts:
-            message_parts.append("No primary key fixes were applied.")
-
-        flash_category = "success"
-        if failures or (manual_review and not fixed_count and not already_fixed):
-            flash_category = "error"
+        flash_category, flash_message = _build_missing_primary_key_fix_result(
+            report["rows"],
+            fix_missing_primary_key_table,
+        )
         return {
             "flash_category": flash_category,
-            "flash_message": " ".join(message_parts),
+            "flash_message": flash_message,
             "redirect_endpoint": "db_admin_page",
             "redirect_values": {"db_admin_tab": "missing-primary-key"},
         }
