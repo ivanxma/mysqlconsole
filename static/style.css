@@ -655,6 +655,47 @@ dialog.management-dialog::backdrop {
   overflow: auto;
 }
 
+.monitoring-process-table {
+  min-width: 1120px;
+}
+
+.monitoring-process-table th,
+.monitoring-process-table td {
+  padding: 8px 9px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.monitoring-process-table th:nth-child(1),
+.monitoring-process-table td:nth-child(1),
+.monitoring-process-table th:nth-child(6),
+.monitoring-process-table td:nth-child(6) {
+  width: 92px;
+}
+
+.monitoring-process-table th:nth-child(2),
+.monitoring-process-table td:nth-child(2),
+.monitoring-process-table th:nth-child(4),
+.monitoring-process-table td:nth-child(4),
+.monitoring-process-table th:nth-child(5),
+.monitoring-process-table td:nth-child(5) {
+  width: 128px;
+}
+
+.monitoring-process-table th:nth-child(3),
+.monitoring-process-table td:nth-child(3),
+.monitoring-process-table th:nth-child(7),
+.monitoring-process-table td:nth-child(7) {
+  width: 160px;
+}
+
+.monitoring-process-table th:nth-child(8),
+.monitoring-process-table td:nth-child(8) {
+  min-width: 280px;
+}
+
 .db-admin-edit-table {
   table-layout: fixed;
 }
@@ -1432,12 +1473,18 @@ table {
   font-size: 0.94rem;
 }
 
+.table-wrap table {
+  min-width: 860px;
+}
+
 th,
 td {
   padding: 12px 10px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 th {
@@ -1448,7 +1495,7 @@ th {
   letter-spacing: 0.04em;
   background: rgba(244, 235, 225, 0.78);
   user-select: none;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 tbody tr:hover td {

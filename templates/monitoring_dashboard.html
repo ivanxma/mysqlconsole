@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
-{% macro render_report_table(report, empty_text="No rows returned.") %}
+{% macro render_report_table(report, empty_text="No rows returned.", table_class="") %}
 <div class="table-wrap">
-  <table>
+  <table class="{{ table_class }}">
     <thead>
       <tr>
         {% for column in report.columns %}
@@ -29,7 +29,7 @@
 </div>
 {% endmacro %}
 
-{% macro render_report_panel(title, report, empty_text="No rows returned.") %}
+{% macro render_report_panel(title, report, empty_text="No rows returned.", table_class="") %}
 <article class="panel">
   <div class="panel-header">
     <h3>{{ title }}</h3>
@@ -40,7 +40,7 @@
   {% if report.error %}
   <p class="helper-text">{{ report.error }}</p>
   {% else %}
-  {{ render_report_table(report, empty_text) }}
+  {{ render_report_table(report, empty_text, table_class) }}
   {% endif %}
 </article>
 {% endmacro %}
@@ -66,7 +66,20 @@
 
 <section class="split-layout">
   {{ render_report_panel("Global Status", global_status, "Global status metrics were not returned.") }}
-  {{ render_report_panel("User Process List", user_processes, "No user sessions found.") }}
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>User Process List</h3>
+    {% if user_processes.error %}
+    <span class="helper-text">Unavailable</span>
+    {% endif %}
+  </div>
+  {% if user_processes.error %}
+  <p class="helper-text">{{ user_processes.error }}</p>
+  {% else %}
+  {{ render_report_table(user_processes, "No user sessions found.", "monitoring-process-table") }}
+  {% endif %}
 </section>
 
 <section class="split-layout">
