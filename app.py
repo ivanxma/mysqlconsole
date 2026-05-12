@@ -209,6 +209,7 @@ NAV_GROUPS = [
     {
         "label": "Admin",
         "items": [
+            {"endpoint": "mysql_dashboard_page", "label": "Dashboard"},
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "admin_status_variables_page", "label": "Status and Variables"},
             {"endpoint": "setup_object_storage_page", "label": "Setup Object Storage"},
@@ -218,7 +219,6 @@ NAV_GROUPS = [
     {
         "label": "MySQL",
         "items": [
-            {"endpoint": "mysql_dashboard_page", "label": "Admin Dashboard"},
             {"endpoint": "db_admin_page", "label": "DB Admin"},
             {"endpoint": "sql_workspace_page", "label": "SQL Workspace"},
             {"endpoint": "mysql_import_page", "label": "Import"},
