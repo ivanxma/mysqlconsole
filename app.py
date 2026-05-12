@@ -620,6 +620,12 @@ def refresh_repo_version_check():
     return version_check
 
 
+def should_show_update_page_after_login(version_check):
+    if version_check.get("update_available"):
+        return True
+    return bool(version_check.get("error"))
+
+
 def ensure_import_cache_dir():
     IMPORT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -5330,6 +5336,12 @@ def login():
                         f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
                         "success",
                     )
+                elif version_check.get("error"):
+                    flash(
+                        "Repository version check could not complete. Review the Auto-Update page for details.",
+                        "error",
+                    )
+                if should_show_update_page_after_login(version_check):
                     return redirect(url_for("update_dbconsole_page"))
                 return redirect(url_for("mysql_dashboard_page"))
             except Exception as error:
