@@ -594,6 +594,10 @@ dialog.management-dialog::backdrop {
   gap: 10px;
 }
 
+.dashboard-security-grid {
+  align-items: start;
+}
+
 .dashboard-compact-card {
   display: grid;
   gap: 10px;
@@ -624,12 +628,26 @@ dialog.management-dialog::backdrop {
   vertical-align: middle;
 }
 
+.dashboard-security-table th:nth-child(1),
+.dashboard-security-table td:nth-child(1),
+.dashboard-security-table th:nth-child(3),
+.dashboard-security-table td:nth-child(3),
+.dashboard-security-table th:nth-child(4),
+.dashboard-security-table td:nth-child(4) {
+  width: 96px;
+}
+
+.dashboard-security-table th:nth-child(5),
+.dashboard-security-table td:nth-child(5) {
+  width: 34%;
+}
+
 .dashboard-cell-clamp {
   display: -webkit-box;
-  max-height: 3.8em;
+  max-height: 2.8em;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .dashboard-dialog-table-wrap {
