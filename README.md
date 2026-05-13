@@ -2,6 +2,8 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
+Current version: `1.0.2a`
+
 It provides:
 
 - login/profile-based MySQL access with optional SSH tunnel settings
@@ -11,6 +13,7 @@ It provides:
 - `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, and session history
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory and `HW Admin` management actions
+- HW Table reports use horizontally scrollable, flexible-width tables so wide HeatWave metadata such as `rpd_nodes` and table inventory does not collapse into unreadable columns
 - `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
 - authenticated top-right user icon with app version, update status, user, profile, connection summary, and logout
 - shared interactive table styling with sortable headers, resizable columns, saved column widths, reset-layout controls, and compact download/action icons
@@ -368,6 +371,7 @@ For `start_http.sh` and `start_https.sh`:
 - tabbed report for tables without a primary key
 - create and drop database
 - select database and table from dropdowns or table list
+- delete selected tables from the selected database with checkbox selection, a Select all control, and confirmation
 - list user-schema events with checkbox selection
 - enable, disable, or delete selected events
 - create events with database selection, event name, schedule selection, and event body SQL
