@@ -13,12 +13,14 @@
       <h3>Upload and Preview</h3>
       {% if import_page.plan_loaded %}
       <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="import_action" value="clear">
         <button class="button secondary" type="submit">Clear Draft</button>
       </form>
       {% endif %}
     </div>
     <form method="post" enctype="multipart/form-data" class="form-grid" data-import-toggle-form>
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="import_action" value="preview">
       <div class="import-target-row">
         <label class="checkbox-field import-target-toggle">
@@ -132,6 +134,7 @@
   </div>
   {% endif %}
   <form method="post" class="form-grid" data-import-toggle-form data-import-run-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="import_action" value="import">
     <div class="import-target-row">
       <label class="checkbox-field import-target-toggle">

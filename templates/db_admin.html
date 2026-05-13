@@ -61,6 +61,7 @@
     </div>
   </div>
   <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="create">
     <input type="hidden" name="db_action" value="create_database">
     <label>
@@ -101,6 +102,7 @@
   {% else %}
   <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
   <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form onsubmit="return confirm('Apply the primary-key fix to the selected eligible tables?');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="missing-primary-key">
     <div class="table-wrap">
       <div class="table-layout-toolbar db-admin-missing-pk-toolbar">
@@ -176,6 +178,7 @@
   <p class="helper-text error-text">{{ event_error }}</p>
   {% else %}
   <form method="post" class="db-admin-event-list-form" data-event-selection-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="event">
     <div class="table-wrap">
       <div class="table-layout-toolbar db-admin-event-toolbar">
@@ -316,6 +319,7 @@
     </article>
   </div>
   <form method="post" data-charset-collation-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="charset-collation">
     <input type="hidden" name="database_name" value="{{ selected_database }}">
     <div class="form-grid compact-form">
@@ -566,6 +570,7 @@
 
   {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
   <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="select">
     <input type="hidden" name="db_action" value="drop_database">
     <input type="hidden" name="database_name" value="{{ selected_database }}">
@@ -584,6 +589,7 @@
     </div>
   </div>
   <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="event">
     <input type="hidden" name="db_action" value="create_event">
     <label>
@@ -930,6 +936,7 @@
     {% endif %}
     {% set modifiable_column_rows = column_edit_rows|selectattr('supports_modify')|list %}
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="db_admin_tab" value="select">
       <input type="hidden" name="db_action" value="modify_table_columns">
       <input type="hidden" name="database_name" value="{{ selected_database }}">

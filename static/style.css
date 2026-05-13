@@ -505,16 +505,16 @@ textarea {
   height: 36px;
   border: 1px solid rgba(33, 29, 24, 0.1);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--muted);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #fff;
   cursor: pointer;
   transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .panel-icon-button:hover {
   transform: translateY(-1px);
-  background: rgba(244, 235, 225, 0.92);
-  color: var(--accent-dark);
+  background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
+  color: #fff;
 }
 
 .panel-icon-button:disabled {
@@ -1378,13 +1378,15 @@ dialog.management-dialog::backdrop {
 
 .chart-icon-button {
   cursor: pointer;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #fff;
   transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .chart-icon-button:hover {
   transform: translateY(-1px);
-  background: rgba(244, 235, 225, 0.92);
-  color: var(--accent-dark);
+  background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
+  color: #fff;
 }
 
 .chart-drag-handle svg,
@@ -1639,8 +1641,8 @@ tbody tr:hover td {
   height: 38px;
   border: 1px solid rgba(33, 29, 24, 0.1);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  color: var(--accent-dark);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #fff;
   cursor: pointer;
   transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
@@ -1648,7 +1650,7 @@ tbody tr:hover td {
 .icon-link:hover,
 .icon-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: rgba(244, 235, 225, 0.96);
+  background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
 }
 
 .icon-button:disabled,
@@ -1678,6 +1680,7 @@ h4 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .table-select-link {
@@ -1968,14 +1971,26 @@ code {
 }
 
 .button.secondary {
-  color: var(--text);
-  background: rgba(239, 231, 220, 0.9);
-  border-color: rgba(33, 29, 24, 0.08);
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  border-color: transparent;
 }
 
 .button.secondary.danger {
   color: #fff;
   background: linear-gradient(135deg, var(--danger) 0%, #6a1a18 100%);
+}
+
+.button.primary:hover:not(:disabled),
+.button.primary:focus-visible:not(:disabled),
+.button.secondary:hover:not(:disabled),
+.button.secondary:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #bf4a22 0%, #7d230d 100%);
+}
+
+.button.secondary.danger:hover:not(:disabled),
+.button.secondary.danger:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #bf3e33 0%, #651412 100%);
 }
 
 .button:disabled {
@@ -1994,11 +2009,17 @@ code {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+  justify-content: flex-start;
 }
 
 .panel-header {
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.panel-header > .panel-actions {
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .stacked-actions {

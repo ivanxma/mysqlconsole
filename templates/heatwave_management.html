@@ -73,6 +73,7 @@
       </div>
     </div>
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="tab" value="db">
       <label>
         Database
@@ -113,6 +114,7 @@
       </div>
     </div>
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="tab" value="table">
       <label>
         Database
@@ -300,6 +302,7 @@
     {% if selected_table %}
     <p class="helper-text">Checked columns are excluded with <code>NOT SECONDARY</code>. Clear a checked column to restore it, then use <code>Update</code> to apply the final selection.</p>
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="tab" value="table">
       <input type="hidden" name="database" value="{{ selected_database }}">
       <input type="hidden" name="table" value="{{ selected_table }}">

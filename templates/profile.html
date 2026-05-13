@@ -48,6 +48,7 @@
   <article class="panel">
     <h3>{{ "Edit Profile" if editing_profile.name else "Create Profile" }}</h3>
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="selected_profile" value="{{ selected_profile_name }}">
       <label>
         Profile Name

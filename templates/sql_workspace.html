@@ -44,6 +44,7 @@
 
 <section class="panel">
   <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="panel-header workspace-toolbar full-span">
       <div class="workspace-toolbar-group">
         <span class="workspace-toolbar-tag">USE_SECONDARY_ENGINE</span>
@@ -247,6 +248,7 @@
         </div>
       </div>
       <form method="post" class="panel-actions">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="workspace_action" value="clear_history">
         <input type="hidden" name="database" value="{{ selected_database }}">
         <input type="hidden" name="output_tab" value="history">

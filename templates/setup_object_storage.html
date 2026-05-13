@@ -41,6 +41,7 @@
   <article class="panel">
     <h3>Object Storage Settings</h3>
     <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <label>
         Region
         <input name="region" type="text" value="{{ object_storage_config.region }}">

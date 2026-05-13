@@ -16,6 +16,7 @@ from pathlib import Path
 HTTP_SERVICE = "dbconsole-http.service"
 HTTPS_SERVICE = "dbconsole-https.service"
 ALLOWED_LOCAL_STATE_PATHS = {
+    ".flask_secret_key",
     ".runtime.env",
     "object_storage.json",
     "profiles.json",
@@ -222,7 +223,9 @@ class UpdateWorker:
 
     @staticmethod
     def is_allowed_local_state_path(path):
-        normalized = str(path or "").strip().lstrip("./")
+        normalized = str(path or "").strip()
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
         return normalized in ALLOWED_LOCAL_STATE_PATHS or any(
             normalized.startswith(prefix) for prefix in ALLOWED_LOCAL_STATE_PREFIXES
         )

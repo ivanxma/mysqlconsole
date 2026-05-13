@@ -15,10 +15,12 @@
     </div>
     <div class="panel-actions">
       <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="update_action" value="retrieve-version">
         <button class="button secondary" type="submit">Retrieve Repo Version</button>
       </form>
       <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="update_action" value="start">
         <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
       </form>

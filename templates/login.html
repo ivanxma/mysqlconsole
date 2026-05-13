@@ -27,6 +27,7 @@
           </div>
 
           <form method="post" class="form-grid" autocomplete="off">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="field-row">
               <label>
                 Profile

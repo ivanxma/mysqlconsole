@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import secrets
 import ssl
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from time import perf_counter
 from uuid import uuid4
 
 import pymysql
-from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from modules.heatwave_pages import (
     build_dashboard_heatwave_summary as module_build_dashboard_heatwave_summary,
     build_heatwave_management_context as module_build_heatwave_management_context,
@@ -72,6 +73,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 PROFILE_STORE = ROOT_DIR / "profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
+FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
 IMPORT_CACHE_DIR = Path(tempfile.gettempdir()) / "dbconsole-import-cache"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
@@ -105,6 +107,11 @@ DBCONSOLE_SESSION_VERSION = 1
 DBCONSOLE_CREDENTIAL_SESSION_KEY = "dbconsole_server_session_id"
 DBCONSOLE_VERSION_CHECK_SESSION_KEY = "dbconsole_version_check"
 DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY = "dbconsole_update_poll_token"
+DBCONSOLE_CSRF_SESSION_KEY = "dbconsole_csrf_token"
+try:
+    DBCONSOLE_CREDENTIAL_TTL_SECONDS = max(300, int(os.environ.get("DBCONSOLE_CREDENTIAL_TTL_SECONDS", "43200")))
+except (TypeError, ValueError):
+    DBCONSOLE_CREDENTIAL_TTL_SECONDS = 43200
 DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
@@ -267,8 +274,29 @@ STATUS_VARIABLE_SECTIONS = [
     {"key": "general", "label": "General"},
 ]
 
+
+def load_flask_secret_key():
+    configured_secret = os.environ.get("FLASK_SECRET_KEY", "").strip()
+    if configured_secret:
+        return configured_secret
+    try:
+        if FLASK_SECRET_KEY_FILE.exists():
+            stored_secret = FLASK_SECRET_KEY_FILE.read_text(encoding="utf-8").strip()
+            if stored_secret:
+                return stored_secret
+        generated_secret = secrets.token_urlsafe(48)
+        FLASK_SECRET_KEY_FILE.write_text(generated_secret + "\n", encoding="utf-8")
+        try:
+            FLASK_SECRET_KEY_FILE.chmod(0o600)
+        except OSError:
+            pass
+        return generated_secret
+    except OSError:
+        return secrets.token_urlsafe(48)
+
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dbconsole-change-me")
+app.config["SECRET_KEY"] = load_flask_secret_key()
 app.config["SESSION_COOKIE_NAME"] = DBCONSOLE_SESSION_COOKIE_NAME
 app.config["SESSION_COOKIE_PATH"] = DBCONSOLE_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -279,6 +307,18 @@ app.config["SESSION_COOKIE_SECURE"] = DBCONSOLE_SESSION_COOKIE_SECURE
 def _prime_dbconsole_session_scope():
     session[DBCONSOLE_SESSION_SCOPE_KEY] = DBCONSOLE_SESSION_SCOPE_VALUE
     session[DBCONSOLE_SESSION_VERSION_KEY] = DBCONSOLE_SESSION_VERSION
+
+
+def _ensure_csrf_token():
+    token = str(session.get(DBCONSOLE_CSRF_SESSION_KEY, "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,}", token):
+        token = secrets.token_urlsafe(32)
+        session[DBCONSOLE_CSRF_SESSION_KEY] = token
+    return token
+
+
+def csrf_token():
+    return _ensure_csrf_token()
 
 
 @app.before_request
@@ -292,8 +332,29 @@ def ensure_dbconsole_session_scope():
     _prime_dbconsole_session_scope()
 
 
+@app.before_request
+def validate_csrf_token():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    expected_token = str(session.get(DBCONSOLE_CSRF_SESSION_KEY, "")).strip()
+    supplied_token = str(
+        request.form.get("_csrf_token", "")
+        or request.headers.get("X-DBConsole-CSRF-Token", "")
+    ).strip()
+    if not expected_token or not supplied_token or not hmac.compare_digest(expected_token, supplied_token):
+        abort(400, "Invalid or missing CSRF token.")
+
+
+@app.context_processor
+def inject_security_helpers():
+    return {"csrf_token": csrf_token}
+
+
 @app.after_request
 def add_authenticated_no_store_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
     if session.get("logged_in"):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
@@ -420,10 +481,7 @@ def _ensure_dbconsole_update_poll_token():
 
 def _update_status_poll_token_is_valid(status):
     expected_token = str((status or {}).get("poll_token", "")).strip()
-    supplied_token = str(
-        request.headers.get("X-DBConsole-Update-Poll-Token", "")
-        or request.args.get("poll_token", "")
-    ).strip()
+    supplied_token = str(request.headers.get("X-DBConsole-Update-Poll-Token", "")).strip()
     return bool(expected_token and supplied_token and hmac.compare_digest(expected_token, supplied_token))
 
 
@@ -820,7 +878,19 @@ def _get_server_session_id():
     return str(session.get(DBCONSOLE_CREDENTIAL_SESSION_KEY, "")).strip()
 
 
+def _cleanup_expired_server_sessions():
+    now = datetime.now(timezone.utc)
+    expired_session_ids = []
+    for server_session_id, entry in list(ACTIVE_DBCONSOLE_SESSIONS.items()):
+        created_at = _parse_iso_datetime((entry or {}).get("created_at"))
+        if created_at is None or (now - created_at).total_seconds() > DBCONSOLE_CREDENTIAL_TTL_SECONDS:
+            expired_session_ids.append(server_session_id)
+    for server_session_id in expired_session_ids:
+        ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
+
+
 def _get_server_session_entry():
+    _cleanup_expired_server_sessions()
     server_session_id = _get_server_session_id()
     if not server_session_id:
         return None
