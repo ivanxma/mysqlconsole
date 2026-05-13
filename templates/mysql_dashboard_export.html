@@ -13,6 +13,7 @@
       margin: 0;
       padding: 28px;
       background: #fffaf4;
+      overflow-x: auto;
     }
     h1, h2, h3, h4 {
       margin: 0 0 10px;
@@ -60,17 +61,22 @@
       overflow-wrap: anywhere;
     }
     table {
-      width: 100%;
+      width: max-content;
+      min-width: 100%;
       border-collapse: collapse;
       margin: 10px 0 18px;
       background: #ffffff;
+      table-layout: auto;
     }
     th, td {
       border: 1px solid #d9cbbb;
       padding: 7px 8px;
       text-align: left;
       vertical-align: top;
-      overflow-wrap: anywhere;
+      max-width: 720px;
+      overflow-wrap: break-word;
+      word-break: normal;
+      white-space: normal;
     }
     th {
       background: #efe7dc;
@@ -79,7 +85,8 @@
     }
     pre {
       white-space: pre-wrap;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
+      word-break: normal;
       margin: 0;
       font-family: Consolas, "Liberation Mono", monospace;
       font-size: 12px;
