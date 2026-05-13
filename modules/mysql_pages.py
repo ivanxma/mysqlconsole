@@ -810,6 +810,7 @@ def build_db_admin_context(
     preview_page,
     *,
     db_admin_tab="select",
+    table_info_tab="columns",
     fetch_database_inventory,
     fetch_tables_for_database,
     empty_table_preview,
@@ -833,6 +834,9 @@ def build_db_admin_context(
     available_database_names = {row["database_name"] for row in inventory}
     normalized_database = str(selected_database or "").strip()
     normalized_table = str(selected_table or "").strip()
+    active_table_info_tab = str(table_info_tab or "columns").strip().lower()
+    if active_table_info_tab not in {"columns", "ddl", "indexes", "partitions", "preview", "modify-columns"}:
+        active_table_info_tab = "columns"
     missing_primary_key_report = _empty_missing_primary_key_report()
 
     if normalized_database and normalized_database not in available_database_names:
@@ -867,6 +871,7 @@ def build_db_admin_context(
     table_edit_comment = ""
     column_edit_rows = []
     column_edit_unsupported_columns = []
+    selected_table_error = ""
     event_rows = []
     event_error = ""
     charset_collation_report = {
@@ -978,16 +983,6 @@ def build_db_admin_context(
                 table_edit_comment = _normalize_db_admin_comment_text(
                     column_edit_payload.get("table_comment", table_edit_comment)
                 )
-            preview = fetch_table_preview(normalized_database, normalized_table, page=preview_page)
-            ddl_statement = fetch_create_table_statement(normalized_database, normalized_table)
-            columns = fetch_table_columns(normalized_database, normalized_table)
-            indexes = fetch_table_indexes(normalized_database, normalized_table)
-            partitions = fetch_table_partitions(normalized_database, normalized_table)
-            column_edit_rows, column_edit_unsupported_columns = _build_db_admin_column_edit_rows(
-                columns,
-                ddl_statement,
-                payload=column_edit_payload,
-            )
         except pymysql.err.ProgrammingError as error:
             if error.args and error.args[0] == 1146:
                 return {
@@ -998,6 +993,86 @@ def build_db_admin_context(
                 }
             raise
 
+        metadata_errors = []
+        if active_table_info_tab in {"ddl", "modify-columns"}:
+            try:
+                ddl_statement = fetch_create_table_statement(normalized_database, normalized_table)
+            except pymysql.err.ProgrammingError as error:
+                if error.args and error.args[0] == 1146:
+                    return {
+                        "redirect_endpoint": "db_admin_page",
+                        "redirect_values": {"database": normalized_database},
+                        "flash_category": "error",
+                        "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+                    }
+                metadata_errors.append(f"SHOW CREATE TABLE failed: {error}")
+            except pymysql.err.OperationalError as error:
+                metadata_errors.append(f"SHOW CREATE TABLE failed: {error}")
+        if active_table_info_tab in {"columns", "modify-columns"}:
+            try:
+                columns = fetch_table_columns(normalized_database, normalized_table)
+            except pymysql.err.ProgrammingError as error:
+                if error.args and error.args[0] == 1146:
+                    return {
+                        "redirect_endpoint": "db_admin_page",
+                        "redirect_values": {"database": normalized_database},
+                        "flash_category": "error",
+                        "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+                    }
+                metadata_errors.append(f"Column metadata failed: {error}")
+            except pymysql.err.OperationalError as error:
+                metadata_errors.append(f"Column metadata failed: {error}")
+        if active_table_info_tab == "indexes":
+            try:
+                indexes = fetch_table_indexes(normalized_database, normalized_table)
+            except pymysql.err.ProgrammingError as error:
+                if error.args and error.args[0] == 1146:
+                    return {
+                        "redirect_endpoint": "db_admin_page",
+                        "redirect_values": {"database": normalized_database},
+                        "flash_category": "error",
+                        "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+                    }
+                metadata_errors.append(f"Index metadata failed: {error}")
+            except pymysql.err.OperationalError as error:
+                metadata_errors.append(f"Index metadata failed: {error}")
+        if active_table_info_tab == "partitions":
+            try:
+                partitions = fetch_table_partitions(normalized_database, normalized_table)
+            except pymysql.err.ProgrammingError as error:
+                if error.args and error.args[0] == 1146:
+                    return {
+                        "redirect_endpoint": "db_admin_page",
+                        "redirect_values": {"database": normalized_database},
+                        "flash_category": "error",
+                        "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+                    }
+                metadata_errors.append(f"Partition metadata failed: {error}")
+            except pymysql.err.OperationalError as error:
+                metadata_errors.append(f"Partition metadata failed: {error}")
+        if active_table_info_tab == "modify-columns" and (columns or ddl_statement):
+            column_edit_rows, column_edit_unsupported_columns = _build_db_admin_column_edit_rows(
+                columns,
+                ddl_statement,
+                payload=column_edit_payload,
+            )
+        if active_table_info_tab == "preview":
+            try:
+                preview = fetch_table_preview(normalized_database, normalized_table, page=preview_page)
+            except pymysql.err.ProgrammingError as error:
+                if error.args and error.args[0] == 1146:
+                    return {
+                        "redirect_endpoint": "db_admin_page",
+                        "redirect_values": {"database": normalized_database},
+                        "flash_category": "error",
+                        "flash_message": f"Table `{normalized_database}.{normalized_table}` was not found.",
+                    }
+                selected_table_error = f"Preview failed: {error}"
+            except pymysql.err.OperationalError as error:
+                selected_table_error = f"Preview failed: {error}"
+        if metadata_errors:
+            selected_table_error = " ".join([selected_table_error, *metadata_errors]).strip()
+
     return {
         "database_inventory": inventory,
         "selected_database": normalized_database,
@@ -1007,6 +1082,7 @@ def build_db_admin_context(
         "ddl_statement": ddl_statement,
         "columns": columns,
         "selected_table_row": selected_table_row,
+        "selected_table_error": selected_table_error,
         "table_edit_comment": table_edit_comment,
         "column_edit_rows": column_edit_rows,
         "column_edit_unsupported_columns": column_edit_unsupported_columns,

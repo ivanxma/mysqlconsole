@@ -132,6 +132,8 @@ ERROR_LOG_PERIOD_OPTIONS = (
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "charset-collation"}
 DB_ADMIN_DEFAULT_TAB = "select"
+DB_ADMIN_TABLE_INFO_TABS = {"columns", "ddl", "indexes", "partitions", "preview", "modify-columns"}
+DB_ADMIN_TABLE_INFO_DEFAULT_TAB = "columns"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
 DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
@@ -997,6 +999,13 @@ def normalize_db_admin_tab(value):
     normalized = str(value or "").strip().lower()
     if normalized not in DB_ADMIN_TABS:
         return DB_ADMIN_DEFAULT_TAB
+    return normalized
+
+
+def normalize_db_admin_table_info_tab(value):
+    normalized = str(value or "").strip().lower()
+    if normalized not in DB_ADMIN_TABLE_INFO_TABS:
+        return DB_ADMIN_TABLE_INFO_DEFAULT_TAB
     return normalized
 
 
@@ -3980,7 +3989,8 @@ def normalize_error_log_period(value):
 def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code="", message_like=""):
     normalized_priorities = _normalize_error_log_priorities(priorities)
     normalized_error_code = normalize_error_log_code(error_code)
-    error_code_values = parse_error_log_code_filter(normalized_error_code)
+    error_code_filter = parse_error_log_code_filter(normalized_error_code)
+    error_code_values = error_code_filter["codes"]
     normalized_message_like = normalize_error_log_message_like(message_like)
     column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
     if not column_lookup:
@@ -4024,8 +4034,9 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code=
         )
         params.extend(priority.upper() for priority in normalized_priorities)
     if error_code_column and error_code_values:
-        sql += " AND CAST({error_code_column} AS CHAR) IN ({placeholders})".format(
+        sql += " AND CAST({error_code_column} AS CHAR) {operator} ({placeholders})".format(
             error_code_column=quote_identifier(error_code_column),
+            operator=error_code_filter["operator"],
             placeholders=", ".join(["%s"] * len(error_code_values)),
         )
         params.extend(error_code_values)
@@ -6747,9 +6758,13 @@ def normalize_error_log_code(value):
 def parse_error_log_code_filter(value):
     text = normalize_error_log_code(value)
     if not text:
-        return []
-    match = re.match(r"(?is)^\s*in\s*\((.*)\)\s*$", text)
-    raw_items = _split_error_log_code_items(match.group(1) if match else text)
+        return {"operator": "IN", "codes": []}
+    operator = "IN"
+    match = re.match(r"(?is)^\s*(not\s+in|in)\s*\((.*)\)\s*$", text)
+    if match:
+        operator = "NOT IN" if re.sub(r"\s+", " ", match.group(1).strip().upper()) == "NOT IN" else "IN"
+        text = match.group(2)
+    raw_items = _split_error_log_code_items(text)
     codes = []
     seen = set()
     for item in raw_items:
@@ -6758,7 +6773,7 @@ def parse_error_log_code_filter(value):
             continue
         codes.append(code)
         seen.add(code)
-    return codes
+    return {"operator": operator, "codes": codes}
 
 
 def _split_error_log_code_items(value):
@@ -7431,7 +7446,9 @@ def db_admin_page():
     focus_event_database = str(request.args.get("focus_event_database", "")).strip()
     focus_event_name = str(request.args.get("focus_event_name", "")).strip()
     preview_page = normalize_page_number(request.args.get("page", "1"))
-    db_open_dialog = "modify-columns-dialog" if str(request.args.get("dialog", "")).strip() == "modify-columns" else ""
+    table_info_tab = normalize_db_admin_table_info_tab(request.values.get("table_info_tab", DB_ADMIN_TABLE_INFO_DEFAULT_TAB))
+    if str(request.args.get("dialog", "")).strip() == "modify-columns":
+        table_info_tab = "modify-columns"
     db_admin_edit_payload = None
     db_admin_event_form_payload = None
     db_admin_charset_collation_payload = None
@@ -7499,7 +7516,7 @@ def db_admin_page():
         except Exception as error:
             flash(str(error), "error")
             if action == "modify_table_columns":
-                db_open_dialog = "modify-columns-dialog"
+                table_info_tab = "modify-columns"
                 db_admin_edit_payload = request.form
             elif action == "create_event":
                 db_admin_event_form_payload = request.form
@@ -7522,6 +7539,7 @@ def db_admin_page():
         selected_table,
         preview_page,
         db_admin_tab=db_admin_tab,
+        table_info_tab=table_info_tab,
         fetch_database_inventory=fetch_database_inventory,
         fetch_tables_for_database=fetch_tables_for_database,
         empty_table_preview=empty_table_preview,
@@ -7550,8 +7568,8 @@ def db_admin_page():
     return render_dashboard(
         "db_admin.html",
         page_title="DB Admin",
-        db_open_dialog=db_open_dialog,
         db_admin_tab=db_admin_tab,
+        table_info_tab=table_info_tab,
         event_schedule_options=EVENT_SCHEDULE_OPTIONS,
         event_action_output=event_action_output,
         charset_collation_preview=charset_collation_preview,

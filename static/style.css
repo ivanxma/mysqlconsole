@@ -809,23 +809,24 @@ dialog.management-dialog::backdrop {
   margin: 4px 0 0;
 }
 
-.db-admin-charset-toolbar {
+.table-layout-toolbar.db-admin-charset-toolbar {
   justify-content: flex-start;
   align-items: center;
   gap: 10px 12px;
 }
 
-.db-admin-charset-select-all {
+.table-layout-toolbar .db-admin-charset-select-all {
   grid-column: auto;
   min-height: 42px;
   white-space: nowrap;
 }
 
-.db-admin-charset-actions {
+.table-layout-toolbar .db-admin-charset-actions {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-start;
 }
 
 .db-admin-charset-download {
