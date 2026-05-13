@@ -230,10 +230,11 @@ The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. Dur
 - create `.venv`
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
-  - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and install or upgrade `mysql-shell`
-  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade `mysql-shell`
+  - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and ask DNF for the best available vendor `mysql-shell` package
+  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade the vendor `mysql-shell` package
   - `macos`: refresh Homebrew metadata, install or upgrade `mysql-shell`, and fall back to the formula path if needed
   - all platforms verify that `mysqlsh` is at least MySQL Shell Innovation `9.7.0`; override `MYSQL_SHELL_MIN_VERSION` only when you intentionally need a different minimum
+  - Linux installers do not hard-code direct MySQL Shell package downloads; if enabled vendor repositories cannot satisfy the minimum, setup prints the available package candidates and fails clearly
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
@@ -291,6 +292,7 @@ For `setup.sh`:
 - `SERVICE_GROUP`
 - `VENV_DIR`
 - `MYSQL_SHELL_MIN_VERSION`
+- `MYSQL_SHELL_PACKAGE`
 - `BOOTSTRAP_REPO_URL`
 - `BOOTSTRAP_CLONE_DIR`
 - `BOOTSTRAP_PARENT_DIR`

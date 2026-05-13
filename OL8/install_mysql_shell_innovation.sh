@@ -78,18 +78,6 @@ run_root dnf install -y dnf-plugins-core ca-certificates
 install_mysql_repo_release
 set_mysql_repo_enabled "no" mysql-8.4-lts-community mysql-tools-8.4-lts-community || true
 set_mysql_repo_enabled "yes" mysql-innovation-community mysql-tools-innovation-community
-run_root dnf makecache -y --refresh
-
-if rpm -q mysql-shell >/dev/null 2>&1; then
-  run_root dnf upgrade -y mysql-shell
-else
-  run_root dnf install -y mysql-shell
-fi
-
-if ! command -v mysqlsh >/dev/null 2>&1; then
-  echo "mysqlsh was not found in PATH after the OL8 installation completed." >&2
-  exit 1
-fi
 
 version_ge() {
   local installed="$1"
@@ -114,16 +102,39 @@ version_ge() {
 }
 
 MYSQL_SHELL_MIN_VERSION="${MYSQL_SHELL_MIN_VERSION:-9.7.0}"
-MYSQL_SHELL_VERSION_OUTPUT="$(mysqlsh --version 2>/dev/null || true)"
-MYSQL_SHELL_VERSION="$(printf '%s\n' "$MYSQL_SHELL_VERSION_OUTPUT" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true)"
+MYSQL_SHELL_PACKAGE="${MYSQL_SHELL_PACKAGE:-mysql-shell}"
+
+current_mysqlsh_version() {
+  local version_output
+  version_output="$(mysqlsh --version 2>/dev/null || true)"
+  printf '%s\n' "$version_output" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true
+}
+
+show_mysql_shell_candidates() {
+  echo "Available ${MYSQL_SHELL_PACKAGE} versions from enabled vendor repositories:" >&2
+  dnf --showduplicates list "$MYSQL_SHELL_PACKAGE" 2>/dev/null >&2 || true
+}
+
+run_root dnf clean expire-cache
+run_root dnf makecache -y --refresh
+run_root dnf install -y --refresh --best --allowerasing "$MYSQL_SHELL_PACKAGE"
+
+MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+
+if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
+  show_mysql_shell_candidates
+  run_root dnf upgrade -y --refresh --best --allowerasing "$MYSQL_SHELL_PACKAGE"
+  MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+fi
 
 if [[ -z "$MYSQL_SHELL_VERSION" ]]; then
-  echo "Unable to determine mysqlsh version from: $MYSQL_SHELL_VERSION_OUTPUT" >&2
+  echo "mysqlsh was not found in PATH or its version could not be determined after the OL8 installation completed." >&2
   exit 1
 fi
 
 if ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
-  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer is required." >&2
+  show_mysql_shell_candidates
+  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the enabled MySQL vendor repositories did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
   exit 1
 fi
 

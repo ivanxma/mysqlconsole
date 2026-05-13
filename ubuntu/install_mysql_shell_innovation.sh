@@ -40,6 +40,7 @@ MYSQL_APT_KEYRING="${MYSQL_APT_KEYRING:-/etc/apt/keyrings/mysql.gpg}"
 MYSQL_APT_LIST="${MYSQL_APT_LIST:-/etc/apt/sources.list.d/mysql.list}"
 MYSQL_APT_REPO_URL="${MYSQL_APT_REPO_URL:-http://repo.mysql.com/apt/ubuntu/}"
 MYSQL_APT_COMPONENTS="${MYSQL_APT_COMPONENTS:-mysql-innovation mysql-tools}"
+MYSQL_SHELL_PACKAGE="${MYSQL_SHELL_PACKAGE:-mysql-shell}"
 TMP_KEYRING_FILE="$(mktemp)"
 TMP_LIST_FILE="$(mktemp)"
 
@@ -64,22 +65,6 @@ run_root install -m 0644 "$TMP_KEYRING_FILE" "$MYSQL_APT_KEYRING"
 run_root install -m 0644 "$TMP_LIST_FILE" "$MYSQL_APT_LIST"
 run_root apt-get update
 
-if dpkg-query -W -f='${Status}' mysql-shell 2>/dev/null | grep -q "install ok installed"; then
-  install_args=(--only-upgrade mysql-shell)
-else
-  install_args=(mysql-shell)
-fi
-
-if ! run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${install_args[@]}"; then
-  echo "Unable to install mysql-shell from the MySQL innovation APT repository on Ubuntu." >&2
-  exit 1
-fi
-
-if ! command -v mysqlsh >/dev/null 2>&1; then
-  echo "mysqlsh was not found in PATH after the Ubuntu installation completed." >&2
-  exit 1
-fi
-
 version_ge() {
   local installed="$1"
   local required="$2"
@@ -103,16 +88,39 @@ version_ge() {
 }
 
 MYSQL_SHELL_MIN_VERSION="${MYSQL_SHELL_MIN_VERSION:-9.7.0}"
-MYSQL_SHELL_VERSION_OUTPUT="$(mysqlsh --version 2>/dev/null || true)"
-MYSQL_SHELL_VERSION="$(printf '%s\n' "$MYSQL_SHELL_VERSION_OUTPUT" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true)"
+
+current_mysqlsh_version() {
+  local version_output
+  version_output="$(mysqlsh --version 2>/dev/null || true)"
+  printf '%s\n' "$version_output" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true
+}
+
+show_mysql_shell_candidates() {
+  echo "Available ${MYSQL_SHELL_PACKAGE} versions from configured vendor repositories:" >&2
+  apt-cache policy "$MYSQL_SHELL_PACKAGE" >&2 || true
+}
+
+if ! run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$MYSQL_SHELL_PACKAGE"; then
+  echo "Unable to install ${MYSQL_SHELL_PACKAGE} from the MySQL innovation APT repository on Ubuntu." >&2
+  exit 1
+fi
+
+MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+
+if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
+  show_mysql_shell_candidates
+  run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade "$MYSQL_SHELL_PACKAGE"
+  MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+fi
 
 if [[ -z "$MYSQL_SHELL_VERSION" ]]; then
-  echo "Unable to determine mysqlsh version from: $MYSQL_SHELL_VERSION_OUTPUT" >&2
+  echo "mysqlsh was not found in PATH or its version could not be determined after the Ubuntu installation completed." >&2
   exit 1
 fi
 
 if ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
-  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer is required." >&2
+  show_mysql_shell_candidates
+  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the configured MySQL vendor repositories did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
   exit 1
 fi
 
