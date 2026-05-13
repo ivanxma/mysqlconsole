@@ -52,6 +52,7 @@
   </div>
 </section>
 
+{% if db_admin_tab != 'select' %}
 <section class="panel">
   {% if db_admin_tab == 'create' %}
   <div class="panel-header">
@@ -403,34 +404,38 @@
     {% endif %}
     <div class="table-wrap">
       <div class="table-layout-toolbar db-admin-charset-toolbar">
-        <label class="checkbox-field db-admin-charset-select-all">
-          <input type="checkbox" data-charset-table-select-all {% if not charset_collation_report.rows %}disabled{% endif %}>
-          <span>Select all tables</span>
-        </label>
-        <div class="db-admin-charset-actions">
-          <button
-            class="button primary"
-            type="submit"
-            name="db_action"
-            value="preview_charset_collation"
-            data-charset-collation-action
-            {% if not charset_collation_report.rows %}disabled{% endif %}
-          >
-            Preview
-          </button>
-          <button
-            class="button primary"
-            type="submit"
-            name="db_action"
-            value="modify_charset_collation"
-            data-charset-collation-action
-            onclick="return confirm('Apply the selected charset/collation changes? Foreign keys selected for drop will be recreated after the ALTER statements.');"
-            {% if not charset_collation_report.rows %}disabled{% endif %}
-          >
-            Modify Charset / Collation
-          </button>
+        <div class="db-admin-charset-left-actions">
+          <label class="checkbox-field db-admin-charset-select-all">
+            <input type="checkbox" data-charset-table-select-all {% if not charset_collation_report.rows %}disabled{% endif %}>
+            <span>Select all tables</span>
+          </label>
+          <div class="db-admin-charset-actions">
+            <button
+              class="button primary"
+              type="submit"
+              name="db_action"
+              value="preview_charset_collation"
+              data-charset-collation-action
+              {% if not charset_collation_report.rows %}disabled{% endif %}
+            >
+              Preview
+            </button>
+            <button
+              class="button primary"
+              type="submit"
+              name="db_action"
+              value="modify_charset_collation"
+              data-charset-collation-action
+              onclick="return confirm('Apply the selected charset/collation changes? Foreign keys selected for drop will be recreated after the ALTER statements.');"
+              {% if not charset_collation_report.rows %}disabled{% endif %}
+            >
+              Modify Charset / Collation
+            </button>
+          </div>
         </div>
-        <span class="helper-text" data-charset-collation-selection-count>0 selected</span>
+        <div class="db-admin-charset-right-actions">
+          <span class="helper-text" data-charset-collation-selection-count>0 selected</span>
+        </div>
       </div>
       <table class="db-admin-charset-table">
         <thead>
@@ -546,39 +551,9 @@
     </div>
   </form>
   {% endif %}
-  {% else %}
-  <div class="panel-header">
-    <div>
-      <h3>Select Database and Table</h3>
-      <span class="helper-text">Choose a database, then use the table list below to inspect metadata, preview rows, and manage column definitions.</span>
-    </div>
-  </div>
-  <form method="get" class="form-grid compact-form">
-    <input type="hidden" name="db_admin_tab" value="select">
-    <label>
-      Database
-      <select name="database" onchange="this.form.submit()">
-        <option value="">Choose a database</option>
-        {% for row in database_inventory %}
-        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
-          {{ row.database_name }}{% if row.is_system %} (system){% endif %}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-  </form>
-
-  {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
-  <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="db_admin_tab" value="select">
-    <input type="hidden" name="db_action" value="drop_database">
-    <input type="hidden" name="database_name" value="{{ selected_database }}">
-    <button class="button secondary danger" type="submit">Drop Selected Database</button>
-  </form>
-  {% endif %}
   {% endif %}
 </section>
+{% endif %}
 
 {% if db_admin_tab == 'event' %}
 <section class="panel">
@@ -657,33 +632,60 @@
 
 {% if db_admin_tab == 'select' %}
 <section class="panel">
-  <div class="panel-header">
-    <h3>Tables{% if selected_database %} in {{ selected_database }}{% endif %}</h3>
-    {% if selected_database %}
-    <a class="icon-link" href="{{ url_for('db_admin_download', database=selected_database, db_admin_tab='select') }}" title="Download CSV" aria-label="Download CSV">
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-        <path d="M7 10l5 5 5-5"></path>
-        <path d="M12 15V3"></path>
-      </svg>
-    </a>
-    {% endif %}
+  <div class="panel-header db-admin-table-list-header">
+    <div class="db-admin-table-list-controls">
+      <h3>Tables in</h3>
+      <form method="get" class="db-admin-table-database-form">
+        <input type="hidden" name="db_admin_tab" value="select">
+        <label aria-label="Database">
+          <select name="database" onchange="this.form.submit()">
+            <option value="">Choose a database</option>
+            {% for row in database_inventory %}
+            <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
+              {{ row.database_name }}{% if row.is_system %} (system){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
+      <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="db_admin_tab" value="select">
+        <input type="hidden" name="db_action" value="drop_database">
+        <input type="hidden" name="database_name" value="{{ selected_database }}">
+        <button class="button secondary danger" type="submit">Drop DB</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
+          <th>Select</th>
           <th>Table</th>
           <th>Table Comment</th>
           <th>Engine</th>
           <th>Rows</th>
           <th>HeatWave</th>
-          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for row in tables %}
         <tr class="{% if row.table_name == selected_table %}active-table-row{% endif %}">
+          <td>
+            <input
+              type="checkbox"
+              name="selected_table"
+              value="{{ row.table_name }}"
+              aria-label="Select table {{ row.table_name }}"
+              data-table-select-checkbox
+              data-select-url="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}"
+              data-clear-url="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database) }}"
+              {% if row.table_name == selected_table %}checked{% endif %}
+            >
+          </td>
           <td>
             <a
               class="table-select-link"
@@ -696,15 +698,6 @@
           <td>{{ row.engine }}</td>
           <td>{{ row.row_count }}</td>
           <td>{{ "Configured" if row.heatwave_configured else "-" }}</td>
-          <td class="table-action-cell">
-            <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}">Select</a>
-            <a class="icon-link" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name, table_info_tab='modify-columns') }}" title="Modify columns" aria-label="Modify columns">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M12 20h9"></path>
-                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
-              </svg>
-            </a>
-          </td>
         </tr>
         {% else %}
         <tr>
@@ -1163,6 +1156,15 @@
       syncCollationOptions();
       syncCharsetCollationSelectionState();
     }
+
+    document.querySelectorAll("[data-table-select-checkbox]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const targetUrl = checkbox.checked ? checkbox.dataset.selectUrl : checkbox.dataset.clearUrl;
+        if (targetUrl) {
+          window.location.href = targetUrl;
+        }
+      });
+    });
 
     const scheduleSelect = document.querySelector("[data-event-schedule-select]");
     const scheduleAtField = document.querySelector("[data-event-schedule-at-field]");

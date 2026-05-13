@@ -810,9 +810,26 @@ dialog.management-dialog::backdrop {
 }
 
 .table-layout-toolbar.db-admin-charset-toolbar {
-  justify-content: flex-start;
+  justify-content: space-between;
   align-items: center;
   gap: 10px 12px;
+}
+
+.table-layout-toolbar .db-admin-charset-left-actions,
+.table-layout-toolbar .db-admin-charset-right-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.table-layout-toolbar .db-admin-charset-left-actions {
+  justify-content: flex-start;
+}
+
+.table-layout-toolbar .db-admin-charset-right-actions {
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .table-layout-toolbar .db-admin-charset-select-all {
@@ -836,6 +853,34 @@ dialog.management-dialog::backdrop {
 .db-admin-charset-select-all input[type="checkbox"],
 [data-charset-table-row],
 [data-charset-column-row] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.db-admin-table-list-header {
+  justify-content: flex-start;
+}
+
+.db-admin-table-list-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.db-admin-table-list-controls h3 {
+  margin: 0;
+}
+
+.db-admin-table-database-form label {
+  display: block;
+  min-width: min(280px, 100%);
+}
+
+[data-table-select-checkbox] {
   width: auto;
   min-height: 0;
   margin: 0;
