@@ -385,6 +385,16 @@
       <h4>Recreate Foreign Keys</h4>
       <pre class="sql-block">{{ charset_collation_preview.recreate_statements|join(';\n') }};</pre>
       {% endif %}
+      <div class="form-actions db-admin-charset-preview-actions">
+        <button
+          class="button primary"
+          type="submit"
+          name="db_action"
+          value="download_charset_collation_script"
+        >
+          Download Generated Script
+        </button>
+      </div>
     </section>
     {% endif %}
     <div class="table-wrap">
@@ -395,7 +405,7 @@
         </label>
         <div class="db-admin-charset-actions">
           <button
-            class="button secondary"
+            class="button primary"
             type="submit"
             name="db_action"
             value="preview_charset_collation"
@@ -417,22 +427,6 @@
           </button>
         </div>
         <span class="helper-text" data-charset-collation-selection-count>0 selected</span>
-        <button
-          class="icon-button db-admin-charset-download"
-          type="submit"
-          name="db_action"
-          value="download_charset_collation_script"
-          title="Download generated SQL script"
-          aria-label="Download generated SQL script"
-          data-charset-collation-action
-          {% if not charset_collation_report.rows %}disabled{% endif %}
-        >
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <path d="M7 10l5 5 5-5"></path>
-            <path d="M12 15V3"></path>
-          </svg>
-        </button>
       </div>
       <table class="db-admin-charset-table">
         <thead>
