@@ -3907,44 +3907,10 @@ def normalize_error_log_period(value):
     return allowed.get(candidate, allowed["1d"])
 
 
-def fetch_error_log_code_options(hours=24, priorities=None):
-    normalized_priorities = _normalize_error_log_priorities(priorities)
-    column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
-    if not column_lookup:
-        return []
-
-    logged_column = column_lookup.get("logged")
-    prio_column = column_lookup.get("prio") or column_lookup.get("priority")
-    error_code_column = column_lookup.get("error_code")
-    if not logged_column or not error_code_column:
-        return []
-
-    sql = (
-        "SELECT DISTINCT {error_code_column} AS error_code_value "
-        "FROM performance_schema.error_log "
-        "WHERE {error_code_column} IS NOT NULL"
-    ).format(error_code_column=quote_identifier(error_code_column))
-    params = []
-    if hours is not None:
-        sql += " AND {logged_column} >= NOW() - INTERVAL %s HOUR".format(
-            logged_column=quote_identifier(logged_column),
-        )
-        params.append(int(hours))
-    if prio_column and normalized_priorities:
-        sql += " AND UPPER(COALESCE({priority_column}, '')) IN ({placeholders})".format(
-            priority_column=quote_identifier(prio_column),
-            placeholders=", ".join(["%s"] * len(normalized_priorities)),
-        )
-        params.extend(priority.upper() for priority in normalized_priorities)
-    sql += " ORDER BY {error_code_column} LIMIT 200".format(
-        error_code_column=quote_identifier(error_code_column),
-    )
-    return [str(row.get("error_code_value")) for row in execute_query(sql, params) if row.get("error_code_value") is not None]
-
-
 def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code="", message_like=""):
     normalized_priorities = _normalize_error_log_priorities(priorities)
     normalized_error_code = normalize_error_log_code(error_code)
+    error_code_values = parse_error_log_code_filter(normalized_error_code)
     normalized_message_like = normalize_error_log_message_like(message_like)
     column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
     if not column_lookup:
@@ -3987,11 +3953,12 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code=
             placeholders=", ".join(["%s"] * len(normalized_priorities)),
         )
         params.extend(priority.upper() for priority in normalized_priorities)
-    if error_code_column and normalized_error_code:
-        sql += " AND CAST({error_code_column} AS CHAR) = %s".format(
+    if error_code_column and error_code_values:
+        sql += " AND CAST({error_code_column} AS CHAR) IN ({placeholders})".format(
             error_code_column=quote_identifier(error_code_column),
+            placeholders=", ".join(["%s"] * len(error_code_values)),
         )
-        params.append(normalized_error_code)
+        params.extend(error_code_values)
     if normalized_message_like:
         sql += " AND {data_column} LIKE %s".format(
             data_column=quote_identifier(data_column),
@@ -4200,15 +4167,10 @@ def fetch_server_overview(
         firewall_info = fetch_firewall_security_info(security_features)
         password_info = fetch_password_security_info(security_features)
 
-    error_log_code_options = []
     recent_error_log_rows = []
     recent_error_log_error = ""
     if include_logs:
         try:
-            error_log_code_options = fetch_error_log_code_options(
-                hours=selected_error_log_period["hours"],
-                priorities=selected_error_log_priorities,
-            )
             recent_error_log_rows = fetch_recent_error_log_rows(
                 hours=selected_error_log_period["hours"],
                 limit=50,
@@ -4218,7 +4180,6 @@ def fetch_server_overview(
             )
             recent_error_log_error = ""
         except Exception as error:  # pragma: no cover - depends on server features
-            error_log_code_options = []
             recent_error_log_rows = []
             recent_error_log_error = str(error)
 
@@ -4273,7 +4234,6 @@ def fetch_server_overview(
         "selected_error_log_period": selected_error_log_period,
         "selected_error_log_code": selected_error_log_code,
         "selected_error_log_message_like": selected_error_log_message_like,
-        "error_log_code_options": error_log_code_options,
         "recent_error_log_rows": recent_error_log_rows,
         "recent_error_log_error": recent_error_log_error,
         "recent_error_log_count": len(recent_error_log_rows),
@@ -6707,11 +6667,67 @@ def _normalize_error_log_priorities(values):
             continue
         normalized.append(normalized_value)
         seen.add(normalized_value)
-    return normalized or ["Error"]
+    return normalized
 
 
 def normalize_error_log_code(value):
     return str(value or "").strip()
+
+
+def parse_error_log_code_filter(value):
+    text = normalize_error_log_code(value)
+    if not text:
+        return []
+    match = re.match(r"(?is)^\s*in\s*\((.*)\)\s*$", text)
+    raw_items = _split_error_log_code_items(match.group(1) if match else text)
+    codes = []
+    seen = set()
+    for item in raw_items:
+        code = _unquote_error_log_code_item(item)
+        if not code or code in seen:
+            continue
+        codes.append(code)
+        seen.add(code)
+    return codes
+
+
+def _split_error_log_code_items(value):
+    items = []
+    current = []
+    quote_char = ""
+    escaped = False
+    for char in str(value or ""):
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote_char:
+            current.append(char)
+            escaped = True
+            continue
+        if quote_char:
+            current.append(char)
+            if char == quote_char:
+                quote_char = ""
+            continue
+        if char in {"'", '"'}:
+            quote_char = char
+            current.append(char)
+            continue
+        if char == ",":
+            items.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    items.append("".join(current).strip())
+    return [item for item in items if item]
+
+
+def _unquote_error_log_code_item(value):
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1]
+    return text.replace("\\'", "'").replace('\\"', '"').strip()
 
 
 def normalize_error_log_message_like(value):

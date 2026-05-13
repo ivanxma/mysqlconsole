@@ -629,24 +629,16 @@
       <span class="helper-text">Filtered <code>performance_schema.error_log</code> rows.</span>
     </div>
   </div>
-    <form method="get" class="form-grid compact-form error-log-filter-form">
+    <form method="get" class="form-grid compact-form error-log-filter-form" data-error-log-filter-form>
       <input type="hidden" name="dashboard_tab" value="logs">
-      <div class="priority-filter-shell">
-        <span class="metric-label">Period</span>
-        <div class="priority-filter-list error-log-period-list">
+      <label>
+        Period
+        <select name="error_period">
           {% for option in server_overview.error_log_period_options %}
-          <label class="priority-filter-option">
-            <input
-              type="radio"
-              name="error_period"
-              value="{{ option.value }}"
-              {% if option.value == server_overview.selected_error_log_period.value %}checked{% endif %}
-            >
-            <span>{{ option.label }}</span>
-          </label>
+          <option value="{{ option.value }}" {% if option.value == server_overview.selected_error_log_period.value %}selected{% endif %}>{{ option.label }}</option>
           {% endfor %}
-        </div>
-      </div>
+        </select>
+      </label>
       <div class="priority-filter-shell">
         <span class="metric-label">Priority Selection</span>
         <div class="priority-filter-list">
@@ -655,6 +647,7 @@
               type="checkbox"
               name="error_prio"
               value="all"
+              data-error-priority-all
               {% if not server_overview.selected_error_log_priorities %}checked{% endif %}
             >
             <span>All</span>
@@ -665,6 +658,7 @@
               type="checkbox"
               name="error_prio"
               value="{{ priority }}"
+              data-error-priority-value
               {% if server_overview.selected_error_log_priorities and priority in server_overview.selected_error_log_priorities %}checked{% endif %}
             >
             <span>{{ priority }}</span>
@@ -674,12 +668,7 @@
       </div>
       <label>
         Error Code
-        <select name="error_code">
-          <option value="">Any code</option>
-          {% for code in server_overview.error_log_code_options %}
-          <option value="{{ code }}" {% if code == server_overview.selected_error_log_code %}selected{% endif %}>{{ code }}</option>
-          {% endfor %}
-        </select>
+        <input type="text" name="error_code" value="{{ server_overview.selected_error_log_code }}" placeholder='IN ("code1", "code2")'>
       </label>
       <label>
         Message
@@ -939,6 +928,35 @@
       }
       dialog.removeAttribute("open");
     };
+
+    document.querySelectorAll("[data-error-log-filter-form]").forEach((form) => {
+      const allPriority = form.querySelector("[data-error-priority-all]");
+      const priorityValues = Array.from(form.querySelectorAll("[data-error-priority-value]"));
+      if (!allPriority) {
+        return;
+      }
+
+      allPriority.addEventListener("change", () => {
+        if (!allPriority.checked) {
+          return;
+        }
+        priorityValues.forEach((input) => {
+          input.checked = false;
+        });
+      });
+
+      priorityValues.forEach((input) => {
+        input.addEventListener("change", () => {
+          if (input.checked) {
+            allPriority.checked = false;
+            return;
+          }
+          if (!priorityValues.some((priorityInput) => priorityInput.checked)) {
+            allPriority.checked = true;
+          }
+        });
+      });
+    });
 
     document.querySelectorAll("[data-open-dialog]").forEach((trigger) => {
       const showLinkedDialog = () => {
