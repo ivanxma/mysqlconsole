@@ -21,14 +21,24 @@ def _empty_heatwave_summary():
     }
 
 
-def build_mysql_dashboard_context(*, fetch_server_overview, fetch_database_inventory, fetch_dashboard_heatwave_summary):
+def build_mysql_dashboard_context(
+    *,
+    fetch_server_overview,
+    fetch_database_inventory,
+    fetch_dashboard_heatwave_summary,
+    include_inventory=True,
+    include_heatwave=True,
+):
     overview = fetch_server_overview()
-    inventory = [row for row in fetch_database_inventory() if not row["is_system"]]
-    try:
-        heatwave_summary = fetch_dashboard_heatwave_summary()
-    except Exception as error:  # pragma: no cover - depends on server features
+    inventory = [row for row in fetch_database_inventory() if not row["is_system"]] if include_inventory else []
+    if include_heatwave:
+        try:
+            heatwave_summary = fetch_dashboard_heatwave_summary()
+        except Exception as error:  # pragma: no cover - depends on server features
+            heatwave_summary = _empty_heatwave_summary()
+            heatwave_summary["error"] = str(error)
+    else:
         heatwave_summary = _empty_heatwave_summary()
-        heatwave_summary["error"] = str(error)
 
     heatwave_by_database = {
         row["database_name"].lower(): row

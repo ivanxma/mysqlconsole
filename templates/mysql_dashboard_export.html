@@ -131,6 +131,32 @@
     </tbody>
   </table>
 
+  <h2>Global Variables</h2>
+  {% if global_variables_error %}<p class="error">{{ global_variables_error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in global_variables %}
+      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No GLOBAL variables were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Global Status</h2>
+  {% if global_status_error %}<p class="error">{{ global_status_error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in global_status %}
+      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No GLOBAL status rows were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
   <h2>Inventory Summary</h2>
   <div class="detail-grid">
     <div class="detail-card"><span class="label">User Databases</span><span class="value">{{ server_overview.database_count }}</span></div>

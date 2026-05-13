@@ -3658,6 +3658,15 @@ def fetch_show_variable_rows(kind, patterns):
     return rows
 
 
+def fetch_all_show_variable_rows(kind):
+    normalized_kind = str(kind or "").strip().upper()
+    if normalized_kind not in {"VARIABLES", "STATUS"}:
+        raise ValueError("Unsupported SHOW GLOBAL kind.")
+    rows = [_normalize_show_variable_row(row) for row in execute_query(f"SHOW GLOBAL {normalized_kind}")]
+    rows.sort(key=lambda item: str(item["name"]).lower())
+    return rows
+
+
 def _is_on_value(value):
     return str(value or "").strip().upper() in {"1", "ON", "YES", "TRUE", "ENABLED", "ACTIVE", "FORCE"}
 
@@ -3748,6 +3757,17 @@ def fetch_audit_security_info(security_features):
     return info
 
 
+def empty_audit_security_info():
+    return {
+        "enabled_label": "-",
+        "variables": [],
+        "status_rows": [],
+        "filter_rows": [],
+        "user_rows": [],
+        "errors": [],
+    }
+
+
 def fetch_firewall_security_info(security_features):
     info = {
         "enabled_label": "Off",
@@ -3826,6 +3846,17 @@ def fetch_firewall_security_info(security_features):
     return info
 
 
+def empty_firewall_security_info():
+    return {
+        "enabled_label": "-",
+        "variables": [],
+        "status_rows": [],
+        "user_rows": [],
+        "rule_rows": [],
+        "errors": [],
+    }
+
+
 def fetch_password_security_info(security_features):
     info = {
         "enabled_label": "Off",
@@ -3859,6 +3890,15 @@ def fetch_password_security_info(security_features):
     if password_feature_enabled or policy_variable_enabled:
         info["enabled_label"] = "On"
     return info
+
+
+def empty_password_security_info():
+    return {
+        "enabled_label": "-",
+        "variables": [],
+        "status_rows": [],
+        "errors": [],
+    }
 
 
 def normalize_error_log_period(value):
@@ -4040,113 +4080,147 @@ def fetch_server_overview(
     recent_error_log_period=None,
     recent_error_log_code="",
     recent_error_log_message_like="",
+    sections=None,
 ):
+    selected_sections = set(sections or {"server-database", "logs", "security", "heatwave", "replication"})
     selected_error_log_priorities = _normalize_error_log_priorities(recent_error_log_priorities)
     selected_error_log_period = normalize_error_log_period(recent_error_log_period)
     selected_error_log_code = normalize_error_log_code(recent_error_log_code)
     selected_error_log_message_like = normalize_error_log_message_like(recent_error_log_message_like)
     version = fetch_scalar("SELECT VERSION()", default="-")
     hostname = fetch_scalar("SELECT @@hostname", default="-")
-    mysql_shell_version = fetch_mysql_shell_version()
-    current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
-    default_database = fetch_scalar("SELECT DATABASE()", default="-")
-    global_time_zone = fetch_scalar("SELECT @@GLOBAL.time_zone", default="-")
-    session_time_zone = fetch_scalar("SELECT @@SESSION.time_zone", default="-")
-    system_time_zone = fetch_scalar("SELECT @@system_time_zone", default="-")
-    global_sql_mode = fetch_scalar("SELECT @@GLOBAL.sql_mode", default="-")
-    session_sql_mode = fetch_scalar("SELECT @@SESSION.sql_mode", default="-")
-    server_charset = fetch_scalar("SELECT @@character_set_server", default="-")
-    server_collation = fetch_scalar("SELECT @@collation_server", default="-")
-    max_connections = fetch_scalar("SELECT @@max_connections", default=0)
-    threads_connected_rows = execute_query("SHOW GLOBAL STATUS LIKE 'Threads_connected'")
-    current_connection_count = 0
-    if threads_connected_rows:
-        thread_row = threads_connected_rows[0]
-        current_connection_count = int(
-            thread_row.get("Value")
-            or thread_row.get("value")
-            or thread_row.get("VARIABLE_VALUE")
-            or thread_row.get("variable_value")
-            or 0
+    include_server_database = "server-database" in selected_sections
+    include_logs = "logs" in selected_sections
+    include_security = "security" in selected_sections
+    include_heatwave = "heatwave" in selected_sections
+    include_replication = "replication" in selected_sections
+
+    mysql_shell_version = fetch_mysql_shell_version() if include_server_database else "-"
+    current_user = default_database = global_time_zone = session_time_zone = system_time_zone = "-"
+    global_sql_mode = session_sql_mode = server_charset = server_collation = "-"
+    max_connections = current_connection_count = database_count = 0
+    table_totals = {}
+    total_size_bytes = 0
+    innodb_table_rows = []
+    view_rows = []
+    routine_rows = []
+    time_zone_name_count = 0
+    time_zone_tables_populated = False
+    time_zone_tables_label = "-"
+    time_zone_tables_error = ""
+
+    if include_server_database:
+        current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
+        default_database = fetch_scalar("SELECT DATABASE()", default="-")
+        global_time_zone = fetch_scalar("SELECT @@GLOBAL.time_zone", default="-")
+        session_time_zone = fetch_scalar("SELECT @@SESSION.time_zone", default="-")
+        system_time_zone = fetch_scalar("SELECT @@system_time_zone", default="-")
+        global_sql_mode = fetch_scalar("SELECT @@GLOBAL.sql_mode", default="-")
+        session_sql_mode = fetch_scalar("SELECT @@SESSION.sql_mode", default="-")
+        server_charset = fetch_scalar("SELECT @@character_set_server", default="-")
+        server_collation = fetch_scalar("SELECT @@collation_server", default="-")
+        max_connections = fetch_scalar("SELECT @@max_connections", default=0)
+        threads_connected_rows = execute_query("SHOW GLOBAL STATUS LIKE 'Threads_connected'")
+        if threads_connected_rows:
+            thread_row = threads_connected_rows[0]
+            current_connection_count = int(
+                thread_row.get("Value")
+                or thread_row.get("value")
+                or thread_row.get("VARIABLE_VALUE")
+                or thread_row.get("variable_value")
+                or 0
+            )
+        database_count = fetch_scalar(
+            """
+            SELECT COUNT(*) AS database_count_value
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+              AND schema_name NOT LIKE 'mysql@_%' ESCAPE '@'
+            """,
+            default=0,
         )
-    database_count = fetch_scalar(
-        """
-        SELECT COUNT(*) AS database_count_value
-        FROM information_schema.schemata
-        WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-          AND schema_name NOT LIKE 'mysql@_%' ESCAPE '@'
-        """,
-        default=0,
-    )
-    table_totals = execute_query(
-        """
-        SELECT
-          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN 1 ELSE 0 END), 0) AS base_table_count_value,
-          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length ELSE 0 END), 0) AS data_bytes_value,
-          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN index_length ELSE 0 END), 0) AS index_bytes_value,
-          COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length + index_length ELSE 0 END), 0) AS total_bytes_value
-        FROM information_schema.tables
-        WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-          AND table_schema NOT LIKE 'mysql@_%' ESCAPE '@'
-        """,
-    )
-    table_totals = table_totals[0] if table_totals else {}
-    total_size_bytes = table_totals.get("total_bytes_value") or 0
-    innodb_table_rows = fetch_dashboard_innodb_table_rows()
-    view_rows = fetch_dashboard_view_rows()
-    routine_rows = fetch_dashboard_routine_rows()
-    replication_info = fetch_replication_overview_info()
+        table_totals = execute_query(
+            """
+            SELECT
+              COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN 1 ELSE 0 END), 0) AS base_table_count_value,
+              COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length ELSE 0 END), 0) AS data_bytes_value,
+              COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN index_length ELSE 0 END), 0) AS index_bytes_value,
+              COALESCE(SUM(CASE WHEN table_type = 'BASE TABLE' THEN data_length + index_length ELSE 0 END), 0) AS total_bytes_value
+            FROM information_schema.tables
+            WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+              AND table_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+            """,
+        )
+        table_totals = table_totals[0] if table_totals else {}
+        total_size_bytes = table_totals.get("total_bytes_value") or 0
+        innodb_table_rows = fetch_dashboard_innodb_table_rows()
+        view_rows = fetch_dashboard_view_rows()
+        routine_rows = fetch_dashboard_routine_rows()
+
+        try:
+            time_zone_name_count = fetch_scalar("SELECT COUNT(*) FROM mysql.time_zone_name", default=0)
+            time_zone_tables_populated = bool(time_zone_name_count)
+            time_zone_tables_label = f"Yes ({time_zone_name_count} rows)" if time_zone_name_count else "No"
+            time_zone_tables_error = ""
+        except Exception as error:  # pragma: no cover - depends on privileges / server setup
+            time_zone_name_count = 0
+            time_zone_tables_populated = False
+            time_zone_tables_label = "Unavailable"
+            time_zone_tables_error = str(error)
+
+    replication_info = fetch_replication_overview_info() if include_replication else empty_replication_overview_info()
     try:
-        rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%status'")
+        rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%status'") if include_heatwave else []
     except Exception as error:  # pragma: no cover - depends on server features
         rapid_status_rows = [{"Variable_name": "rapid_status_error", "Value": str(error)}]
 
-    try:
-        time_zone_name_count = fetch_scalar("SELECT COUNT(*) FROM mysql.time_zone_name", default=0)
-        time_zone_tables_populated = bool(time_zone_name_count)
-        time_zone_tables_label = f"Yes ({time_zone_name_count} rows)" if time_zone_name_count else "No"
-        time_zone_tables_error = ""
-    except Exception as error:  # pragma: no cover - depends on privileges / server setup
-        time_zone_name_count = 0
-        time_zone_tables_populated = False
-        time_zone_tables_label = "Unavailable"
-        time_zone_tables_error = str(error)
+    installed_components = []
+    installed_components_error = ""
+    security_features = []
+    security_features_error = ""
+    audit_info = empty_audit_security_info()
+    firewall_info = empty_firewall_security_info()
+    password_info = empty_password_security_info()
+    if include_security:
+        try:
+            installed_components = fetch_installed_component_rows()
+            installed_components_error = ""
+        except Exception as error:  # pragma: no cover - depends on server features
+            installed_components = []
+            installed_components_error = str(error)
 
-    try:
-        installed_components = fetch_installed_component_rows()
-        installed_components_error = ""
-    except Exception as error:  # pragma: no cover - depends on server features
-        installed_components = []
-        installed_components_error = str(error)
+        try:
+            security_features = fetch_security_feature_rows(installed_components)
+            security_features_error = ""
+        except Exception as error:  # pragma: no cover - depends on server features
+            security_features = []
+            security_features_error = str(error)
 
-    try:
-        security_features = fetch_security_feature_rows(installed_components)
-        security_features_error = ""
-    except Exception as error:  # pragma: no cover - depends on server features
-        security_features = []
-        security_features_error = str(error)
+        audit_info = fetch_audit_security_info(security_features)
+        firewall_info = fetch_firewall_security_info(security_features)
+        password_info = fetch_password_security_info(security_features)
 
-    audit_info = fetch_audit_security_info(security_features)
-    firewall_info = fetch_firewall_security_info(security_features)
-    password_info = fetch_password_security_info(security_features)
-
-    try:
-        error_log_code_options = fetch_error_log_code_options(
-            hours=selected_error_log_period["hours"],
-            priorities=selected_error_log_priorities,
-        )
-        recent_error_log_rows = fetch_recent_error_log_rows(
-            hours=selected_error_log_period["hours"],
-            limit=50,
-            priorities=selected_error_log_priorities,
-            error_code=selected_error_log_code,
-            message_like=selected_error_log_message_like,
-        )
-        recent_error_log_error = ""
-    except Exception as error:  # pragma: no cover - depends on server features
-        error_log_code_options = []
-        recent_error_log_rows = []
-        recent_error_log_error = str(error)
+    error_log_code_options = []
+    recent_error_log_rows = []
+    recent_error_log_error = ""
+    if include_logs:
+        try:
+            error_log_code_options = fetch_error_log_code_options(
+                hours=selected_error_log_period["hours"],
+                priorities=selected_error_log_priorities,
+            )
+            recent_error_log_rows = fetch_recent_error_log_rows(
+                hours=selected_error_log_period["hours"],
+                limit=50,
+                priorities=selected_error_log_priorities,
+                error_code=selected_error_log_code,
+                message_like=selected_error_log_message_like,
+            )
+            recent_error_log_error = ""
+        except Exception as error:  # pragma: no cover - depends on server features
+            error_log_code_options = []
+            recent_error_log_rows = []
+            recent_error_log_error = str(error)
 
     return {
         "server_version": version,
@@ -5460,6 +5534,27 @@ def fetch_replication_overview_info():
         "replica_lag_label": ", ".join(str(value) for value in lag_values) if lag_values else "-",
         "performance_schema_channel_count": len(replication_connection.get("rows", [])) if not replication_connection.get("error") else "-",
         "group_member_count": len(group_members.get("rows", [])) if not group_members.get("error") else "-",
+    }
+
+
+def empty_replication_report():
+    return {"columns": [], "rows": [], "error": ""}
+
+
+def empty_replication_overview_info():
+    return {
+        "replica_status": empty_replication_report(),
+        "replication_connection": empty_replication_report(),
+        "replication_applier": empty_replication_report(),
+        "replication_workers": empty_replication_report(),
+        "group_members": empty_replication_report(),
+        "group_member_stats": empty_replication_report(),
+        "replica_channel_count": "-",
+        "replica_io_running_label": "-",
+        "replica_sql_running_label": "-",
+        "replica_lag_label": "-",
+        "performance_schema_channel_count": "-",
+        "group_member_count": "-",
     }
 
 
@@ -6858,9 +6953,11 @@ def update_dbconsole_status():
 @app.route("/mysql/dashboard")
 @login_required
 def mysql_dashboard_page():
-    dashboard_tab = str(request.args.get("dashboard_tab", "security")).strip().lower()
-    if dashboard_tab not in {"security", "error-log"}:
-        dashboard_tab = "security"
+    dashboard_tab = str(request.args.get("dashboard_tab", "server-database")).strip().lower()
+    if dashboard_tab == "error-log":
+        dashboard_tab = "logs"
+    if dashboard_tab not in {"server-database", "logs", "security", "heatwave", "replication"}:
+        dashboard_tab = "server-database"
     selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
     selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
     selected_error_log_code = normalize_error_log_code(request.args.get("error_code"))
@@ -6870,6 +6967,7 @@ def mysql_dashboard_page():
         selected_error_log_period,
         selected_error_log_code,
         selected_error_log_message_like,
+        sections={dashboard_tab},
     )
     return render_dashboard(
         "mysql_dashboard.html",
@@ -6884,6 +6982,8 @@ def build_mysql_dashboard_snapshot_context(
     selected_error_log_period,
     selected_error_log_code,
     selected_error_log_message_like,
+    *,
+    sections=None,
 ):
     return module_build_mysql_dashboard_context(
         fetch_server_overview=lambda: fetch_server_overview(
@@ -6891,9 +6991,12 @@ def build_mysql_dashboard_snapshot_context(
             recent_error_log_period=selected_error_log_period["value"],
             recent_error_log_code=selected_error_log_code,
             recent_error_log_message_like=selected_error_log_message_like,
+            sections=sections,
         ),
         fetch_database_inventory=fetch_database_inventory,
         fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
+        include_inventory=sections is None or "server-database" in sections or "heatwave" in sections,
+        include_heatwave=sections is None or "heatwave" in sections,
     )
 
 
@@ -6909,9 +7012,22 @@ def mysql_dashboard_download_page():
         selected_error_log_period,
         selected_error_log_code,
         selected_error_log_message_like,
+        sections={"server-database", "logs", "security", "heatwave", "replication"},
     )
     generated_at = datetime.now(timezone.utc)
     profile = get_session_profile()
+    global_variables = []
+    global_variables_error = ""
+    global_status = []
+    global_status_error = ""
+    try:
+        global_variables = fetch_all_show_variable_rows("VARIABLES")
+    except Exception as error:  # pragma: no cover - depends on server privileges
+        global_variables_error = str(error)
+    try:
+        global_status = fetch_all_show_variable_rows("STATUS")
+    except Exception as error:  # pragma: no cover - depends on server privileges
+        global_status_error = str(error)
     html = render_template(
         "mysql_dashboard_export.html",
         app_title=APP_TITLE,
@@ -6921,6 +7037,10 @@ def mysql_dashboard_download_page():
         current_profile_name=session.get("profile_name", ""),
         connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
         setup_status=fetch_setup_status(),
+        global_variables=global_variables,
+        global_variables_error=global_variables_error,
+        global_status=global_status,
+        global_status_error=global_status_error,
         **dashboard_context,
     )
     filename = f"admin-dashboard-{generated_at.strftime('%Y%m%d-%H%M%S')}.html"

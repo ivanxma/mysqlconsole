@@ -50,6 +50,15 @@
   </form>
 </section>
 
+<nav class="tab-bar" role="tablist" aria-label="Admin dashboard sections">
+  <a class="tab-link {% if dashboard_tab == 'server-database' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'server-database' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='server-database') }}">Server &amp; Database</a>
+  <a class="tab-link {% if dashboard_tab == 'logs' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'logs' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='logs') }}">Logs</a>
+  <a class="tab-link {% if dashboard_tab == 'security' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'security' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='security') }}">Security</a>
+  <a class="tab-link {% if dashboard_tab == 'heatwave' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'heatwave' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='heatwave') }}">HeatWave</a>
+  <a class="tab-link {% if dashboard_tab == 'replication' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if dashboard_tab == 'replication' else 'false' }}" href="{{ url_for('mysql_dashboard_page', dashboard_tab='replication') }}">Replication</a>
+</nav>
+
+{% if dashboard_tab == 'server-database' %}
 <section class="info-grid">
   <article class="info-card metric-card">
     <span class="metric-label">Endpoint</span>
@@ -231,14 +240,6 @@
       <dd>{{ setup_status.summary }}</dd>
     </div>
     <div>
-      <dt>Installed Components</dt>
-      <dd>{{ server_overview.installed_component_count }}</dd>
-    </div>
-    <div>
-      <dt>Security Features</dt>
-      <dd>{{ server_overview.enabled_security_feature_count }} active of {{ server_overview.security_feature_count }}</dd>
-    </div>
-    <div>
       <dt>Global Time Zone</dt>
       <dd>{{ server_overview.global_time_zone }}</dd>
     </div>
@@ -287,43 +288,16 @@
   <p class="helper-text error-text">{{ server_overview.time_zone_tables_error }}</p>
   {% endif %}
 </section>
+{% endif %}
 
+{% if dashboard_tab == 'security' %}
 <section class="panel">
   <div class="panel-header">
     <div>
-      <h3>Security and Diagnostics</h3>
-      <span class="helper-text">Compact tabbed view for component inventory, security features, and filtered <code>performance_schema.error_log</code> rows.</span>
+      <h3>Security</h3>
+      <span class="helper-text">Component inventory, security features, MySQL Audit, MySQL Firewall, and password-related server state.</span>
     </div>
   </div>
-  <div class="tab-bar" role="tablist" aria-label="Security and diagnostics tabs">
-    <button
-      class="tab-link {% if dashboard_tab == 'security' %}active{% endif %}"
-      type="button"
-      role="tab"
-      aria-selected="{{ 'true' if dashboard_tab == 'security' else 'false' }}"
-      data-dashboard-tab-group="security-diagnostics"
-      data-dashboard-tab-button="security"
-    >
-      Security
-    </button>
-    <button
-      class="tab-link {% if dashboard_tab == 'error-log' %}active{% endif %}"
-      type="button"
-      role="tab"
-      aria-selected="{{ 'true' if dashboard_tab == 'error-log' else 'false' }}"
-      data-dashboard-tab-group="security-diagnostics"
-      data-dashboard-tab-button="error-log"
-    >
-      Error Log
-    </button>
-  </div>
-  <section
-    class="dashboard-tab-panel {% if dashboard_tab == 'security' %}active{% endif %}"
-    role="tabpanel"
-    data-dashboard-tab-group="security-diagnostics"
-    data-dashboard-tab-panel="security"
-    {% if dashboard_tab != 'security' %}hidden{% endif %}
-  >
     <div class="dashboard-security-stack">
       <article class="dashboard-compact-card">
         <h4>Security Overview</h4>
@@ -351,10 +325,6 @@
           <div>
             <dt>Password Policy</dt>
             <dd>{{ server_overview.password_info.enabled_label }}</dd>
-          </div>
-          <div>
-            <dt>Error Log Rows</dt>
-            <dd>{{ server_overview.recent_error_log_count }}</dd>
           </div>
         </dl>
         {% if server_overview.installed_components_error %}
@@ -648,16 +618,19 @@
         </article>
       </section>
     </div>
-  </section>
-  <section
-    class="dashboard-tab-panel {% if dashboard_tab == 'error-log' %}active{% endif %}"
-    role="tabpanel"
-    data-dashboard-tab-group="security-diagnostics"
-    data-dashboard-tab-panel="error-log"
-    {% if dashboard_tab != 'error-log' %}hidden{% endif %}
-  >
+</section>
+{% endif %}
+
+{% if dashboard_tab == 'logs' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Logs</h3>
+      <span class="helper-text">Filtered <code>performance_schema.error_log</code> rows.</span>
+    </div>
+  </div>
     <form method="get" class="form-grid compact-form error-log-filter-form">
-      <input type="hidden" name="dashboard_tab" value="error-log">
+      <input type="hidden" name="dashboard_tab" value="logs">
       <div class="priority-filter-shell">
         <span class="metric-label">Period</span>
         <div class="priority-filter-list error-log-period-list">
@@ -769,9 +742,10 @@
         </tbody>
       </table>
     </div>
-  </section>
 </section>
+{% endif %}
 
+{% if dashboard_tab == 'replication' %}
 <section class="panel">
   <div class="panel-header">
     <h3>Replication</h3>
@@ -851,7 +825,9 @@
     </article>
   </section>
 </section>
+{% endif %}
 
+{% if dashboard_tab == 'heatwave' %}
 <section class="panel">
   <div class="panel-header">
     <h3>HeatWave Status</h3>
@@ -880,7 +856,9 @@
     </table>
   </div>
 </section>
+{% endif %}
 
+{% if dashboard_tab in ['server-database', 'heatwave'] %}
 <section class="panel">
   <div class="panel-header">
     <h3>Database Inventory</h3>
@@ -899,10 +877,12 @@
           <th>InnoDB</th>
           <th>Views</th>
           <th>Stored Procedures / Functions</th>
+          {% if dashboard_tab == 'heatwave' %}
           <th>HeatWave Tables</th>
           <th>Loaded 100%</th>
           <th>Partial</th>
           <th>None</th>
+          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -914,20 +894,23 @@
           <td>{{ row.innodb_table_count }}</td>
           <td>{{ row.view_count }}</td>
           <td>{{ row.routine_count }}</td>
+          {% if dashboard_tab == 'heatwave' %}
           <td>{{ row.heatwave_table_count }}</td>
           <td>{{ row.heatwave_loaded_count }}</td>
           <td>{{ row.heatwave_partial_count }}</td>
           <td>{{ row.heatwave_not_loaded_count }}</td>
+          {% endif %}
         </tr>
         {% else %}
         <tr>
-          <td colspan="10">No database metadata available.</td>
+          <td colspan="{{ 10 if dashboard_tab == 'heatwave' else 6 }}">No database metadata available.</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -956,25 +939,6 @@
       }
       dialog.removeAttribute("open");
     };
-
-    const activateDashboardTab = (groupName, tabName) => {
-      document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-button]`).forEach((button) => {
-        const isActive = button.dataset.dashboardTabButton === tabName;
-        button.classList.toggle("active", isActive);
-        button.setAttribute("aria-selected", isActive ? "true" : "false");
-      });
-      document.querySelectorAll(`[data-dashboard-tab-group="${groupName}"][data-dashboard-tab-panel]`).forEach((panel) => {
-        const isActive = panel.dataset.dashboardTabPanel === tabName;
-        panel.classList.toggle("active", isActive);
-        panel.hidden = !isActive;
-      });
-    };
-
-    document.querySelectorAll("[data-dashboard-tab-button]").forEach((button) => {
-      button.addEventListener("click", () => {
-        activateDashboardTab(button.dataset.dashboardTabGroup, button.dataset.dashboardTabButton);
-      });
-    });
 
     document.querySelectorAll("[data-open-dialog]").forEach((trigger) => {
       const showLinkedDialog = () => {
