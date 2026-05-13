@@ -41,6 +41,7 @@ MYSQL_APT_LIST="${MYSQL_APT_LIST:-/etc/apt/sources.list.d/mysql.list}"
 MYSQL_APT_REPO_URL="${MYSQL_APT_REPO_URL:-http://repo.mysql.com/apt/ubuntu/}"
 MYSQL_APT_COMPONENTS="${MYSQL_APT_COMPONENTS:-mysql-innovation mysql-tools}"
 MYSQL_SHELL_PACKAGE="${MYSQL_SHELL_PACKAGE:-mysql-shell}"
+MYSQL_SHELL_VENDOR_DOWNLOAD_BASE="${MYSQL_SHELL_VENDOR_DOWNLOAD_BASE:-https://dev.mysql.com/get/Downloads/MySQL-Shell}"
 TMP_KEYRING_FILE="$(mktemp)"
 TMP_LIST_FILE="$(mktemp)"
 
@@ -97,7 +98,41 @@ current_mysqlsh_version() {
 
 show_mysql_shell_candidates() {
   echo "Available ${MYSQL_SHELL_PACKAGE} versions from configured vendor repositories:" >&2
-  apt-cache policy "$MYSQL_SHELL_PACKAGE" >&2 || true
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20s apt-cache policy "$MYSQL_SHELL_PACKAGE" >&2 || echo "Unable to list ${MYSQL_SHELL_PACKAGE} candidates within 20 seconds." >&2
+  else
+    apt-cache policy "$MYSQL_SHELL_PACKAGE" >&2 || true
+  fi
+}
+
+vendor_arch() {
+  case "$(dpkg --print-architecture)" in
+    amd64)
+      printf 'amd64'
+      ;;
+    arm64)
+      printf 'arm64'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+install_mysql_shell_vendor_package() {
+  local arch package_url package_file
+  arch="$(vendor_arch)" || {
+    echo "Unsupported architecture for MySQL Shell vendor package fallback: $(dpkg --print-architecture)" >&2
+    return 1
+  }
+  package_file="$(mktemp "/tmp/mysql-shell-${MYSQL_SHELL_MIN_VERSION}-XXXXXX.deb")"
+  package_url="${MYSQL_SHELL_VENDOR_DOWNLOAD_BASE%/}/mysql-shell_${MYSQL_SHELL_MIN_VERSION}-1ubuntu${VERSION_ID}_${arch}.deb"
+
+  echo "Configured vendor repositories did not provide MySQL Shell $MYSQL_SHELL_MIN_VERSION or newer." >&2
+  echo "Downloading MySQL Shell from vendor URL: $package_url" >&2
+  curl -fsSL "$package_url" -o "$package_file"
+  run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package_file"
+  rm -f "$package_file"
 }
 
 if ! run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$MYSQL_SHELL_PACKAGE"; then
@@ -108,8 +143,12 @@ fi
 MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
 
 if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
-  show_mysql_shell_candidates
   run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade "$MYSQL_SHELL_PACKAGE"
+  MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+fi
+
+if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
+  install_mysql_shell_vendor_package
   MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
 fi
 
@@ -120,7 +159,7 @@ fi
 
 if ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
   show_mysql_shell_candidates
-  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the configured MySQL vendor repositories did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
+  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the configured MySQL vendor repositories and computed vendor package URL did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
   exit 1
 fi
 

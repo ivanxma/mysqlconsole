@@ -74,7 +74,7 @@ set_mysql_repo_enabled() {
   fi
 }
 
-run_root dnf install -y dnf-plugins-core ca-certificates
+run_root dnf install -y dnf-plugins-core ca-certificates curl
 install_mysql_repo_release
 set_mysql_repo_enabled "no" mysql-8.4-lts-community mysql-tools-8.4-lts-community || true
 set_mysql_repo_enabled "yes" mysql-innovation-community mysql-tools-innovation-community
@@ -103,6 +103,7 @@ version_ge() {
 
 MYSQL_SHELL_MIN_VERSION="${MYSQL_SHELL_MIN_VERSION:-9.7.0}"
 MYSQL_SHELL_PACKAGE="${MYSQL_SHELL_PACKAGE:-mysql-shell}"
+MYSQL_SHELL_VENDOR_DOWNLOAD_BASE="${MYSQL_SHELL_VENDOR_DOWNLOAD_BASE:-https://dev.mysql.com/get/Downloads/MySQL-Shell}"
 
 current_mysqlsh_version() {
   local version_output
@@ -112,7 +113,41 @@ current_mysqlsh_version() {
 
 show_mysql_shell_candidates() {
   echo "Available ${MYSQL_SHELL_PACKAGE} versions from enabled vendor repositories:" >&2
-  dnf --showduplicates list "$MYSQL_SHELL_PACKAGE" 2>/dev/null >&2 || true
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20s dnf -q --showduplicates list "$MYSQL_SHELL_PACKAGE" >&2 || echo "Unable to list ${MYSQL_SHELL_PACKAGE} candidates within 20 seconds." >&2
+  else
+    dnf -q --showduplicates list "$MYSQL_SHELL_PACKAGE" >&2 || true
+  fi
+}
+
+vendor_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      printf 'x86_64'
+      ;;
+    aarch64|arm64)
+      printf 'aarch64'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+install_mysql_shell_vendor_package() {
+  local arch package_url package_file
+  arch="$(vendor_arch)" || {
+    echo "Unsupported architecture for MySQL Shell vendor package fallback: $(uname -m)" >&2
+    return 1
+  }
+  package_file="$(mktemp "/tmp/mysql-shell-${MYSQL_SHELL_MIN_VERSION}-XXXXXX.rpm")"
+  package_url="${MYSQL_SHELL_VENDOR_DOWNLOAD_BASE%/}/mysql-shell-${MYSQL_SHELL_MIN_VERSION}-1.el8.${arch}.rpm"
+
+  echo "Enabled vendor repositories did not provide MySQL Shell $MYSQL_SHELL_MIN_VERSION or newer." >&2
+  echo "Downloading MySQL Shell from vendor URL: $package_url" >&2
+  curl -fsSL "$package_url" -o "$package_file"
+  run_root dnf install -y "$package_file"
+  rm -f "$package_file"
 }
 
 run_root dnf clean expire-cache
@@ -122,8 +157,12 @@ run_root dnf install -y --refresh --best --allowerasing "$MYSQL_SHELL_PACKAGE"
 MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
 
 if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
-  show_mysql_shell_candidates
   run_root dnf upgrade -y --refresh --best --allowerasing "$MYSQL_SHELL_PACKAGE"
+  MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
+fi
+
+if [[ -n "$MYSQL_SHELL_VERSION" ]] && ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
+  install_mysql_shell_vendor_package
   MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"
 fi
 
@@ -134,7 +173,7 @@ fi
 
 if ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
   show_mysql_shell_candidates
-  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the enabled MySQL vendor repositories did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
+  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but the enabled MySQL vendor repositories and computed vendor package URL did not provide MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer." >&2
   exit 1
 fi
 
