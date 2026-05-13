@@ -368,6 +368,7 @@ For `start_http.sh` and `start_https.sh`:
 - bulk-change selected table charset/collation with `ALTER TABLE ... CONVERT TO CHARACTER SET`
 - change selected character-column charset/collation with generated `MODIFY COLUMN` clauses
 - preview charset/collation change SQL before execution, including generated foreign key drop and recreate statements
+- download the generated charset/collation SQL plan as a `.sql` file
 - optionally run charset/collation changes with `FOREIGN_KEY_CHECKS=0` and drop/recreate outgoing foreign keys touching selected changes
 - view column metadata
 - view `CREATE TABLE`

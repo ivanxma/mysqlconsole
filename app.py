@@ -1830,6 +1830,42 @@ def preview_db_admin_charset_collation(database_name, payload):
     return build_db_admin_charset_collation_plan(database_name, payload)
 
 
+def build_db_admin_charset_collation_script(plan):
+    lines = [
+        "-- DBConsole charset/collation change script",
+        f"-- Database: {plan['database_name']}",
+        f"-- Target character set: {plan['target_charset']}",
+        f"-- Target collation: {plan['target_collation']}",
+        f"-- Selected tables: {plan['selected_table_count']}",
+        f"-- Selected columns: {plan['selected_column_count']}",
+        "",
+    ]
+    if plan["disable_fk_checks"]:
+        lines.extend([
+            "-- Foreign key checks disabled for this script.",
+            "SET FOREIGN_KEY_CHECKS = 0;",
+            "",
+        ])
+    if plan["drop_statements"]:
+        lines.append("-- Drop foreign keys before charset/collation changes.")
+        lines.extend(f"{statement};" for statement in plan["drop_statements"])
+        lines.append("")
+    lines.append("-- Apply charset/collation changes.")
+    lines.extend(f"{statement};" for statement in plan["alter_statements"])
+    lines.append("")
+    if plan["recreate_statements"]:
+        lines.append("-- Recreate foreign keys after charset/collation changes.")
+        lines.extend(f"{statement};" for statement in plan["recreate_statements"])
+        lines.append("")
+    if plan["disable_fk_checks"]:
+        lines.extend([
+            "-- Restore foreign key checks.",
+            "SET FOREIGN_KEY_CHECKS = 1;",
+            "",
+        ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def modify_db_admin_charset_collation(database_name, payload):
     plan = build_db_admin_charset_collation_plan(database_name, payload)
     executed_drops = 0
@@ -6516,6 +6552,26 @@ def db_admin_page():
         selected_table = str(request.form.get("table_name", selected_table)).strip()
         if action == "create_event":
             selected_database = str(request.form.get("event_database_name", selected_database)).strip()
+        if action == "download_charset_collation_script":
+            try:
+                plan = preview_db_admin_charset_collation(selected_database, request.form)
+                script_text = build_db_admin_charset_collation_script(plan)
+                filename_database = re.sub(r"[^A-Za-z0-9_.-]+", "_", plan["database_name"]).strip("._") or "database"
+                response = Response(script_text, mimetype="application/sql")
+                response.headers["Content-Disposition"] = (
+                    f"attachment; filename={filename_database}-charset-collation-plan.sql"
+                )
+                return response
+            except Exception as error:
+                flash(str(error), "error")
+                db_admin_charset_collation_payload = request.form
+                return redirect(
+                    url_for(
+                        "db_admin_page",
+                        db_admin_tab="charset-collation",
+                        database=selected_database,
+                    )
+                )
         try:
             action_result = module_handle_db_admin_action(
                 action,

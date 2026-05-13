@@ -803,6 +803,38 @@ dialog.management-dialog::backdrop {
   margin: 4px 0 0;
 }
 
+.db-admin-charset-toolbar {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.db-admin-charset-select-all {
+  grid-column: auto;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.db-admin-charset-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.db-admin-charset-download {
+  margin-left: auto;
+}
+
+.db-admin-charset-select-all input[type="checkbox"],
+[data-charset-table-row],
+[data-charset-column-row] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .event-status-badge {
   display: inline-flex;
   align-items: center;
