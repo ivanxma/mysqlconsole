@@ -34,6 +34,14 @@
       Event
     </a>
     <a
+      class="tab-link {% if db_admin_tab == 'charset-collation' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'charset-collation' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='charset-collation', database=selected_database) }}"
+    >
+      Charset / Collation
+    </a>
+    <a
       class="tab-link {% if db_admin_tab == 'missing-primary-key' %}active{% endif %}"
       role="tab"
       aria-selected="{{ 'true' if db_admin_tab == 'missing-primary-key' else 'false' }}"
@@ -258,6 +266,188 @@
           {% else %}
           <tr>
             <td colspan="8">No user-schema events were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {% endif %}
+  {% elif db_admin_tab == 'charset-collation' %}
+  <div class="panel-header">
+    <div>
+      <h3>Charset / Collation</h3>
+      <span class="helper-text">Review table defaults and character columns that differ from each table collation.</span>
+    </div>
+  </div>
+  <form method="get" class="form-grid compact-form">
+    <input type="hidden" name="db_admin_tab" value="charset-collation">
+    <label>
+      Database
+      <select name="database" onchange="this.form.submit()">
+        <option value="">Choose a database</option>
+        {% for row in database_inventory %}
+        {% if not row.is_system %}
+        <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
+          {{ row.database_name }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% if charset_collation_report.error %}
+  <p class="helper-text error-text">{{ charset_collation_report.error }}</p>
+  {% elif not selected_database %}
+  <p class="helper-text">Choose a database to inspect table and column charset/collation metadata.</p>
+  {% else %}
+  <div class="count-summary-grid">
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.table_count }}</span>
+      <span class="count-link-helper">Base tables</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.text_column_count }}</span>
+      <span class="count-link-helper">Character columns</span>
+    </article>
+    <article class="count-link-card">
+      <span class="count-link-value">{{ charset_collation_report.column_difference_count }}</span>
+      <span class="count-link-helper">Column differences</span>
+    </article>
+  </div>
+  <form method="post" data-charset-collation-form onsubmit="return confirm('Apply the selected charset/collation changes?');">
+    <input type="hidden" name="db_admin_tab" value="charset-collation">
+    <input type="hidden" name="db_action" value="modify_charset_collation">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <div class="form-grid compact-form">
+      <label>
+        Target Character Set
+        <select name="target_charset" required data-charset-select>
+          <option value="">Choose a character set</option>
+          {% for option in charset_collation_options.charsets %}
+          <option value="{{ option.charset_name }}" data-default-collation="{{ option.default_collation }}" {% if option.charset_name == 'utf8mb4' %}selected{% endif %}>
+            {{ option.charset_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Target Collation
+        <select name="target_collation" required data-collation-select>
+          <option value="">Use character-set default</option>
+          {% for option in charset_collation_options.collations %}
+          <option value="{{ option.collation_name }}" data-charset="{{ option.charset_name }}" {% if option.collation_name == 'utf8mb4_0900_ai_ci' %}selected{% endif %}>
+            {{ option.collation_name }}{% if option.is_default %} (default){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Foreign Key Checks
+        <select name="foreign_key_checks">
+          <option value="on" selected>ON</option>
+          <option value="off">OFF during execution</option>
+        </select>
+      </label>
+      <label class="checkbox-field">
+        <input type="checkbox" name="drop_foreign_keys" value="1">
+        <span>Drop outgoing foreign keys touching selected changes</span>
+      </label>
+    </div>
+    <div class="table-wrap">
+      <div class="table-layout-toolbar">
+        <label class="checkbox-field">
+          <input type="checkbox" data-charset-table-select-all {% if not charset_collation_report.rows %}disabled{% endif %}>
+          <span>Select all tables</span>
+        </label>
+        <button
+          class="button primary"
+          type="submit"
+          data-charset-collation-action
+          {% if not charset_collation_report.rows %}disabled{% endif %}
+        >
+          Modify Charset / Collation
+        </button>
+        <span class="helper-text" data-charset-collation-selection-count>0 selected</span>
+      </div>
+      <table class="db-admin-charset-table">
+        <thead>
+          <tr>
+            <th>Select Table</th>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+            <th>Table Charset</th>
+            <th>Table Collation</th>
+            <th>Character Columns</th>
+            <th>Column Differences</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in charset_collation_report.rows %}
+          <tr>
+            <td>
+              <input type="checkbox" name="selected_charset_table" value="{{ row.table_name }}" data-charset-table-row>
+            </td>
+            <td><strong>{{ row.table_name }}</strong></td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.table_charset }}</td>
+            <td>{{ row.table_collation }}</td>
+            <td>{{ row.text_column_count }}</td>
+            <td>
+              {% if row.has_column_differences %}
+              <strong>{{ row.column_difference_count }}</strong>
+              {% else %}
+              -
+              {% endif %}
+            </td>
+          </tr>
+          {% if row.text_columns %}
+          <tr class="db-admin-charset-column-row">
+            <td></td>
+            <td colspan="7">
+              <div class="table-wrap">
+                <table class="db-admin-charset-column-table">
+                  <thead>
+                    <tr>
+                      <th>Select Column</th>
+                      <th>Column</th>
+                      <th>Type</th>
+                      <th>Charset</th>
+                      <th>Collation</th>
+                      <th>Difference</th>
+                      <th>Outgoing FK</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for column in row.text_columns %}
+                    <tr>
+                      <td>
+                        <input
+                          type="checkbox"
+                          name="selected_charset_column"
+                          value="{{ {'table': row.table_name, 'column': column.column_name}|tojson|forceescape }}"
+                          data-charset-column-row
+                        >
+                      </td>
+                      <td>{{ column.column_name }}</td>
+                      <td>{{ column.column_type }}</td>
+                      <td>{{ column.charset_name }}</td>
+                      <td>{{ column.collation_name }}</td>
+                      <td>{{ "Differs" if column.differs_from_table else "-" }}</td>
+                      <td>{{ column.outgoing_foreign_keys or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+          {% else %}
+          <tr>
+            <td colspan="8">No base tables were returned for this database.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -836,6 +1026,83 @@
       });
 
       syncEventSelectionState();
+    }
+
+    const charsetCollationForm = document.querySelector("[data-charset-collation-form]");
+    if (charsetCollationForm) {
+      const charsetSelect = charsetCollationForm.querySelector("[data-charset-select]");
+      const collationSelect = charsetCollationForm.querySelector("[data-collation-select]");
+      const tableSelectAll = charsetCollationForm.querySelector("[data-charset-table-select-all]");
+      const tableCheckboxes = Array.from(charsetCollationForm.querySelectorAll("[data-charset-table-row]"));
+      const columnCheckboxes = Array.from(charsetCollationForm.querySelectorAll("[data-charset-column-row]"));
+      const actionButtons = Array.from(charsetCollationForm.querySelectorAll("[data-charset-collation-action]"));
+      const countLabels = Array.from(charsetCollationForm.querySelectorAll("[data-charset-collation-selection-count]"));
+
+      const syncCharsetCollationSelectionState = () => {
+        const checkedTableCount = tableCheckboxes.filter((checkbox) => checkbox.checked).length;
+        const checkedColumnCount = columnCheckboxes.filter((checkbox) => checkbox.checked).length;
+        const checkedCount = checkedTableCount + checkedColumnCount;
+        if (tableSelectAll) {
+          tableSelectAll.checked = tableCheckboxes.length > 0 && checkedTableCount === tableCheckboxes.length;
+          tableSelectAll.indeterminate = checkedTableCount > 0 && checkedTableCount < tableCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        countLabels.forEach((label) => {
+          label.textContent = `${checkedTableCount} table(s), ${checkedColumnCount} column(s) selected`;
+        });
+      };
+
+      const syncCollationOptions = () => {
+        if (!charsetSelect || !collationSelect) {
+          return;
+        }
+        const selectedCharset = charsetSelect.value;
+        const selectedCharsetOption = charsetSelect.options[charsetSelect.selectedIndex];
+        const defaultCollation = selectedCharsetOption ? selectedCharsetOption.dataset.defaultCollation : "";
+        let visibleSelected = false;
+        Array.from(collationSelect.options).forEach((option) => {
+          if (!option.value) {
+            option.hidden = false;
+            return;
+          }
+          const visible = option.dataset.charset === selectedCharset;
+          option.hidden = !visible;
+          if (!visible && option.selected) {
+            option.selected = false;
+          }
+          if (visible && option.selected) {
+            visibleSelected = true;
+          }
+        });
+        if (!visibleSelected && defaultCollation) {
+          const defaultOption = Array.from(collationSelect.options).find((option) => option.value === defaultCollation);
+          if (defaultOption) {
+            defaultOption.selected = true;
+          }
+        }
+      };
+
+      if (tableSelectAll) {
+        tableSelectAll.addEventListener("change", () => {
+          tableCheckboxes.forEach((checkbox) => {
+            checkbox.checked = tableSelectAll.checked;
+          });
+          syncCharsetCollationSelectionState();
+        });
+      }
+      tableCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncCharsetCollationSelectionState);
+      });
+      columnCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncCharsetCollationSelectionState);
+      });
+      if (charsetSelect) {
+        charsetSelect.addEventListener("change", syncCollationOptions);
+      }
+      syncCollationOptions();
+      syncCharsetCollationSelectionState();
     }
 
     const scheduleSelect = document.querySelector("[data-event-schedule-select]");

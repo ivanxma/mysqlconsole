@@ -1,5 +1,6 @@
 import base64
 import csv
+import hmac
 import io
 import json
 import os
@@ -103,6 +104,7 @@ DBCONSOLE_SESSION_VERSION_KEY = "_dbconsole_session_version"
 DBCONSOLE_SESSION_VERSION = 1
 DBCONSOLE_CREDENTIAL_SESSION_KEY = "dbconsole_server_session_id"
 DBCONSOLE_VERSION_CHECK_SESSION_KEY = "dbconsole_version_check"
+DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY = "dbconsole_update_poll_token"
 DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
@@ -121,7 +123,7 @@ ERROR_LOG_PERIOD_OPTIONS = (
     {"value": "all", "label": "ALL", "hours": None},
 )
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
-DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event"}
+DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "charset-collation"}
 DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
 DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
@@ -402,6 +404,29 @@ def _load_dbconsole_update_status_payload():
     return status
 
 
+def _public_dbconsole_update_status(status):
+    public_status = dict(status or {})
+    public_status.pop("poll_token", None)
+    return public_status
+
+
+def _ensure_dbconsole_update_poll_token():
+    token = str(session.get(DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY, "")).strip()
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        token = uuid4().hex
+        session[DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY] = token
+    return token
+
+
+def _update_status_poll_token_is_valid(status):
+    expected_token = str((status or {}).get("poll_token", "")).strip()
+    supplied_token = str(
+        request.headers.get("X-DBConsole-Update-Poll-Token", "")
+        or request.args.get("poll_token", "")
+    ).strip()
+    return bool(expected_token and supplied_token and hmac.compare_digest(expected_token, supplied_token))
+
+
 def _maybe_finalize_dbconsole_update_status(status):
     normalized_status = dict(status or _default_dbconsole_update_status())
     restart_requested_at = _parse_iso_datetime(normalized_status.get("restart_requested_at"))
@@ -465,6 +490,7 @@ def start_dbconsole_update_job():
             "worker_pid": None,
             "service_names": [],
             "restart_requested_at": "",
+            "poll_token": _ensure_dbconsole_update_poll_token(),
         }
     )
     _append_dbconsole_update_log("Launching the DBConsole update worker.")
@@ -1240,6 +1266,443 @@ def fetch_tables_for_database(database_name):
             }
         )
     return tables
+
+
+def fetch_charset_collation_options():
+    rows = execute_query(
+        """
+        SELECT
+          cs.character_set_name AS character_set_name_value,
+          cs.default_collate_name AS default_collation_name_value,
+          c.collation_name AS collation_name_value,
+          c.is_default AS is_default_value
+        FROM information_schema.character_sets AS cs
+        JOIN information_schema.collations AS c
+          ON c.character_set_name = cs.character_set_name
+        ORDER BY cs.character_set_name, c.is_default DESC, c.collation_name
+        """
+    )
+    charset_lookup = {}
+    collations = []
+    for row in rows:
+        charset_name = row["character_set_name_value"]
+        default_collation = row["default_collation_name_value"] or ""
+        if charset_name not in charset_lookup:
+            charset_lookup[charset_name] = {
+                "charset_name": charset_name,
+                "default_collation": default_collation,
+            }
+        collations.append(
+            {
+                "charset_name": charset_name,
+                "collation_name": row["collation_name_value"],
+                "is_default": str(row["is_default_value"] or "").upper() == "YES",
+            }
+        )
+    return {
+        "charsets": sorted(charset_lookup.values(), key=lambda item: item["charset_name"].lower()),
+        "collations": collations,
+    }
+
+
+def _fetch_db_admin_charset_column_rows(database_name):
+    if not database_name:
+        return []
+    rows = execute_query(
+        """
+        SELECT
+          c.table_name AS table_name_value,
+          c.column_name AS column_name_value,
+          c.column_type AS column_type_value,
+          c.character_set_name AS character_set_name_value,
+          c.collation_name AS collation_name_value,
+          c.column_key AS column_key_value,
+          c.extra AS extra_value,
+          c.ordinal_position AS ordinal_position_value,
+          GROUP_CONCAT(
+            DISTINCT CONCAT(
+              k.constraint_name,
+              ' -> ',
+              k.referenced_table_schema,
+              '.',
+              k.referenced_table_name,
+              '.',
+              k.referenced_column_name
+            )
+            ORDER BY k.constraint_name
+            SEPARATOR '; '
+          ) AS outgoing_foreign_keys_value
+        FROM information_schema.columns AS c
+        LEFT JOIN information_schema.key_column_usage AS k
+          ON k.table_schema = c.table_schema
+         AND k.table_name = c.table_name
+         AND k.column_name = c.column_name
+         AND k.referenced_table_name IS NOT NULL
+        WHERE c.table_schema = %s
+          AND c.character_set_name IS NOT NULL
+        GROUP BY
+          c.table_name,
+          c.column_name,
+          c.column_type,
+          c.character_set_name,
+          c.collation_name,
+          c.column_key,
+          c.extra,
+          c.ordinal_position
+        ORDER BY c.table_name, c.ordinal_position
+        """,
+        [database_name],
+    )
+    return [
+        {
+            "table_name": row["table_name_value"],
+            "column_name": row["column_name_value"],
+            "column_type": row["column_type_value"],
+            "charset_name": row["character_set_name_value"] or "",
+            "collation_name": row["collation_name_value"] or "",
+            "column_key": row["column_key_value"] or "",
+            "extra": row["extra_value"] or "",
+            "ordinal_position": row["ordinal_position_value"],
+            "outgoing_foreign_keys": row["outgoing_foreign_keys_value"] or "",
+            "has_outgoing_foreign_key": bool(row["outgoing_foreign_keys_value"]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_db_admin_charset_collation_report(database_name):
+    normalized_database = str(database_name or "").strip()
+    report = {
+        "rows": [],
+        "error": "",
+        "table_count": 0,
+        "text_column_count": 0,
+        "column_difference_count": 0,
+    }
+    if not normalized_database:
+        return report
+
+    table_rows = execute_query(
+        """
+        SELECT
+          t.table_name AS table_name_value,
+          t.engine AS engine_value,
+          t.table_rows AS table_rows_value,
+          t.table_collation AS table_collation_value,
+          co.character_set_name AS table_charset_value
+        FROM information_schema.tables AS t
+        LEFT JOIN information_schema.collations AS co
+          ON co.collation_name = t.table_collation
+        WHERE t.table_schema = %s
+          AND t.table_type = 'BASE TABLE'
+        ORDER BY t.table_name
+        """,
+        [normalized_database],
+    )
+    column_rows = _fetch_db_admin_charset_column_rows(normalized_database)
+    columns_by_table = {}
+    for column in column_rows:
+        columns_by_table.setdefault(column["table_name"], []).append(column)
+
+    for row in table_rows:
+        table_name = row["table_name_value"]
+        table_charset = row["table_charset_value"] or ""
+        table_collation = row["table_collation_value"] or ""
+        columns = []
+        difference_count = 0
+        for column in columns_by_table.get(table_name, []):
+            column_row = dict(column)
+            column_row["differs_from_table"] = bool(
+                table_collation
+                and (
+                    column_row["charset_name"] != table_charset
+                    or column_row["collation_name"] != table_collation
+                )
+            )
+            if column_row["differs_from_table"]:
+                difference_count += 1
+            columns.append(column_row)
+
+        report["rows"].append(
+            {
+                "database_name": normalized_database,
+                "table_name": table_name,
+                "engine": row["engine_value"] or "-",
+                "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
+                "table_charset": table_charset or "-",
+                "table_collation": table_collation or "-",
+                "text_columns": columns,
+                "text_column_count": len(columns),
+                "column_difference_count": difference_count,
+                "has_column_differences": difference_count > 0,
+            }
+        )
+        report["text_column_count"] += len(columns)
+        report["column_difference_count"] += difference_count
+
+    report["table_count"] = len(report["rows"])
+    return report
+
+
+def _validate_charset_collation_pair(charset_name, collation_name):
+    normalized_charset = str(charset_name or "").strip()
+    normalized_collation = str(collation_name or "").strip()
+    if not normalized_charset:
+        raise ValueError("Choose a target character set.")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", normalized_charset):
+        raise ValueError("Target character set is invalid.")
+    if normalized_collation and not re.fullmatch(r"[A-Za-z0-9_]+", normalized_collation):
+        raise ValueError("Target collation is invalid.")
+
+    if not normalized_collation:
+        normalized_collation = fetch_scalar(
+            """
+            SELECT default_collate_name
+            FROM information_schema.character_sets
+            WHERE character_set_name = %s
+            """,
+            [normalized_charset],
+            default="",
+        )
+        normalized_collation = str(normalized_collation or "").strip()
+    if not normalized_collation:
+        raise ValueError(f"Character set `{normalized_charset}` was not found.")
+
+    match_count = fetch_scalar(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.collations
+        WHERE character_set_name = %s
+          AND collation_name = %s
+        """,
+        [normalized_charset, normalized_collation],
+        default=0,
+    )
+    if not match_count:
+        raise ValueError(f"Collation `{normalized_collation}` does not belong to character set `{normalized_charset}`.")
+    return normalized_charset, normalized_collation
+
+
+def _parse_charset_column_selection(raw_values):
+    selected_columns = []
+    seen = set()
+    for raw_value in raw_values or []:
+        try:
+            payload = json.loads(str(raw_value or ""))
+        except json.JSONDecodeError as error:
+            raise ValueError("One or more selected columns are invalid.") from error
+        table_name = str(payload.get("table") or "").strip()
+        column_name = str(payload.get("column") or "").strip()
+        if not table_name or not column_name:
+            raise ValueError("One or more selected columns are invalid.")
+        quote_identifier(table_name)
+        quote_identifier(column_name)
+        key = (table_name, column_name)
+        if key in seen:
+            continue
+        selected_columns.append({"table_name": table_name, "column_name": column_name})
+        seen.add(key)
+    return selected_columns
+
+
+def _extract_column_definitions_from_create_statement(create_table_statement):
+    definitions = {}
+    for line in str(create_table_statement or "").splitlines():
+        match = re.match(r"^\s*`([^`]+)`\s+(.*?)(?:,)?\s*$", line.rstrip())
+        if match:
+            definitions[match.group(1)] = match.group(2).strip()
+    return definitions
+
+
+def _strip_charset_collation_clauses(column_definition):
+    text = str(column_definition or "").strip()
+    text = re.sub(r"\s+CHARACTER\s+SET\s+`?[A-Za-z0-9_]+`?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+CHARSET\s+`?[A-Za-z0-9_]+`?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+COLLATE\s+`?[A-Za-z0-9_]+`?", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _build_column_charset_definition(current_definition, column_type, charset_name, collation_name):
+    cleaned_definition = _strip_charset_collation_clauses(current_definition)
+    normalized_column_type = str(column_type or "").strip()
+    if not cleaned_definition or not normalized_column_type:
+        raise ValueError("Unable to determine the current column definition.")
+    if cleaned_definition[: len(normalized_column_type)].lower() != normalized_column_type.lower():
+        raise ValueError(f"Unable to safely rewrite column definition `{cleaned_definition}`.")
+    remainder = cleaned_definition[len(normalized_column_type) :].strip()
+    new_definition = f"{normalized_column_type} CHARACTER SET {charset_name} COLLATE {collation_name}"
+    if remainder:
+        new_definition = f"{new_definition} {remainder}"
+    return new_definition
+
+
+def _fetch_outgoing_foreign_key_names(database_name, table_name, *, selected_columns=None):
+    params = [database_name, table_name]
+    selected_column_set = {
+        str(column_name or "").strip()
+        for column_name in selected_columns or []
+        if str(column_name or "").strip()
+    }
+    rows = execute_query(
+        """
+        SELECT
+          constraint_name AS constraint_name_value,
+          column_name AS column_name_value
+        FROM information_schema.key_column_usage
+        WHERE table_schema = %s
+          AND table_name = %s
+          AND referenced_table_name IS NOT NULL
+        ORDER BY constraint_name, ordinal_position
+        """,
+        params,
+    )
+    foreign_key_names = []
+    seen = set()
+    for row in rows:
+        column_name = row["column_name_value"]
+        if selected_column_set and column_name not in selected_column_set:
+            continue
+        constraint_name = row["constraint_name_value"]
+        if constraint_name in seen:
+            continue
+        seen.add(constraint_name)
+        foreign_key_names.append(constraint_name)
+    return foreign_key_names
+
+
+def _quote_existing_mysql_identifier(identifier):
+    return "`" + str(identifier or "").replace("`", "``") + "`"
+
+
+def modify_db_admin_charset_collation(database_name, payload):
+    normalized_database = str(database_name or "").strip()
+    if not normalized_database:
+        raise ValueError("Choose a database before modifying charset or collation.")
+    if is_system_schema_name(normalized_database):
+        raise ValueError("System schemas cannot be changed here.")
+    if payload is None or not hasattr(payload, "getlist"):
+        raise ValueError("Charset/collation update payload is missing.")
+
+    target_charset, target_collation = _validate_charset_collation_pair(
+        payload.get("target_charset", ""),
+        payload.get("target_collation", ""),
+    )
+    selected_tables = []
+    seen_tables = set()
+    for raw_table in payload.getlist("selected_charset_table"):
+        table_name = str(raw_table or "").strip()
+        if not table_name or table_name in seen_tables:
+            continue
+        quote_identifier(table_name)
+        selected_tables.append(table_name)
+        seen_tables.add(table_name)
+
+    selected_columns = _parse_charset_column_selection(payload.getlist("selected_charset_column"))
+    selected_columns = [
+        row for row in selected_columns
+        if row["table_name"] not in seen_tables
+    ]
+    if not selected_tables and not selected_columns:
+        raise ValueError("Choose at least one table or column to modify.")
+
+    available_tables = {row["table_name"] for row in fetch_tables_for_database(normalized_database)}
+    missing_tables = [
+        table_name
+        for table_name in selected_tables + [row["table_name"] for row in selected_columns]
+        if table_name not in available_tables
+    ]
+    if missing_tables:
+        raise ValueError(f"Selected table was not found: `{missing_tables[0]}`.")
+
+    drop_foreign_keys = str(payload.get("drop_foreign_keys", "")).strip().lower() in {"1", "true", "yes", "on"}
+    disable_fk_checks = str(payload.get("foreign_key_checks", "on")).strip().lower() == "off"
+    safe_database = quote_identifier(normalized_database)
+
+    alter_statements = []
+    drop_statements = []
+    for table_name in selected_tables:
+        safe_table = quote_identifier(table_name)
+        if drop_foreign_keys:
+            for constraint_name in _fetch_outgoing_foreign_key_names(normalized_database, table_name):
+                drop_statements.append(
+                    f"ALTER TABLE {safe_database}.{safe_table} DROP FOREIGN KEY {_quote_existing_mysql_identifier(constraint_name)}"
+                )
+        alter_statements.append(
+            f"ALTER TABLE {safe_database}.{safe_table} CONVERT TO CHARACTER SET {target_charset} COLLATE {target_collation}"
+        )
+
+    columns_by_table = {}
+    for column in selected_columns:
+        columns_by_table.setdefault(column["table_name"], []).append(column["column_name"])
+
+    for table_name, column_names in columns_by_table.items():
+        safe_table = quote_identifier(table_name)
+        column_rows = {
+            row["column_name"]: row
+            for row in _fetch_db_admin_charset_column_rows(normalized_database)
+            if row["table_name"] == table_name
+        }
+        ddl_statement = fetch_create_table_statement(normalized_database, table_name)
+        definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
+        if drop_foreign_keys:
+            for constraint_name in _fetch_outgoing_foreign_key_names(
+                normalized_database,
+                table_name,
+                selected_columns=column_names,
+            ):
+                drop_statements.append(
+                    f"ALTER TABLE {safe_database}.{safe_table} DROP FOREIGN KEY {_quote_existing_mysql_identifier(constraint_name)}"
+                )
+        for column_name in column_names:
+            column_row = column_rows.get(column_name)
+            if not column_row:
+                raise ValueError(f"Column `{table_name}.{column_name}` was not found or is not character-based.")
+            current_definition = definition_lookup.get(column_name, "")
+            new_definition = _build_column_charset_definition(
+                current_definition,
+                column_row["column_type"],
+                target_charset,
+                target_collation,
+            )
+            alter_statements.append(
+                f"ALTER TABLE {safe_database}.{safe_table} MODIFY COLUMN {quote_identifier(column_name)} {new_definition}"
+            )
+
+    if not alter_statements:
+        raise ValueError("No charset/collation changes were submitted.")
+
+    executed_drops = 0
+    with mysql_connection(database_override=normalized_database) as connection:
+        with connection.cursor() as cursor:
+            if disable_fk_checks:
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+            try:
+                for statement in dict.fromkeys(drop_statements):
+                    cursor.execute(statement)
+                    executed_drops += 1
+                for statement in alter_statements:
+                    cursor.execute(statement)
+            finally:
+                if disable_fk_checks:
+                    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+
+    changed_parts = []
+    if selected_tables:
+        changed_parts.append(f"{len(selected_tables)} table(s)")
+    if selected_columns:
+        changed_parts.append(f"{len(selected_columns)} column(s)")
+    message = (
+        f"Updated charset/collation to `{target_charset}` / `{target_collation}` "
+        f"for {' and '.join(changed_parts)} in `{normalized_database}`."
+    )
+    if executed_drops:
+        message += f" Dropped {executed_drops} outgoing foreign key constraint(s)."
+    if disable_fk_checks:
+        message += " FOREIGN_KEY_CHECKS was disabled for this execution and restored afterward."
+    return {
+        "message": message,
+        "database_name": normalized_database,
+    }
 
 
 def _format_datetime_label(value, *, empty="-"):
@@ -5542,7 +6005,8 @@ def update_dbconsole_page():
     return render_dashboard(
         "update_dbconsole.html",
         page_title="Auto-Update",
-        update_status=get_dbconsole_update_status(),
+        update_status=_public_dbconsole_update_status(get_dbconsole_update_status()),
+        update_poll_token=_ensure_dbconsole_update_poll_token(),
         app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
         or {
             "local_version": get_local_app_version(),
@@ -5557,9 +6021,10 @@ def update_dbconsole_page():
 
 @app.route("/admin/update-dbconsole/status")
 def update_dbconsole_status():
-    if not session.get("logged_in"):
+    update_status = get_dbconsole_update_status()
+    if not session.get("logged_in") and not _update_status_poll_token_is_valid(update_status):
         return jsonify({"error": "Log in to continue."}), 401
-    return jsonify(get_dbconsole_update_status())
+    return jsonify(_public_dbconsole_update_status(update_status))
 
 
 @app.route("/mysql/dashboard")
@@ -5906,6 +6371,7 @@ def db_admin_page():
                 create_db_event=create_db_admin_event,
                 set_db_events_enabled=set_db_admin_events_enabled,
                 delete_db_events=delete_db_admin_events,
+                modify_charset_collation=modify_db_admin_charset_collation,
             )
             if action_result.get("event_action_output"):
                 session[DB_ADMIN_EVENT_OUTPUT_SESSION_KEY] = action_result["event_action_output"]
@@ -5952,6 +6418,8 @@ def db_admin_page():
         event_schedule_options=EVENT_SCHEDULE_OPTIONS,
         focused_event_database=focus_event_database,
         focused_event_name=focus_event_name,
+        fetch_charset_collation_report=fetch_db_admin_charset_collation_report,
+        fetch_charset_collation_options=fetch_charset_collation_options,
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])

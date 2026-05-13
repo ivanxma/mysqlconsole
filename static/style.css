@@ -909,6 +909,17 @@ dialog.management-dialog::backdrop {
   color: #932e21;
 }
 
+.heatwave-action-button:not(:disabled) {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--danger) 0%, #6a1a18 100%);
+}
+
+.heatwave-action-button:hover:not(:disabled),
+.heatwave-action-button:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #bf3e33 0%, #651412 100%);
+}
+
 .management-column-list {
   display: grid;
   gap: 10px;

@@ -21,6 +21,8 @@ DBConsole keeps database credentials out of browser-visible session state. The F
 
 After a successful login, DBConsole reads local `appver.json` and compares it with the repository version file. If the repository version string differs, the user is redirected to `Admin > Auto-Update`; otherwise the normal MySQL dashboard opens. The user icon in the top-right corner shows the current app version and update availability, and clicking it opens the profile/connection details and logout actions.
 
+The `Admin > Auto-Update` status page uses a job-scoped polling token for status reads so progress can keep refreshing during a service restart even when server-side MySQL credential state is rebuilt.
+
 ## Layout
 
 Key files:
@@ -353,7 +355,7 @@ For `start_http.sh` and `start_https.sh`:
 
 `DB Admin` supports:
 
-- tabbed create-database, select-database/table, event, and tables-without-primary-key views
+- tabbed create-database, select-database/table, event, charset/collation, and tables-without-primary-key views
 - tabbed report for tables without a primary key
 - create and drop database
 - select database and table from dropdowns or table list
@@ -361,6 +363,10 @@ For `start_http.sh` and `start_https.sh`:
 - enable, disable, or delete selected events
 - create events with database selection, event name, schedule selection, and event body SQL
 - refresh the event list after create or bulk actions and surface event action output in the page
+- inspect table charset/collation defaults and character columns that differ from the table default
+- bulk-change selected table charset/collation with `ALTER TABLE ... CONVERT TO CHARACTER SET`
+- change selected character-column charset/collation with generated `MODIFY COLUMN` clauses
+- optionally run charset/collation changes with `FOREIGN_KEY_CHECKS=0` and optionally drop outgoing foreign keys touching selected changes
 - view column metadata
 - view `CREATE TABLE`
 - view index metadata
@@ -387,6 +393,7 @@ For `start_http.sh` and `start_https.sh`:
 - tabbed `DB` and `Table` actions
 - database-level HeatWave load and unload actions
 - table-level full load and unload actions
+- consistent red-gradient enabled action buttons across DB and Table actions
 - database status popup with HeatWave load details
 - exclude-column popup with selectable and de-selectable exclusion state
 - multi-result-set procedure output displayed in popup tabs

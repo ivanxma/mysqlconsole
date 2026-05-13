@@ -84,9 +84,9 @@
         </select>
       </label>
       <div class="form-actions stacked-actions">
-        <button class="button primary" type="submit" name="management_action" value="db_load" {% if not selected_database %}disabled{% endif %}>Load</button>
-        <button class="button secondary" type="submit" name="management_action" value="db_unload" {% if not selected_database %}disabled{% endif %}>Unload</button>
-        <button class="button secondary" type="button" data-open-dialog="database-status-dialog" {% if not selected_database %}disabled{% endif %}>Status</button>
+        <button class="button heatwave-action-button" type="submit" name="management_action" value="db_load" {% if not selected_database %}disabled{% endif %}>Load</button>
+        <button class="button heatwave-action-button" type="submit" name="management_action" value="db_unload" {% if not selected_database %}disabled{% endif %}>Unload</button>
+        <button class="button heatwave-action-button" type="button" data-open-dialog="database-status-dialog" {% if not selected_database %}disabled{% endif %}>Status</button>
       </div>
     </form>
     {% if database_status.has_selection %}
@@ -133,9 +133,9 @@
         </select>
       </label>
       <div class="form-actions stacked-actions">
-        <button class="button primary" type="submit" name="management_action" value="table_load" {% if not selected_table %}disabled{% endif %}>Load</button>
-        <button class="button secondary" type="submit" name="management_action" value="table_unload" {% if not selected_table %}disabled{% endif %}>Unload</button>
-        <button class="button secondary" type="button" data-open-dialog="exclude-columns-dialog" {% if not selected_table %}disabled{% endif %}>Exclude Column</button>
+        <button class="button heatwave-action-button" type="submit" name="management_action" value="table_load" {% if not selected_table %}disabled{% endif %}>Load</button>
+        <button class="button heatwave-action-button" type="submit" name="management_action" value="table_unload" {% if not selected_table %}disabled{% endif %}>Unload</button>
+        <button class="button heatwave-action-button" type="button" data-open-dialog="exclude-columns-dialog" {% if not selected_table %}disabled{% endif %}>Exclude Column</button>
       </div>
     </form>
     {% if table_action_summary.has_selection %}

@@ -114,6 +114,7 @@
   (() => {
     const statusUrl = {{ url_for("update_dbconsole_status")|tojson }};
     const initialStatus = {{ update_status|tojson }};
+    const pollToken = {{ update_poll_token|tojson }};
     const restartWaitLimitMs = 30000;
     const pollIntervalMs = 2000;
     const state = {
@@ -175,7 +176,10 @@
       try {
         const response = await window.fetch(statusUrl, {
           method: "GET",
-          headers: { "Accept": "application/json" },
+          headers: {
+            "Accept": "application/json",
+            "X-DBConsole-Update-Poll-Token": pollToken,
+          },
           cache: "no-store",
           credentials: "same-origin",
         });

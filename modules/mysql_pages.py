@@ -577,6 +577,7 @@ def handle_db_admin_action(
     create_db_event=None,
     set_db_events_enabled=None,
     delete_db_events=None,
+    modify_charset_collation=None,
 ):
     normalized_action = str(action or "").strip()
     normalized_name = str(database_name or "").strip()
@@ -754,6 +755,20 @@ def handle_db_admin_action(
             raise ValueError("Event delete helper is not available.")
         return delete_db_events(payload.getlist("selected_event_key"))
 
+    if normalized_action == "modify_charset_collation":
+        if modify_charset_collation is None or payload is None:
+            raise ValueError("Charset/collation update helper is not available.")
+        result = modify_charset_collation(normalized_name, payload)
+        return {
+            "flash_category": "success",
+            "flash_message": result.get("message") or f"Updated charset/collation in `{normalized_name}`.",
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {
+                "db_admin_tab": "charset-collation",
+                "database": result.get("database_name") or normalized_name,
+            },
+        }
+
     raise ValueError("Unsupported DB Admin action.")
 
 
@@ -790,6 +805,8 @@ def build_db_admin_context(
     event_schedule_options=(),
     focused_event_database="",
     focused_event_name="",
+    fetch_charset_collation_report=None,
+    fetch_charset_collation_options=None,
 ):
     inventory = fetch_database_inventory()
     available_database_names = {row["database_name"] for row in inventory}
@@ -831,6 +848,14 @@ def build_db_admin_context(
     column_edit_unsupported_columns = []
     event_rows = []
     event_error = ""
+    charset_collation_report = {
+        "rows": [],
+        "error": "",
+        "table_count": 0,
+        "text_column_count": 0,
+        "column_difference_count": 0,
+    }
+    charset_collation_options = {"charsets": [], "collations": []}
     event_form = _build_db_admin_event_form(
         inventory,
         fallback_database=normalized_database,
@@ -862,6 +887,15 @@ def build_db_admin_context(
         except Exception as error:  # pragma: no cover - depends on server features
             event_rows = []
             event_error = str(error)
+
+    if db_admin_tab == "charset-collation":
+        try:
+            if fetch_charset_collation_options is not None:
+                charset_collation_options = fetch_charset_collation_options()
+            if normalized_database and fetch_charset_collation_report is not None:
+                charset_collation_report = fetch_charset_collation_report(normalized_database)
+        except Exception as error:  # pragma: no cover - depends on server metadata
+            charset_collation_report["error"] = str(error)
 
     if db_admin_tab == "select" and normalized_table:
         try:
@@ -916,6 +950,8 @@ def build_db_admin_context(
         "event_rows": event_rows,
         "event_error": event_error,
         "event_form": event_form,
+        "charset_collation_report": charset_collation_report,
+        "charset_collation_options": charset_collation_options,
     }
 
 
