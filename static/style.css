@@ -880,7 +880,12 @@ dialog.management-dialog::backdrop {
   min-width: min(280px, 100%);
 }
 
-[data-table-select-checkbox] {
+.db-admin-table-delete-toolbar {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+[data-table-delete-row] {
   width: auto;
   min-height: 0;
   margin: 0;

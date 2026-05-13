@@ -659,7 +659,23 @@
       {% endif %}
     </div>
   </div>
-  <div class="table-wrap">
+  <form method="post" data-table-delete-form onsubmit="return confirm('Delete the selected table(s)? This cannot be undone.');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="select">
+    <input type="hidden" name="db_action" value="delete_tables">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <div class="table-wrap">
+      <div class="table-layout-toolbar db-admin-table-delete-toolbar">
+        <button
+          class="button secondary danger"
+          type="submit"
+          data-table-delete-action
+          {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+        >
+          Delete Table(s)
+        </button>
+        <span class="helper-text" data-table-delete-count>0 selected</span>
+      </div>
     <table>
       <thead>
         <tr>
@@ -679,11 +695,9 @@
               type="checkbox"
               name="selected_table"
               value="{{ row.table_name }}"
-              aria-label="Select table {{ row.table_name }}"
-              data-table-select-checkbox
-              data-select-url="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=row.table_name) }}"
-              data-clear-url="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database) }}"
-              {% if row.table_name == selected_table %}checked{% endif %}
+              aria-label="Select {{ row.table_name }} for deletion"
+              data-table-delete-row
+              {% if selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
             >
           </td>
           <td>
@@ -706,7 +720,8 @@
         {% endfor %}
       </tbody>
     </table>
-  </div>
+    </div>
+  </form>
 </section>
 
 {% if selected_table %}
@@ -1157,14 +1172,25 @@
       syncCharsetCollationSelectionState();
     }
 
-    document.querySelectorAll("[data-table-select-checkbox]").forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
-        const targetUrl = checkbox.checked ? checkbox.dataset.selectUrl : checkbox.dataset.clearUrl;
-        if (targetUrl) {
-          window.location.href = targetUrl;
+    const tableDeleteForm = document.querySelector("[data-table-delete-form]");
+    if (tableDeleteForm) {
+      const tableDeleteCheckboxes = Array.from(tableDeleteForm.querySelectorAll("[data-table-delete-row]"));
+      const tableDeleteButton = tableDeleteForm.querySelector("[data-table-delete-action]");
+      const tableDeleteCount = tableDeleteForm.querySelector("[data-table-delete-count]");
+      const syncTableDeleteState = () => {
+        const checkedCount = tableDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (tableDeleteButton) {
+          tableDeleteButton.disabled = checkedCount === 0;
         }
+        if (tableDeleteCount) {
+          tableDeleteCount.textContent = `${checkedCount} selected`;
+        }
+      };
+      tableDeleteCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncTableDeleteState);
       });
-    });
+      syncTableDeleteState();
+    }
 
     const scheduleSelect = document.querySelector("[data-event-schedule-select]");
     const scheduleAtField = document.querySelector("[data-event-schedule-at-field]");

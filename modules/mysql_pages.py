@@ -620,6 +620,47 @@ def handle_db_admin_action(
             "redirect_values": {},
         }
 
+    if normalized_action == "delete_tables":
+        if not normalized_name:
+            raise ValueError("Choose a database before deleting tables.")
+        if normalized_name in system_schemas:
+            raise ValueError("System schema tables cannot be deleted here.")
+        if payload is None or not hasattr(payload, "getlist"):
+            raise ValueError("Choose one or more tables to delete.")
+
+        selected_tables = []
+        seen_tables = set()
+        for raw_table in payload.getlist("selected_table"):
+            table_name = str(raw_table or "").strip()
+            if table_name and table_name not in seen_tables:
+                selected_tables.append(table_name)
+                seen_tables.add(table_name)
+        if not selected_tables:
+            raise ValueError("Choose one or more tables to delete.")
+
+        if fetch_tables_for_database is not None:
+            available_tables = {
+                str(row.get("table_name") or "").strip()
+                for row in fetch_tables_for_database(normalized_name)
+            }
+            missing_tables = [table_name for table_name in selected_tables if table_name not in available_tables]
+            if missing_tables:
+                raise ValueError(
+                    "Selected table(s) were not found in the current database: "
+                    + ", ".join(missing_tables)
+                )
+
+        safe_database = quote_identifier(normalized_name)
+        for table_name in selected_tables:
+            safe_table = quote_identifier(table_name)
+            execute_statement(f"DROP TABLE {safe_database}.{safe_table}")
+        return {
+            "flash_category": "success",
+            "flash_message": f"Deleted {len(selected_tables)} table(s) from `{normalized_name}`.",
+            "redirect_endpoint": "db_admin_page",
+            "redirect_values": {"db_admin_tab": "select", "database": normalized_name},
+        }
+
     if normalized_action == "modify_table_columns":
         if not normalized_name or not normalized_table:
             raise ValueError("Choose both a database and table before modifying columns.")
