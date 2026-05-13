@@ -1,10 +1,53 @@
 {% extends "base.html" %}
 
+{% macro render_dashboard_report_table(report, empty_text="No rows returned.") %}
+<div class="table-wrap">
+  <table class="dashboard-compact-table">
+    <thead>
+      <tr>
+        {% for column in report.columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report.rows %}
+      <tr>
+        {% for column in report.columns %}
+        <td>{{ row[column] }}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ report.columns|length if report.columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">MySQL</p>
-  <h2>Admin Dashboard</h2>
-  <p>Review the connected server, user-schema inventory, storage footprint, and HeatWave-related status indicators.</p>
+  <h2>{{ server_overview.connection_endpoint }} / {{ server_overview.server_hostname }} / {{ server_overview.server_version }}</h2>
+  <p>Admin Dashboard for the connected server, user-schema inventory, storage footprint, security status, and HeatWave-related status indicators.</p>
+  <form method="get" action="{{ url_for('mysql_dashboard_download_page') }}" class="panel-actions">
+    <input type="hidden" name="dashboard_tab" value="{{ dashboard_tab }}">
+    <input type="hidden" name="error_period" value="{{ server_overview.selected_error_log_period.value }}">
+    {% if server_overview.selected_error_log_priorities %}
+      {% for priority in server_overview.selected_error_log_priorities %}
+      <input type="hidden" name="error_prio" value="{{ priority }}">
+      {% endfor %}
+    {% else %}
+      <input type="hidden" name="error_prio" value="all">
+    {% endif %}
+    <input type="hidden" name="error_code" value="{{ server_overview.selected_error_log_code }}">
+    <input type="hidden" name="message_like" value="{{ server_overview.selected_error_log_message_like }}">
+    <button class="button primary" type="submit">Download Dashboard HTML</button>
+  </form>
 </section>
 
 <section class="info-grid">
@@ -613,9 +656,9 @@
     data-dashboard-tab-panel="error-log"
     {% if dashboard_tab != 'error-log' %}hidden{% endif %}
   >
-    <form method="get" class="form-grid compact-form">
+    <form method="get" class="form-grid compact-form error-log-filter-form">
       <input type="hidden" name="dashboard_tab" value="error-log">
-      <div class="priority-filter-shell full-span">
+      <div class="priority-filter-shell">
         <span class="metric-label">Period</span>
         <div class="priority-filter-list error-log-period-list">
           {% for option in server_overview.error_log_period_options %}
@@ -630,24 +673,47 @@
           </label>
           {% endfor %}
         </div>
-        <span class="helper-text">Choose how far back to read from <code>performance_schema.error_log</code>.</span>
       </div>
-      <div class="priority-filter-shell full-span">
-        <span class="metric-label">PRIO Selection</span>
+      <div class="priority-filter-shell">
+        <span class="metric-label">Priority Selection</span>
         <div class="priority-filter-list">
+          <label class="priority-filter-option">
+            <input
+              type="checkbox"
+              name="error_prio"
+              value="all"
+              {% if not server_overview.selected_error_log_priorities %}checked{% endif %}
+            >
+            <span>All</span>
+          </label>
           {% for priority in server_overview.error_log_priority_options %}
           <label class="priority-filter-option priority-filter-option-{{ priority|lower }}">
             <input
               type="checkbox"
               name="error_prio"
               value="{{ priority }}"
-              {% if priority in server_overview.selected_error_log_priorities %}checked{% endif %}
+              {% if server_overview.selected_error_log_priorities and priority in server_overview.selected_error_log_priorities %}checked{% endif %}
             >
             <span>{{ priority }}</span>
           </label>
           {% endfor %}
         </div>
-        <span class="helper-text">The filter applies immediately when you click a priority. Default selection is <code>Error</code>.</span>
+      </div>
+      <label>
+        Error Code
+        <select name="error_code">
+          <option value="">Any code</option>
+          {% for code in server_overview.error_log_code_options %}
+          <option value="{{ code }}" {% if code == server_overview.selected_error_log_code %}selected{% endif %}>{{ code }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Message
+        <input type="text" name="message_like" value="{{ server_overview.selected_error_log_message_like }}" placeholder="Contains text">
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit">Apply Filter</button>
       </div>
     </form>
     <dl class="detail-list dashboard-detail-list">
@@ -658,6 +724,14 @@
       <div>
         <dt>Selected PRIO</dt>
         <dd>{{ server_overview.selected_error_log_priority_label }}</dd>
+      </div>
+      <div>
+        <dt>Error Code</dt>
+        <dd>{{ server_overview.selected_error_log_code or "Any" }}</dd>
+      </div>
+      <div>
+        <dt>Message</dt>
+        <dd>{{ server_overview.selected_error_log_message_like or "Any" }}</dd>
       </div>
       <div>
         <dt>Returned Rows</dt>
@@ -695,6 +769,86 @@
         </tbody>
       </table>
     </div>
+  </section>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h3>Replication</h3>
+    <span class="helper-text">Replica status, Performance Schema replication tables, and Group Replication metadata when available.</span>
+  </div>
+  <dl class="detail-list dashboard-detail-list">
+    <div>
+      <dt>Replica Channels</dt>
+      <dd>{{ server_overview.replication_info.replica_channel_count }}</dd>
+    </div>
+    <div>
+      <dt>Replica IO</dt>
+      <dd>{{ server_overview.replication_info.replica_io_running_label }}</dd>
+    </div>
+    <div>
+      <dt>Replica SQL</dt>
+      <dd>{{ server_overview.replication_info.replica_sql_running_label }}</dd>
+    </div>
+    <div>
+      <dt>Replica Lag</dt>
+      <dd>{{ server_overview.replication_info.replica_lag_label }}</dd>
+    </div>
+    <div>
+      <dt>Performance Schema Channels</dt>
+      <dd>{{ server_overview.replication_info.performance_schema_channel_count }}</dd>
+    </div>
+    <div>
+      <dt>Group Members</dt>
+      <dd>{{ server_overview.replication_info.group_member_count }}</dd>
+    </div>
+  </dl>
+  {% if server_overview.replication_info.replica_status.error %}
+  <p class="helper-text error-text">{{ server_overview.replication_info.replica_status.error }}</p>
+  {% endif %}
+  <h4>Replica Status</h4>
+  {{ render_dashboard_report_table(server_overview.replication_info.replica_status, "No replica status rows returned.") }}
+  <section class="split-layout split-layout-compact dashboard-security-grid">
+    <article class="dashboard-compact-card">
+      <h4>Replication Connection Status</h4>
+      {% if server_overview.replication_info.replication_connection.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.replication_connection.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.replication_connection, "No replication connection rows returned.") }}
+      {% endif %}
+    </article>
+    <article class="dashboard-compact-card">
+      <h4>Replication Applier Coordinator</h4>
+      {% if server_overview.replication_info.replication_applier.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.replication_applier.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.replication_applier, "No replication applier coordinator rows returned.") }}
+      {% endif %}
+    </article>
+  </section>
+  <h4>Replication Applier Workers</h4>
+  {% if server_overview.replication_info.replication_workers.error %}
+  <p class="helper-text error-text">{{ server_overview.replication_info.replication_workers.error }}</p>
+  {% else %}
+  {{ render_dashboard_report_table(server_overview.replication_info.replication_workers, "No replication applier worker rows returned.") }}
+  {% endif %}
+  <section class="split-layout split-layout-compact dashboard-security-grid">
+    <article class="dashboard-compact-card">
+      <h4>Group Replication Members</h4>
+      {% if server_overview.replication_info.group_members.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.group_members.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.group_members, "No Group Replication member rows returned.") }}
+      {% endif %}
+    </article>
+    <article class="dashboard-compact-card">
+      <h4>Group Replication Member Stats</h4>
+      {% if server_overview.replication_info.group_member_stats.error %}
+      <p class="helper-text error-text">{{ server_overview.replication_info.group_member_stats.error }}</p>
+      {% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.group_member_stats, "No Group Replication member stats rows returned.") }}
+      {% endif %}
+    </article>
   </section>
 </section>
 
@@ -819,19 +973,6 @@
     document.querySelectorAll("[data-dashboard-tab-button]").forEach((button) => {
       button.addEventListener("click", () => {
         activateDashboardTab(button.dataset.dashboardTabGroup, button.dataset.dashboardTabButton);
-      });
-    });
-
-    document.querySelectorAll('.priority-filter-list input[name="error_prio"], .priority-filter-list input[name="error_period"]').forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
-        if (!checkbox.form) {
-          return;
-        }
-        if (typeof checkbox.form.requestSubmit === "function") {
-          checkbox.form.requestSubmit();
-          return;
-        }
-        checkbox.form.submit();
       });
     });
 

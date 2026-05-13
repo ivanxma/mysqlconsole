@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ app_title }} Admin Dashboard Export</title>
+  <style>
+    :root {
+      color: #211d18;
+      background: #fffaf4;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 28px;
+      background: #fffaf4;
+    }
+    h1, h2, h3, h4 {
+      margin: 0 0 10px;
+    }
+    h1 {
+      font-size: 26px;
+    }
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+      border-bottom: 2px solid #d9cbbb;
+      padding-bottom: 6px;
+    }
+    h3 {
+      margin-top: 18px;
+      font-size: 16px;
+    }
+    h4 {
+      margin-top: 14px;
+      font-size: 14px;
+    }
+    .meta-grid, .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .meta-card, .detail-card {
+      border: 1px solid #d9cbbb;
+      background: #ffffff;
+      padding: 10px 12px;
+    }
+    .label {
+      display: block;
+      color: #6c6258;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .value {
+      display: block;
+      margin-top: 4px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 18px;
+      background: #ffffff;
+    }
+    th, td {
+      border: 1px solid #d9cbbb;
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    th {
+      background: #efe7dc;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      font-family: Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+    }
+    .empty {
+      color: #6c6258;
+      font-style: italic;
+    }
+    .error {
+      color: #932e21;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <h1>{{ server_overview.connection_endpoint }} / {{ server_overview.server_hostname }} / {{ server_overview.server_version }}</h1>
+  <p>{{ app_title }} Admin Dashboard Export</p>
+  <div class="meta-grid">
+    <div class="meta-card"><span class="label">Generated</span><span class="value">{{ generated_at }}</span></div>
+    <div class="meta-card"><span class="label">App Version</span><span class="value">{{ app_version }}</span></div>
+    <div class="meta-card"><span class="label">App User</span><span class="value">{{ current_user or "-" }}</span></div>
+    <div class="meta-card"><span class="label">Profile</span><span class="value">{{ current_profile_name or "-" }}</span></div>
+    <div class="meta-card"><span class="label">Endpoint</span><span class="value">{{ server_overview.connection_endpoint }}</span></div>
+    <div class="meta-card"><span class="label">@@hostname</span><span class="value">{{ server_overview.server_hostname }}</span></div>
+    <div class="meta-card"><span class="label">@@version</span><span class="value">{{ server_overview.server_version }}</span></div>
+  </div>
+
+  <h2>Connection Details</h2>
+  <div class="detail-grid">
+    <div class="detail-card"><span class="label">Server Version</span><span class="value">{{ server_overview.server_version }}</span></div>
+    <div class="detail-card"><span class="label">MySQL Shell</span><span class="value">{{ server_overview.mysql_shell_version }}</span></div>
+    <div class="detail-card"><span class="label">Current User</span><span class="value">{{ server_overview.current_user }}</span></div>
+    <div class="detail-card"><span class="label">Default DB</span><span class="value">{{ server_overview.default_database }}</span></div>
+    <div class="detail-card"><span class="label">Object Storage</span><span class="value">{{ setup_status.summary }}</span></div>
+    <div class="detail-card"><span class="label">Global Time Zone</span><span class="value">{{ server_overview.global_time_zone }}</span></div>
+    <div class="detail-card"><span class="label">Session Time Zone</span><span class="value">{{ server_overview.session_time_zone }}</span></div>
+    <div class="detail-card"><span class="label">System Time Zone</span><span class="value">{{ server_overview.system_time_zone }}</span></div>
+    <div class="detail-card"><span class="label">Time Zone Tables</span><span class="value">{{ server_overview.time_zone_tables_label }}</span></div>
+    <div class="detail-card"><span class="label">Server Charset</span><span class="value">{{ server_overview.server_charset }}</span></div>
+    <div class="detail-card"><span class="label">Server Collation</span><span class="value">{{ server_overview.server_collation }}</span></div>
+    <div class="detail-card"><span class="label">Connections</span><span class="value">{{ server_overview.current_connection_count }} / {{ server_overview.max_connections }}</span></div>
+  </div>
+  <h3>SQL Modes</h3>
+  <table>
+    <thead><tr><th>Scope</th><th>Mode</th></tr></thead>
+    <tbody>
+      <tr><td>Global</td><td>{{ server_overview.global_sql_mode }}</td></tr>
+      <tr><td>Session</td><td>{{ server_overview.session_sql_mode }}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Inventory Summary</h2>
+  <div class="detail-grid">
+    <div class="detail-card"><span class="label">User Databases</span><span class="value">{{ server_overview.database_count }}</span></div>
+    <div class="detail-card"><span class="label">Total DB Size</span><span class="value">{{ server_overview.total_size_label }}</span></div>
+    <div class="detail-card"><span class="label">Base Tables</span><span class="value">{{ server_overview.table_count }}</span></div>
+    <div class="detail-card"><span class="label">InnoDB Tables</span><span class="value">{{ server_overview.innodb_table_count }}</span></div>
+    <div class="detail-card"><span class="label">Views</span><span class="value">{{ server_overview.view_count }}</span></div>
+    <div class="detail-card"><span class="label">Stored Procedures / Functions</span><span class="value">{{ server_overview.routine_count }}</span></div>
+  </div>
+
+  <h2>Security Summary</h2>
+  <div class="detail-grid">
+    <div class="detail-card"><span class="label">Installed Components</span><span class="value">{{ server_overview.installed_component_count }}</span></div>
+    <div class="detail-card"><span class="label">Security Features</span><span class="value">{{ server_overview.security_feature_count }}</span></div>
+    <div class="detail-card"><span class="label">Enabled / Active</span><span class="value">{{ server_overview.enabled_security_feature_count }}</span></div>
+    <div class="detail-card"><span class="label">Audit</span><span class="value">{{ server_overview.audit_info.enabled_label }}</span></div>
+    <div class="detail-card"><span class="label">Firewall</span><span class="value">{{ server_overview.firewall_info.enabled_label }}</span></div>
+    <div class="detail-card"><span class="label">Password Policy</span><span class="value">{{ server_overview.password_info.enabled_label }}</span></div>
+  </div>
+
+  <h3>Security Features</h3>
+  <table>
+    <thead><tr><th>Type</th><th>Name</th><th>Status</th><th>Enabled</th><th>Details</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.security_features %}
+      <tr><td>{{ row.feature_type }}</td><td>{{ row.feature_name }}</td><td>{{ row.status_label }}</td><td>{{ "Yes" if row.is_enabled else "No" }}</td><td>{{ row.details }}</td></tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">No security-related components or plugins were detected.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Installed Components</h3>
+  <table>
+    <thead><tr><th>Component</th><th>URN</th><th>Security Related</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.installed_components %}
+      <tr><td>{{ row.component_name }}</td><td>{{ row.component_urn }}</td><td>{{ "Yes" if row.is_security_related else "No" }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">No installed components returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>MySQL Audit Variables and Status</h3>
+  {% for error in server_overview.audit_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.audit_info.variables + server_overview.audit_info.status_rows %}
+      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No audit variables or status rows were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>MySQL Audit Applied Users</h3>
+  <table>
+    <thead><tr><th>User</th><th>Host</th><th>Filter</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.audit_info.user_rows %}
+      <tr><td>{{ row.user }}</td><td>{{ row.host }}</td><td>{{ row.filter_name }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">No audit user filter assignments were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>MySQL Audit Filters</h3>
+  <table>
+    <thead><tr><th>Filter</th><th>Rule</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.audit_info.filter_rows %}
+      <tr><td>{{ row.filter_name }}</td><td><pre>{{ row.filter_rule }}</pre></td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No audit filter definitions were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>MySQL Firewall Variables and Status</h3>
+  {% for error in server_overview.firewall_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.firewall_info.variables + server_overview.firewall_info.status_rows %}
+      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No firewall variables or status rows were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>MySQL Firewall Users and Rules</h3>
+  <table>
+    <thead><tr><th>User Host</th><th>Mode</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.firewall_info.user_rows %}
+      <tr><td>{{ row.user_host }}</td><td>{{ row.mode }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No firewall user profiles were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <table>
+    <thead><tr><th>User Host</th><th>Rule</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.firewall_info.rule_rows %}
+      <tr><td>{{ row.user_host }}</td><td>{{ row.rule }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No firewall allowlist rules were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Password Policy</h3>
+  {% for error in server_overview.password_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.password_info.variables + server_overview.password_info.status_rows %}
+      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No password-related variables or status rows were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Error Log</h2>
+  <div class="detail-grid">
+    <div class="detail-card"><span class="label">Period</span><span class="value">{{ server_overview.selected_error_log_period.label }}</span></div>
+    <div class="detail-card"><span class="label">Priority</span><span class="value">{{ server_overview.selected_error_log_priority_label }}</span></div>
+    <div class="detail-card"><span class="label">Error Code</span><span class="value">{{ server_overview.selected_error_log_code or "Any" }}</span></div>
+    <div class="detail-card"><span class="label">Message</span><span class="value">{{ server_overview.selected_error_log_message_like or "Any" }}</span></div>
+    <div class="detail-card"><span class="label">Returned Rows</span><span class="value">{{ server_overview.recent_error_log_count }}</span></div>
+  </div>
+  {% if server_overview.recent_error_log_error %}<p class="error">{{ server_overview.recent_error_log_error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>Logged</th><th>Priority</th><th>Subsystem</th><th>Error Code</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.recent_error_log_rows %}
+      <tr><td>{{ row.logged }}</td><td>{{ row.priority }}</td><td>{{ row.subsystem }}</td><td>{{ row.error_code }}</td><td>{{ row.message }}</td></tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">No rows were returned for the selected filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Replication</h2>
+  <div class="detail-grid">
+    <div class="detail-card"><span class="label">Replica Channels</span><span class="value">{{ server_overview.replication_info.replica_channel_count }}</span></div>
+    <div class="detail-card"><span class="label">Replica IO</span><span class="value">{{ server_overview.replication_info.replica_io_running_label }}</span></div>
+    <div class="detail-card"><span class="label">Replica SQL</span><span class="value">{{ server_overview.replication_info.replica_sql_running_label }}</span></div>
+    <div class="detail-card"><span class="label">Replica Lag</span><span class="value">{{ server_overview.replication_info.replica_lag_label }}</span></div>
+    <div class="detail-card"><span class="label">Performance Schema Channels</span><span class="value">{{ server_overview.replication_info.performance_schema_channel_count }}</span></div>
+    <div class="detail-card"><span class="label">Group Members</span><span class="value">{{ server_overview.replication_info.group_member_count }}</span></div>
+  </div>
+  {% if server_overview.replication_info.replica_status.error %}<p class="error">{{ server_overview.replication_info.replica_status.error }}</p>{% endif %}
+  <h3>Replica Status</h3>
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.replica_status.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.replica_status.rows %}
+      <tr>{% for column in server_overview.replication_info.replica_status.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.replica_status.columns|length if server_overview.replication_info.replica_status.columns else 1 }}" class="empty">No replica status rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Replication Connection Status</h3>
+  {% if server_overview.replication_info.replication_connection.error %}<p class="error">{{ server_overview.replication_info.replication_connection.error }}</p>{% endif %}
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.replication_connection.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.replication_connection.rows %}
+      <tr>{% for column in server_overview.replication_info.replication_connection.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.replication_connection.columns|length if server_overview.replication_info.replication_connection.columns else 1 }}" class="empty">No replication connection rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Replication Applier Coordinator</h3>
+  {% if server_overview.replication_info.replication_applier.error %}<p class="error">{{ server_overview.replication_info.replication_applier.error }}</p>{% endif %}
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.replication_applier.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.replication_applier.rows %}
+      <tr>{% for column in server_overview.replication_info.replication_applier.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.replication_applier.columns|length if server_overview.replication_info.replication_applier.columns else 1 }}" class="empty">No replication applier coordinator rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Replication Applier Workers</h3>
+  {% if server_overview.replication_info.replication_workers.error %}<p class="error">{{ server_overview.replication_info.replication_workers.error }}</p>{% endif %}
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.replication_workers.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.replication_workers.rows %}
+      <tr>{% for column in server_overview.replication_info.replication_workers.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.replication_workers.columns|length if server_overview.replication_info.replication_workers.columns else 1 }}" class="empty">No replication applier worker rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Group Replication Members</h3>
+  {% if server_overview.replication_info.group_members.error %}<p class="error">{{ server_overview.replication_info.group_members.error }}</p>{% endif %}
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.group_members.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.group_members.rows %}
+      <tr>{% for column in server_overview.replication_info.group_members.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.group_members.columns|length if server_overview.replication_info.group_members.columns else 1 }}" class="empty">No Group Replication member rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Group Replication Member Stats</h3>
+  {% if server_overview.replication_info.group_member_stats.error %}<p class="error">{{ server_overview.replication_info.group_member_stats.error }}</p>{% endif %}
+  <table>
+    <thead><tr>{% for column in server_overview.replication_info.group_member_stats.columns %}<th>{{ column }}</th>{% else %}<th>No columns returned</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in server_overview.replication_info.group_member_stats.rows %}
+      <tr>{% for column in server_overview.replication_info.group_member_stats.columns %}<td>{{ row[column] }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td colspan="{{ server_overview.replication_info.group_member_stats.columns|length if server_overview.replication_info.group_member_stats.columns else 1 }}" class="empty">No Group Replication member stats rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>HeatWave Status</h2>
+  {% if heatwave_summary.error %}<p class="error">{{ heatwave_summary.error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>Name</th><th>Value</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.rapid_status_rows %}
+      <tr><td>{{ row.Variable_name or row.variable_name or row.name or "-" }}</td><td>{{ row.Value or row.value or "-" }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="empty">No HeatWave status rows returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Database Inventory</h2>
+  <table>
+    <thead><tr><th>Database</th><th>DB Size</th><th>Base Tables</th><th>InnoDB</th><th>Views</th><th>Stored Procedures / Functions</th><th>HeatWave Tables</th><th>Loaded 100%</th><th>Partial</th><th>None</th></tr></thead>
+    <tbody>
+      {% for row in database_inventory %}
+      <tr><td>{{ row.database_name }}</td><td>{{ row.db_size_label }}</td><td>{{ row.base_table_count }}</td><td>{{ row.innodb_table_count }}</td><td>{{ row.view_count }}</td><td>{{ row.routine_count }}</td><td>{{ row.heatwave_table_count }}</td><td>{{ row.heatwave_loaded_count }}</td><td>{{ row.heatwave_partial_count }}</td><td>{{ row.heatwave_not_loaded_count }}</td></tr>
+      {% else %}
+      <tr><td colspan="10" class="empty">No database metadata available.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>InnoDB Tables</h2>
+  <table>
+    <thead><tr><th>Database</th><th>Table</th><th>Rows</th><th>Data Size</th><th>Index Size</th><th>Total Size</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.innodb_table_rows %}
+      <tr><td>{{ row.database_name }}</td><td>{{ row.table_name }}</td><td>{{ row.table_rows }}</td><td>{{ row.data_size_label }}</td><td>{{ row.index_size_label }}</td><td>{{ row.total_size_label }}</td></tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No InnoDB table metadata returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Views</h2>
+  <table>
+    <thead><tr><th>Database</th><th>View</th><th>Security Type</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.view_rows %}
+      <tr><td>{{ row.database_name }}</td><td>{{ row.view_name }}</td><td>{{ row.security_type }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">No user-schema views were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Stored Procedures / Functions</h2>
+  <table>
+    <thead><tr><th>Database</th><th>Type</th><th>Name</th></tr></thead>
+    <tbody>
+      {% for row in server_overview.routine_rows %}
+      <tr><td>{{ row.database_name }}</td><td>{{ row.routine_type }}</td><td>{{ row.routine_name }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">No user-schema stored procedures or functions were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

@@ -877,6 +877,10 @@ dialog.management-dialog::backdrop {
   gap: 10px;
 }
 
+.error-log-filter-form {
+  align-items: end;
+}
+
 .priority-filter-option {
   display: inline-flex;
   align-items: center;

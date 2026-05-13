@@ -1253,10 +1253,6 @@ def split_sql_workspace_statements(sql_text, *, require_terminator=False):
     return statements
 
 
-def terminate_sql_workspace_statements(statements):
-    return "\n\n".join(f"{statement.rstrip().rstrip(';')};" for statement in statements)
-
-
 def _normalize_sql_workspace_explain_statement(sql_text):
     statements = split_sql_workspace_statements(sql_text)
     if len(statements) != 1:
@@ -3871,8 +3867,45 @@ def normalize_error_log_period(value):
     return allowed.get(candidate, allowed["1d"])
 
 
-def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
+def fetch_error_log_code_options(hours=24, priorities=None):
     normalized_priorities = _normalize_error_log_priorities(priorities)
+    column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
+    if not column_lookup:
+        return []
+
+    logged_column = column_lookup.get("logged")
+    prio_column = column_lookup.get("prio") or column_lookup.get("priority")
+    error_code_column = column_lookup.get("error_code")
+    if not logged_column or not error_code_column:
+        return []
+
+    sql = (
+        "SELECT DISTINCT {error_code_column} AS error_code_value "
+        "FROM performance_schema.error_log "
+        "WHERE {error_code_column} IS NOT NULL"
+    ).format(error_code_column=quote_identifier(error_code_column))
+    params = []
+    if hours is not None:
+        sql += " AND {logged_column} >= NOW() - INTERVAL %s HOUR".format(
+            logged_column=quote_identifier(logged_column),
+        )
+        params.append(int(hours))
+    if prio_column and normalized_priorities:
+        sql += " AND UPPER(COALESCE({priority_column}, '')) IN ({placeholders})".format(
+            priority_column=quote_identifier(prio_column),
+            placeholders=", ".join(["%s"] * len(normalized_priorities)),
+        )
+        params.extend(priority.upper() for priority in normalized_priorities)
+    sql += " ORDER BY {error_code_column} LIMIT 200".format(
+        error_code_column=quote_identifier(error_code_column),
+    )
+    return [str(row.get("error_code_value")) for row in execute_query(sql, params) if row.get("error_code_value") is not None]
+
+
+def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code="", message_like=""):
+    normalized_priorities = _normalize_error_log_priorities(priorities)
+    normalized_error_code = normalize_error_log_code(error_code)
+    normalized_message_like = normalize_error_log_message_like(message_like)
     column_lookup = fetch_table_column_lookup("performance_schema", "error_log")
     if not column_lookup:
         raise ValueError("performance_schema.error_log is not available on this server.")
@@ -3914,6 +3947,16 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
             placeholders=", ".join(["%s"] * len(normalized_priorities)),
         )
         params.extend(priority.upper() for priority in normalized_priorities)
+    if error_code_column and normalized_error_code:
+        sql += " AND CAST({error_code_column} AS CHAR) = %s".format(
+            error_code_column=quote_identifier(error_code_column),
+        )
+        params.append(normalized_error_code)
+    if normalized_message_like:
+        sql += " AND {data_column} LIKE %s".format(
+            data_column=quote_identifier(data_column),
+        )
+        params.append(f"%{normalized_message_like}%")
     sql += " ORDER BY {logged_column} DESC LIMIT {limit}".format(
         logged_column=quote_identifier(logged_column),
         limit=int(limit),
@@ -3933,24 +3976,53 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
 
 
 def fetch_mysql_shell_version():
+    package_checks = [
+        (["rpm", "-q", "--qf", "%{VERSION}", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
+        (["dpkg-query", "-W", "-f=${Version}", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
+        (["brew", "list", "--cask", "--versions", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
+        (["brew", "list", "--formula", "--versions", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
+    ]
+    for command, version_pattern in package_checks:
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode != 0:
+            continue
+        package_output = (result.stdout or result.stderr or "").strip()
+        version_match = re.search(version_pattern, package_output)
+        if version_match:
+            return version_match.group(0)
+
     mysqlsh_command = (
         os.environ.get("DBCONSOLE_MYSQLSH")
         or os.environ.get("MYSQLSH")
         or "mysqlsh"
     )
     try:
+        mysqlsh_timeout = max(1, int(os.environ.get("DBCONSOLE_MYSQLSH_TIMEOUT", "5")))
+    except (TypeError, ValueError):
+        mysqlsh_timeout = 5
+    try:
         result = subprocess.run(
             [mysqlsh_command, "--version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=3,
+            timeout=mysqlsh_timeout,
             check=False,
         )
     except FileNotFoundError:
         return "Not found"
     except subprocess.TimeoutExpired:
-        return "Timed out"
+        return f"Timed out after {mysqlsh_timeout}s"
     except Exception as error:  # pragma: no cover - depends on host runtime
         return f"Unavailable: {error}"
 
@@ -3963,10 +4035,18 @@ def fetch_mysql_shell_version():
     return version_output.splitlines()[0]
 
 
-def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_period=None):
+def fetch_server_overview(
+    recent_error_log_priorities=None,
+    recent_error_log_period=None,
+    recent_error_log_code="",
+    recent_error_log_message_like="",
+):
     selected_error_log_priorities = _normalize_error_log_priorities(recent_error_log_priorities)
     selected_error_log_period = normalize_error_log_period(recent_error_log_period)
+    selected_error_log_code = normalize_error_log_code(recent_error_log_code)
+    selected_error_log_message_like = normalize_error_log_message_like(recent_error_log_message_like)
     version = fetch_scalar("SELECT VERSION()", default="-")
+    hostname = fetch_scalar("SELECT @@hostname", default="-")
     mysql_shell_version = fetch_mysql_shell_version()
     current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
     default_database = fetch_scalar("SELECT DATABASE()", default="-")
@@ -4015,6 +4095,7 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
     innodb_table_rows = fetch_dashboard_innodb_table_rows()
     view_rows = fetch_dashboard_view_rows()
     routine_rows = fetch_dashboard_routine_rows()
+    replication_info = fetch_replication_overview_info()
     try:
         rapid_status_rows = execute_query("SHOW GLOBAL STATUS LIKE 'rapid%status'")
     except Exception as error:  # pragma: no cover - depends on server features
@@ -4050,18 +4131,26 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
     password_info = fetch_password_security_info(security_features)
 
     try:
+        error_log_code_options = fetch_error_log_code_options(
+            hours=selected_error_log_period["hours"],
+            priorities=selected_error_log_priorities,
+        )
         recent_error_log_rows = fetch_recent_error_log_rows(
             hours=selected_error_log_period["hours"],
             limit=50,
             priorities=selected_error_log_priorities,
+            error_code=selected_error_log_code,
+            message_like=selected_error_log_message_like,
         )
         recent_error_log_error = ""
     except Exception as error:  # pragma: no cover - depends on server features
+        error_log_code_options = []
         recent_error_log_rows = []
         recent_error_log_error = str(error)
 
     return {
         "server_version": version,
+        "server_hostname": hostname,
         "mysql_shell_version": mysql_shell_version,
         "current_user": current_user,
         "default_database": default_database,
@@ -4091,6 +4180,7 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
         "innodb_table_rows": innodb_table_rows,
         "view_rows": view_rows,
         "routine_rows": routine_rows,
+        "replication_info": replication_info,
         "rapid_status_rows": rapid_status_rows[:10],
         "installed_components": installed_components,
         "installed_components_error": installed_components_error,
@@ -4105,8 +4195,11 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
         "error_log_priority_options": list(ERROR_LOG_PRIORITY_OPTIONS),
         "error_log_period_options": list(ERROR_LOG_PERIOD_OPTIONS),
         "selected_error_log_priorities": selected_error_log_priorities,
-        "selected_error_log_priority_label": ", ".join(selected_error_log_priorities),
+        "selected_error_log_priority_label": ", ".join(selected_error_log_priorities) if selected_error_log_priorities else "All",
         "selected_error_log_period": selected_error_log_period,
+        "selected_error_log_code": selected_error_log_code,
+        "selected_error_log_message_like": selected_error_log_message_like,
+        "error_log_code_options": error_log_code_options,
         "recent_error_log_rows": recent_error_log_rows,
         "recent_error_log_error": recent_error_log_error,
         "recent_error_log_count": len(recent_error_log_rows),
@@ -5299,6 +5392,77 @@ def fetch_monitoring_replication_applier_workers():
     )
 
 
+def fetch_group_replication_member_rows():
+    return run_dynamic_projection_report(
+        "performance_schema",
+        "replication_group_members",
+        [
+            ("channel_name", "channel_name"),
+            ("member_id", "member_id"),
+            ("member_host", "member_host"),
+            ("member_port", "member_port"),
+            ("member_state", "member_state"),
+            ("member_role", "member_role"),
+            ("member_version", "member_version"),
+            ("member_communication_stack", "member_communication_stack"),
+        ],
+        order_by=["member_host", "member_port"],
+        limit=100,
+    )
+
+
+def fetch_group_replication_member_stats_rows():
+    return run_dynamic_projection_report(
+        "performance_schema",
+        "replication_group_member_stats",
+        [
+            ("channel_name", "channel_name"),
+            ("member_id", "member_id"),
+            ("count_transactions_in_queue", "count_transactions_in_queue"),
+            ("count_transactions_checked", "count_transactions_checked"),
+            ("count_conflicts_detected", "count_conflicts_detected"),
+            ("count_transactions_rows_validating", "count_transactions_rows_validating"),
+            ("transactions_committed_all_members", "transactions_committed_all_members"),
+            ("last_conflict_free_transaction", "last_conflict_free_transaction"),
+        ],
+        order_by=["member_id"],
+        limit=100,
+    )
+
+
+def fetch_replication_overview_info():
+    replica_status_report = _safe_report(lambda: {"columns": [], "rows": fetch_replica_status_rows()})
+    replication_connection = _safe_report(fetch_monitoring_replication_connection_status)
+    replication_applier = _safe_report(fetch_monitoring_replication_applier_coordinator)
+    replication_workers = _safe_report(fetch_monitoring_replication_applier_workers)
+    group_members = _safe_report(fetch_group_replication_member_rows)
+    group_member_stats = _safe_report(fetch_group_replication_member_stats_rows)
+
+    replica_rows = replica_status_report.get("rows", [])
+    io_running_values = []
+    sql_running_values = []
+    lag_values = []
+    for row in replica_rows:
+        io_running_values.append(row.get("Replica_IO_Running") or row.get("Slave_IO_Running") or "-")
+        sql_running_values.append(row.get("Replica_SQL_Running") or row.get("Slave_SQL_Running") or "-")
+        lag_values.append(row.get("Seconds_Behind_Source") if "Seconds_Behind_Source" in row else row.get("Seconds_Behind_Master", "-"))
+
+    return {
+        "replica_status": replica_status_report,
+        "replication_connection": replication_connection,
+        "replication_applier": replication_applier,
+        "replication_workers": replication_workers,
+        "group_members": group_members,
+        "group_member_stats": group_member_stats,
+        "replica_channel_count": len(replica_rows),
+        "replica_io_running_label": ", ".join(str(value) for value in io_running_values) if io_running_values else "-",
+        "replica_sql_running_label": ", ".join(str(value) for value in sql_running_values) if sql_running_values else "-",
+        "replica_lag_label": ", ".join(str(value) for value in lag_values) if lag_values else "-",
+        "performance_schema_channel_count": len(replication_connection.get("rows", [])) if not replication_connection.get("error") else "-",
+        "group_member_count": len(group_members.get("rows", [])) if not group_members.get("error") else "-",
+    }
+
+
 def fetch_monitoring_storage_totals():
     rows = execute_query(
         """
@@ -6433,19 +6597,30 @@ def _normalize_checkbox(value):
 
 
 def _normalize_error_log_priorities(values):
+    raw_values = [str(value or "").strip() for value in values or []]
+    if any(value.lower() == "all" for value in raw_values):
+        return []
     allowed_lookup = {
         str(option).strip().lower(): str(option)
         for option in ERROR_LOG_PRIORITY_OPTIONS
     }
     normalized = []
     seen = set()
-    for value in values or []:
+    for value in raw_values:
         normalized_value = allowed_lookup.get(str(value or "").strip().lower())
         if not normalized_value or normalized_value in seen:
             continue
         normalized.append(normalized_value)
         seen.add(normalized_value)
     return normalized or ["Error"]
+
+
+def normalize_error_log_code(value):
+    return str(value or "").strip()
+
+
+def normalize_error_log_message_like(value):
+    return str(value or "").strip()
 
 
 def render_dashboard(template_name, **context):
@@ -6688,18 +6863,71 @@ def mysql_dashboard_page():
         dashboard_tab = "security"
     selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
     selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
+    selected_error_log_code = normalize_error_log_code(request.args.get("error_code"))
+    selected_error_log_message_like = normalize_error_log_message_like(request.args.get("message_like"))
+    dashboard_context = build_mysql_dashboard_snapshot_context(
+        selected_error_log_priorities,
+        selected_error_log_period,
+        selected_error_log_code,
+        selected_error_log_message_like,
+    )
     return render_dashboard(
         "mysql_dashboard.html",
         page_title="Admin Dashboard",
         dashboard_tab=dashboard_tab,
-        **module_build_mysql_dashboard_context(
-            fetch_server_overview=lambda: fetch_server_overview(
-                recent_error_log_priorities=selected_error_log_priorities,
-                recent_error_log_period=selected_error_log_period["value"],
-            ),
-            fetch_database_inventory=fetch_database_inventory,
-            fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
+        **dashboard_context,
+    )
+
+
+def build_mysql_dashboard_snapshot_context(
+    selected_error_log_priorities,
+    selected_error_log_period,
+    selected_error_log_code,
+    selected_error_log_message_like,
+):
+    return module_build_mysql_dashboard_context(
+        fetch_server_overview=lambda: fetch_server_overview(
+            recent_error_log_priorities=selected_error_log_priorities,
+            recent_error_log_period=selected_error_log_period["value"],
+            recent_error_log_code=selected_error_log_code,
+            recent_error_log_message_like=selected_error_log_message_like,
         ),
+        fetch_database_inventory=fetch_database_inventory,
+        fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
+    )
+
+
+@app.route("/mysql/dashboard/download")
+@login_required
+def mysql_dashboard_download_page():
+    selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
+    selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
+    selected_error_log_code = normalize_error_log_code(request.args.get("error_code"))
+    selected_error_log_message_like = normalize_error_log_message_like(request.args.get("message_like"))
+    dashboard_context = build_mysql_dashboard_snapshot_context(
+        selected_error_log_priorities,
+        selected_error_log_period,
+        selected_error_log_code,
+        selected_error_log_message_like,
+    )
+    generated_at = datetime.now(timezone.utc)
+    profile = get_session_profile()
+    html = render_template(
+        "mysql_dashboard_export.html",
+        app_title=APP_TITLE,
+        generated_at=generated_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        app_version=get_local_app_version(),
+        current_user=get_session_username(),
+        current_profile_name=session.get("profile_name", ""),
+        connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
+        setup_status=fetch_setup_status(),
+        **dashboard_context,
+    )
+    filename = f"admin-dashboard-{generated_at.strftime('%Y%m%d-%H%M%S')}.html"
+    return Response(
+        html,
+        mimetype="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -6801,66 +7029,6 @@ def sql_workspace_page():
                     history_rows,
                     module_build_sql_workspace_history_entry(
                         "Explain",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="error",
-                        error_message=str(error),
-                    ),
-                )
-                flash(str(error), "error")
-        elif action == "split_statements":
-            normalized_statement = sql_text
-            try:
-                statements = split_sql_workspace_statements(sql_text)
-                normalized_statement = terminate_sql_workspace_statements(statements)
-                sql_text = normalized_statement
-                result_sets = [
-                    {
-                        "label": f"Statement {index}",
-                        "kind": "code",
-                        "text_output": f"{statement.rstrip().rstrip(';')};",
-                        "statement": statement,
-                    }
-                    for index, statement in enumerate(statements, start=1)
-                ]
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_result(
-                    "Generate split statements",
-                    normalized_statement,
-                    selected_database,
-                    result_sets,
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Generate split statements",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="success",
-                    ),
-                )
-                flash(f"Generated {len(statements)} terminated statement(s).", "success")
-            except Exception as error:
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_result(
-                    "Generate split statements",
-                    normalized_statement,
-                    selected_database,
-                    [],
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                    error_message=str(error),
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Generate split statements",
                         selected_database,
                         normalized_statement,
                         duration_ms,

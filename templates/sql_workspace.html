@@ -89,17 +89,9 @@
             <circle cx="12" cy="12" r="8"></circle>
           </svg>
         </button>
-        <button
-          class="button primary"
-          type="submit"
-          name="workspace_action"
-          value="split_statements"
-        >
-          Generate split statements
-        </button>
       </div>
     </div>
-    <p class="helper-text workspace-toolbar-note">`Execute` runs each parsed statement separately. `Generate split statements` rewrites the editor so each parsed statement is terminated by <code>;</code>. Quoted and escaped semicolons are preserved. `Explain` supports one statement.</p>
+    <p class="helper-text workspace-toolbar-note">`Execute` runs each parsed statement separately. Quoted and escaped semicolons are preserved. `Explain` supports one statement.</p>
     <label class="full-span">
       SQL Statement
       <textarea name="sql_text" rows="14" class="sql-workspace-editor" placeholder="SELECT * FROM your_table LIMIT 10;">{{ sql_text }}</textarea>
