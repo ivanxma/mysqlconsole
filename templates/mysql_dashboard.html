@@ -168,6 +168,10 @@
       <dd>{{ server_overview.server_version }}</dd>
     </div>
     <div>
+      <dt>MySQL Shell</dt>
+      <dd>{{ server_overview.mysql_shell_version }}</dd>
+    </div>
+    <div>
       <dt>Current User</dt>
       <dd>{{ server_overview.current_user }}</dd>
     </div>
@@ -294,6 +298,18 @@
             <dd>{{ server_overview.enabled_security_feature_count }}</dd>
           </div>
           <div>
+            <dt>Audit</dt>
+            <dd>{{ server_overview.audit_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Firewall</dt>
+            <dd>{{ server_overview.firewall_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Password Policy</dt>
+            <dd>{{ server_overview.password_info.enabled_label }}</dd>
+          </div>
+          <div>
             <dt>Error Log Rows</dt>
             <dd>{{ server_overview.recent_error_log_count }}</dd>
           </div>
@@ -304,6 +320,227 @@
         {% if server_overview.security_features_error %}
         <p class="helper-text error-text">{{ server_overview.security_features_error }}</p>
         {% endif %}
+      </article>
+
+      <section class="split-layout split-layout-compact dashboard-security-grid">
+        <article class="dashboard-compact-card">
+          <h4>MySQL Audit</h4>
+          <dl class="detail-list dashboard-detail-list">
+            <div>
+              <dt>Status</dt>
+              <dd>{{ server_overview.audit_info.enabled_label }}</dd>
+            </div>
+            <div>
+              <dt>Filters</dt>
+              <dd>{{ server_overview.audit_info.filter_rows|length }}</dd>
+            </div>
+            <div>
+              <dt>Applied Users</dt>
+              <dd>{{ server_overview.audit_info.user_rows|length }}</dd>
+            </div>
+          </dl>
+          {% for error in server_overview.audit_info.errors %}
+          <p class="helper-text error-text">{{ error }}</p>
+          {% endfor %}
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.variables + server_overview.audit_info.status_rows %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No audit variables or status rows were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Host</th>
+                  <th>Filter</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.user_rows %}
+                <tr>
+                  <td>{{ row.user }}</td>
+                  <td>{{ row.host }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.filter_name }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="3">No audit user filter assignments were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Filter</th>
+                  <th>Rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.audit_info.filter_rows %}
+                <tr>
+                  <td>{{ row.filter_name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.filter_rule }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No audit filter definitions were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="dashboard-compact-card">
+          <h4>MySQL Firewall</h4>
+          <dl class="detail-list dashboard-detail-list">
+            <div>
+              <dt>Status</dt>
+              <dd>{{ server_overview.firewall_info.enabled_label }}</dd>
+            </div>
+            <div>
+              <dt>Users</dt>
+              <dd>{{ server_overview.firewall_info.user_rows|length }}</dd>
+            </div>
+            <div>
+              <dt>Rules</dt>
+              <dd>{{ server_overview.firewall_info.rule_rows|length }}</dd>
+            </div>
+          </dl>
+          {% for error in server_overview.firewall_info.errors %}
+          <p class="helper-text error-text">{{ error }}</p>
+          {% endfor %}
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.variables + server_overview.firewall_info.status_rows %}
+                <tr>
+                  <td>{{ row.name }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall variables or status rows were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User Host</th>
+                  <th>Mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.user_rows %}
+                <tr>
+                  <td>{{ row.user_host }}</td>
+                  <td>{{ row.mode }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall user profiles were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="dashboard-compact-table dashboard-security-table">
+              <thead>
+                <tr>
+                  <th>User Host</th>
+                  <th>Rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in server_overview.firewall_info.rule_rows %}
+                <tr>
+                  <td>{{ row.user_host }}</td>
+                  <td><span class="dashboard-cell-clamp">{{ row.rule }}</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="2">No firewall allowlist rules were returned.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <article class="dashboard-compact-card">
+        <h4>Password Policy</h4>
+        <dl class="detail-list dashboard-detail-list">
+          <div>
+            <dt>Status</dt>
+            <dd>{{ server_overview.password_info.enabled_label }}</dd>
+          </div>
+          <div>
+            <dt>Variables</dt>
+            <dd>{{ server_overview.password_info.variables|length }}</dd>
+          </div>
+          <div>
+            <dt>Status Rows</dt>
+            <dd>{{ server_overview.password_info.status_rows|length }}</dd>
+          </div>
+        </dl>
+        {% for error in server_overview.password_info.errors %}
+        <p class="helper-text error-text">{{ error }}</p>
+        {% endfor %}
+        <div class="table-wrap">
+          <table class="dashboard-compact-table dashboard-security-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in server_overview.password_info.variables + server_overview.password_info.status_rows %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td><span class="dashboard-cell-clamp">{{ row.value }}</span></td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="2">No password-related variables or status rows were returned.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </article>
 
       <section class="split-layout split-layout-compact dashboard-security-grid">

@@ -3448,6 +3448,246 @@ def fetch_security_feature_rows(installed_components):
     return security_rows
 
 
+def _normalize_show_variable_row(row):
+    return {
+        "name": (
+            row.get("Variable_name")
+            or row.get("variable_name")
+            or row.get("VARIABLE_NAME")
+            or row.get("Name")
+            or row.get("name")
+            or "-"
+        ),
+        "value": (
+            row.get("Value")
+            if "Value" in row
+            else row.get("value")
+            if "value" in row
+            else row.get("VARIABLE_VALUE")
+            if "VARIABLE_VALUE" in row
+            else row.get("variable_value", "-")
+        ),
+    }
+
+
+def fetch_show_variable_rows(kind, patterns):
+    rows = []
+    seen_names = set()
+    for pattern in patterns:
+        for row in execute_query(f"SHOW GLOBAL {kind} LIKE %s", [pattern]):
+            normalized_row = _normalize_show_variable_row(row)
+            row_key = str(normalized_row["name"]).lower()
+            if row_key in seen_names:
+                continue
+            seen_names.add(row_key)
+            rows.append(normalized_row)
+    rows.sort(key=lambda item: str(item["name"]).lower())
+    return rows
+
+
+def _is_on_value(value):
+    return str(value or "").strip().upper() in {"1", "ON", "YES", "TRUE", "ENABLED", "ACTIVE", "FORCE"}
+
+
+def _dynamic_table_rows(schema_name, table_name, column_candidates, *, order_by_candidates=None, limit=50):
+    column_lookup = fetch_table_column_lookup(schema_name, table_name)
+    if not column_lookup:
+        return []
+
+    selected_columns = []
+    output_columns = []
+    for output_name, candidates in column_candidates:
+        actual_column = _first_available_column(column_lookup, candidates)
+        if not actual_column:
+            continue
+        selected_columns.append(f"{quote_identifier(actual_column)} AS {quote_identifier(output_name)}")
+        output_columns.append(output_name)
+
+    if not selected_columns:
+        return []
+
+    safe_schema = quote_identifier(schema_name)
+    safe_table = quote_identifier(table_name)
+    sql = f"SELECT {', '.join(selected_columns)} FROM {safe_schema}.{safe_table}"
+    order_columns = []
+    for candidate in order_by_candidates or []:
+        actual_column = column_lookup.get(str(candidate).lower())
+        if actual_column:
+            order_columns.append(quote_identifier(actual_column))
+    if order_columns:
+        sql += " ORDER BY " + ", ".join(order_columns)
+    sql += f" LIMIT {int(limit)}"
+
+    result_rows = []
+    for row in execute_query(sql):
+        result_rows.append({column: row.get(column) if row.get(column) is not None else "-" for column in output_columns})
+    return result_rows
+
+
+def fetch_audit_security_info(security_features):
+    info = {
+        "enabled_label": "Off",
+        "variables": [],
+        "status_rows": [],
+        "filter_rows": [],
+        "user_rows": [],
+        "errors": [],
+    }
+    try:
+        info["variables"] = fetch_show_variable_rows("VARIABLES", ["audit_log%"])
+        info["status_rows"] = fetch_show_variable_rows("STATUS", ["audit_log%"])
+    except Exception as error:  # pragma: no cover - depends on privileges / server features
+        info["errors"].append(str(error))
+
+    try:
+        info["filter_rows"] = _dynamic_table_rows(
+            "mysql",
+            "audit_log_filter",
+            [
+                ("filter_name", ["name", "filter_name"]),
+                ("filter_rule", ["filter", "rule", "definition"]),
+            ],
+            order_by_candidates=["name", "filter_name"],
+            limit=25,
+        )
+    except Exception as error:  # pragma: no cover - Enterprise Audit only
+        info["errors"].append(str(error))
+
+    try:
+        info["user_rows"] = _dynamic_table_rows(
+            "mysql",
+            "audit_log_user",
+            [
+                ("user", ["user", "username"]),
+                ("host", ["host"]),
+                ("filter_name", ["filtername", "filter_name", "name"]),
+            ],
+            order_by_candidates=["user", "host"],
+            limit=50,
+        )
+    except Exception as error:  # pragma: no cover - Enterprise Audit only
+        info["errors"].append(str(error))
+
+    audit_feature_enabled = any("audit" in row["feature_name"].lower() and row["is_enabled"] for row in security_features)
+    audit_variable_enabled = any(_is_on_value(row["value"]) for row in info["variables"] if str(row["name"]).lower() in {"audit_log", "audit_log_filter_id"})
+    if audit_feature_enabled or audit_variable_enabled or info["filter_rows"] or info["user_rows"]:
+        info["enabled_label"] = "On"
+    return info
+
+
+def fetch_firewall_security_info(security_features):
+    info = {
+        "enabled_label": "Off",
+        "variables": [],
+        "status_rows": [],
+        "user_rows": [],
+        "rule_rows": [],
+        "errors": [],
+    }
+    try:
+        info["variables"] = fetch_show_variable_rows("VARIABLES", ["mysql_firewall%"])
+        info["status_rows"] = fetch_show_variable_rows("STATUS", ["mysql_firewall%"])
+    except Exception as error:  # pragma: no cover - depends on privileges / server features
+        info["errors"].append(str(error))
+
+    try:
+        info["user_rows"] = _dynamic_table_rows(
+            "mysql",
+            "firewall_users",
+            [
+                ("user_host", ["userhost", "user_host"]),
+                ("mode", ["mode"]),
+            ],
+            order_by_candidates=["userhost", "user_host"],
+            limit=50,
+        )
+    except Exception as error:  # pragma: no cover - Enterprise Firewall only
+        info["errors"].append(str(error))
+    if not info["user_rows"]:
+        try:
+            info["user_rows"] = _dynamic_table_rows(
+                "information_schema",
+                "MYSQL_FIREWALL_USERS",
+                [
+                    ("user_host", ["userhost", "user_host"]),
+                    ("mode", ["mode"]),
+                ],
+                order_by_candidates=["userhost", "user_host"],
+                limit=50,
+            )
+        except Exception as error:  # pragma: no cover - Enterprise Firewall only
+            info["errors"].append(str(error))
+
+    try:
+        info["rule_rows"] = _dynamic_table_rows(
+            "mysql",
+            "firewall_whitelist",
+            [
+                ("user_host", ["userhost", "user_host"]),
+                ("rule", ["rule"]),
+            ],
+            order_by_candidates=["userhost", "user_host"],
+            limit=50,
+        )
+    except Exception as error:  # pragma: no cover - Enterprise Firewall only
+        info["errors"].append(str(error))
+    if not info["rule_rows"]:
+        try:
+            info["rule_rows"] = _dynamic_table_rows(
+                "information_schema",
+                "MYSQL_FIREWALL_WHITELIST",
+                [
+                    ("user_host", ["userhost", "user_host"]),
+                    ("rule", ["rule"]),
+                ],
+                order_by_candidates=["userhost", "user_host"],
+                limit=50,
+            )
+        except Exception as error:  # pragma: no cover - Enterprise Firewall only
+            info["errors"].append(str(error))
+
+    firewall_feature_enabled = any("firewall" in row["feature_name"].lower() and row["is_enabled"] for row in security_features)
+    firewall_variable_enabled = any(_is_on_value(row["value"]) for row in info["variables"] if str(row["name"]).lower() in {"mysql_firewall_mode", "mysql_firewall_trace"})
+    if firewall_feature_enabled or firewall_variable_enabled or info["user_rows"] or info["rule_rows"]:
+        info["enabled_label"] = "On"
+    return info
+
+
+def fetch_password_security_info(security_features):
+    info = {
+        "enabled_label": "Off",
+        "variables": [],
+        "status_rows": [],
+        "errors": [],
+    }
+    password_variable_patterns = [
+        "validate_password%",
+        "default_password_lifetime",
+        "disconnect_on_expired_password",
+        "password_history",
+        "password_reuse_interval",
+        "password_require_current",
+    ]
+    try:
+        info["variables"] = fetch_show_variable_rows("VARIABLES", password_variable_patterns)
+        info["status_rows"] = fetch_show_variable_rows("STATUS", ["validate_password%"])
+    except Exception as error:  # pragma: no cover - depends on privileges / server features
+        info["errors"].append(str(error))
+
+    password_feature_enabled = any(
+        ("password" in row["feature_name"].lower() or "validate_password" in row["feature_name"].lower())
+        and row["is_enabled"]
+        for row in security_features
+    )
+    policy_variable_enabled = any(
+        str(row["name"]).lower().startswith("validate_password")
+        for row in info["variables"]
+    )
+    if password_feature_enabled or policy_variable_enabled:
+        info["enabled_label"] = "On"
+    return info
+
+
 def normalize_error_log_period(value):
     candidate = str(value or "").strip().lower()
     allowed = {option["value"]: option for option in ERROR_LOG_PERIOD_OPTIONS}
@@ -3515,10 +3755,42 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None):
     ]
 
 
+def fetch_mysql_shell_version():
+    mysqlsh_command = (
+        os.environ.get("DBCONSOLE_MYSQLSH")
+        or os.environ.get("MYSQLSH")
+        or "mysqlsh"
+    )
+    try:
+        result = subprocess.run(
+            [mysqlsh_command, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "Not found"
+    except subprocess.TimeoutExpired:
+        return "Timed out"
+    except Exception as error:  # pragma: no cover - depends on host runtime
+        return f"Unavailable: {error}"
+
+    version_output = (result.stdout or result.stderr or "").strip()
+    if not version_output:
+        return "Unavailable"
+    version_match = re.search(r"\b[0-9]+(?:\.[0-9]+){2}\b", version_output)
+    if version_match:
+        return version_match.group(0)
+    return version_output.splitlines()[0]
+
+
 def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_period=None):
     selected_error_log_priorities = _normalize_error_log_priorities(recent_error_log_priorities)
     selected_error_log_period = normalize_error_log_period(recent_error_log_period)
     version = fetch_scalar("SELECT VERSION()", default="-")
+    mysql_shell_version = fetch_mysql_shell_version()
     current_user = fetch_scalar("SELECT CURRENT_USER()", default="-")
     default_database = fetch_scalar("SELECT DATABASE()", default="-")
     global_time_zone = fetch_scalar("SELECT @@GLOBAL.time_zone", default="-")
@@ -3596,6 +3868,10 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
         security_features = []
         security_features_error = str(error)
 
+    audit_info = fetch_audit_security_info(security_features)
+    firewall_info = fetch_firewall_security_info(security_features)
+    password_info = fetch_password_security_info(security_features)
+
     try:
         recent_error_log_rows = fetch_recent_error_log_rows(
             hours=selected_error_log_period["hours"],
@@ -3609,6 +3885,7 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
 
     return {
         "server_version": version,
+        "mysql_shell_version": mysql_shell_version,
         "current_user": current_user,
         "default_database": default_database,
         "global_time_zone": global_time_zone,
@@ -3645,6 +3922,9 @@ def fetch_server_overview(recent_error_log_priorities=None, recent_error_log_per
         "security_features_error": security_features_error,
         "security_feature_count": len(security_features),
         "enabled_security_feature_count": sum(1 for row in security_features if row["is_enabled"]),
+        "audit_info": audit_info,
+        "firewall_info": firewall_info,
+        "password_info": password_info,
         "error_log_priority_options": list(ERROR_LOG_PRIORITY_OPTIONS),
         "error_log_period_options": list(ERROR_LOG_PERIOD_OPTIONS),
         "selected_error_log_priorities": selected_error_log_priorities,
