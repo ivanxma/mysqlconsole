@@ -5415,14 +5415,16 @@ def fetch_table_column_lookup(schema_name, table_name):
 
 
 def run_dynamic_projection_report(schema_name, table_name, projections, *, order_by=None, limit=None):
-    available_columns = set(fetch_table_column_names(schema_name, table_name))
+    available_columns = fetch_table_column_names(schema_name, table_name)
+    available_column_lookup = {column_name.lower(): column_name for column_name in available_columns}
     selected_columns = []
     output_columns = []
 
     for source_name, alias in projections:
-        if source_name not in available_columns:
+        actual_source_name = available_column_lookup.get(str(source_name).lower())
+        if not actual_source_name:
             continue
-        safe_source = quote_identifier(source_name)
+        safe_source = quote_identifier(actual_source_name)
         safe_alias = quote_identifier(alias)
         selected_columns.append(f"{safe_source} AS {safe_alias}")
         output_columns.append(alias)
@@ -5441,6 +5443,39 @@ def run_dynamic_projection_report(schema_name, table_name, projections, *, order
     if limit is not None:
         sql += f" LIMIT {int(limit)}"
     return run_report_query(sql)
+
+
+def _join_non_empty_labels(values, empty_label="-"):
+    labels = []
+    seen = set()
+    for value in values:
+        label = str(value if value is not None else "").strip()
+        if not label or label == "-":
+            continue
+        if label not in seen:
+            labels.append(label)
+            seen.add(label)
+    return ", ".join(labels) if labels else empty_label
+
+
+def _parse_mysql_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    text = str(value or "").strip()
+    if not text or text.startswith("0000-00-00"):
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _milliseconds_between_timestamps(start_value, end_value):
+    start_dt = _parse_mysql_datetime(start_value)
+    end_dt = _parse_mysql_datetime(end_value)
+    if not start_dt or not end_dt:
+        return None
+    return max((end_dt - start_dt).total_seconds() * 1000.0, 0.0)
 
 
 def fetch_monitoring_replication_connection_status():
@@ -5546,7 +5581,12 @@ def fetch_group_replication_member_stats_rows():
 
 
 def fetch_replication_overview_info():
-    replica_status_report = _safe_report(lambda: {"columns": [], "rows": fetch_replica_status_rows()})
+    def fetch_replica_status_report():
+        rows = fetch_replica_status_rows()
+        columns = list(rows[0].keys()) if rows else []
+        return {"columns": columns, "rows": rows}
+
+    replica_status_report = _safe_report(fetch_replica_status_report)
     replication_connection = _safe_report(fetch_monitoring_replication_connection_status)
     replication_applier = _safe_report(fetch_monitoring_replication_applier_coordinator)
     replication_workers = _safe_report(fetch_monitoring_replication_applier_workers)
@@ -5562,6 +5602,35 @@ def fetch_replication_overview_info():
         sql_running_values.append(row.get("Replica_SQL_Running") or row.get("Slave_SQL_Running") or "-")
         lag_values.append(row.get("Seconds_Behind_Source") if "Seconds_Behind_Source" in row else row.get("Seconds_Behind_Master", "-"))
 
+    replication_connection_rows = replication_connection.get("rows", []) if not replication_connection.get("error") else []
+    replication_applier_rows = replication_applier.get("rows", []) if not replication_applier.get("error") else []
+    replication_worker_rows = replication_workers.get("rows", []) if not replication_workers.get("error") else []
+    group_member_rows = group_members.get("rows", []) if not group_members.get("error") else []
+
+    if not io_running_values:
+        io_running_values = [
+            row.get("service_state") or "-"
+            for row in replication_connection_rows
+        ]
+    if not sql_running_values:
+        sql_running_values = [
+            row.get("service_state") or "-"
+            for row in replication_applier_rows
+        ] or [
+            row.get("service_state") or "-"
+            for row in replication_worker_rows
+        ]
+    if not io_running_values and not sql_running_values and group_member_rows:
+        io_running_values = ["Group Replication"]
+        sql_running_values = [
+            row.get("member_state") or "-"
+            for row in group_member_rows
+        ]
+
+    replica_channel_count = len(replica_rows) or len(replication_connection_rows)
+    performance_schema_channel_count = len(replication_connection_rows) if not replication_connection.get("error") else "-"
+    group_member_count = len(group_member_rows) if not group_members.get("error") else "-"
+
     return {
         "replica_status": replica_status_report,
         "replication_connection": replication_connection,
@@ -5569,12 +5638,12 @@ def fetch_replication_overview_info():
         "replication_workers": replication_workers,
         "group_members": group_members,
         "group_member_stats": group_member_stats,
-        "replica_channel_count": len(replica_rows),
-        "replica_io_running_label": ", ".join(str(value) for value in io_running_values) if io_running_values else "-",
-        "replica_sql_running_label": ", ".join(str(value) for value in sql_running_values) if sql_running_values else "-",
-        "replica_lag_label": ", ".join(str(value) for value in lag_values) if lag_values else "-",
-        "performance_schema_channel_count": len(replication_connection.get("rows", [])) if not replication_connection.get("error") else "-",
-        "group_member_count": len(group_members.get("rows", [])) if not group_members.get("error") else "-",
+        "replica_channel_count": replica_channel_count,
+        "replica_io_running_label": _join_non_empty_labels(io_running_values),
+        "replica_sql_running_label": _join_non_empty_labels(sql_running_values),
+        "replica_lag_label": _join_non_empty_labels(lag_values),
+        "performance_schema_channel_count": performance_schema_channel_count,
+        "group_member_count": group_member_count,
     }
 
 
@@ -5732,7 +5801,11 @@ def fetch_replica_status_rows():
 
 def fetch_replication_channel_lag_rows():
     channels = []
-    for index, row in enumerate(fetch_replica_status_rows(), start=1):
+    try:
+        replica_rows = fetch_replica_status_rows()
+    except Exception:
+        replica_rows = []
+    for index, row in enumerate(replica_rows, start=1):
         channel_name = (
             row.get("Channel_Name")
             or row.get("Channel_name")
@@ -5751,6 +5824,38 @@ def fetch_replication_channel_lag_rows():
                 "relay_log_bytes": relay_space,
             }
         )
+    if channels:
+        return channels
+
+    fallback_channels = {}
+    applier_report = _safe_report(fetch_monitoring_replication_applier_coordinator)
+    worker_report = _safe_report(fetch_monitoring_replication_applier_workers)
+    for row in applier_report.get("rows", []) if not applier_report.get("error") else []:
+        channel_name = str(row.get("channel_name") or "default").strip() or "default"
+        lag_ms = _milliseconds_between_timestamps(
+            row.get("last_processed_transaction_original_commit_timestamp"),
+            row.get("last_processed_transaction_end_apply_timestamp"),
+        )
+        fallback_channels[channel_name] = {
+            "label": channel_name,
+            "lag_ms": lag_ms or 0.0,
+            "relay_log_bytes": 0,
+        }
+    for row in worker_report.get("rows", []) if not worker_report.get("error") else []:
+        channel_name = str(row.get("channel_name") or "default").strip() or "default"
+        lag_ms = _milliseconds_between_timestamps(
+            row.get("last_applied_transaction_original_commit_timestamp"),
+            row.get("last_applied_transaction_end_apply_timestamp"),
+        )
+        existing = fallback_channels.get(channel_name)
+        if not existing or (lag_ms or 0.0) > existing["lag_ms"]:
+            fallback_channels[channel_name] = {
+                "label": channel_name,
+                "lag_ms": lag_ms or 0.0,
+                "relay_log_bytes": 0,
+            }
+    if fallback_channels:
+        return sorted(fallback_channels.values(), key=lambda item: item["label"])
     return channels
 
 
@@ -6293,9 +6398,22 @@ def build_monitoring_binlog_relay_chart_card():
     subtitle = "Current binary log footprint and relay log space from replica channels."
     try:
         binlog_summary = fetch_show_binary_logs_summary()
-        replica_rows = fetch_replica_status_rows()
+        replica_status_error = ""
+        try:
+            replica_rows = fetch_replica_status_rows()
+        except Exception as error:
+            replica_rows = []
+            replica_status_error = str(error)
+        fallback_channels = fetch_replication_channel_lag_rows() if not replica_rows else []
         binlog_bytes = _extract_numeric(binlog_summary.get("total_bytes"), 0) or 0
         relay_bytes = sum(_extract_numeric(row.get("Relay_Log_Space"), 0) or 0 for row in replica_rows)
+        channel_count = len(replica_rows) or len(fallback_channels)
+        details = [
+            f"Binary log files: {_format_count(binlog_summary.get('file_count', 0))}",
+            f"Replica channels: {_format_count(channel_count)}",
+        ]
+        if replica_status_error and fallback_channels:
+            details.append("Relay log bytes unavailable from SHOW REPLICA STATUS; channel count uses Performance Schema.")
         return _chart_card(
             "binlog_relay",
             title,
@@ -6318,10 +6436,7 @@ def build_monitoring_binlog_relay_chart_card():
                     "display": _format_bytes(relay_bytes),
                 },
             ],
-            details=[
-                f"Binary log files: {_format_count(binlog_summary.get('file_count', 0))}",
-                f"Replica channels: {_format_count(len(replica_rows))}",
-            ],
+            details=details,
         )
     except Exception as error:
         return _chart_card("binlog_relay", title, subtitle, "timeseries", unit="bytes", error=str(error))

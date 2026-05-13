@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 
 {% macro render_report_table(report, empty_text="No rows returned.", table_class="") %}
+{% if not report.columns and not report.rows %}
+<p class="helper-text">{{ empty_text }}</p>
+{% else %}
 <div class="table-wrap">
   <table class="{{ table_class }}">
     <thead>
@@ -27,6 +30,7 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 {% endmacro %}
 
 {% macro render_report_panel(title, report, empty_text="No rows returned.", table_class="") %}

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 
 {% macro render_dashboard_report_table(report, empty_text="No rows returned.") %}
+{% if not report.columns and not report.rows %}
+<p class="helper-text">{{ empty_text }}</p>
+{% else %}
 <div class="table-wrap">
   <table class="dashboard-compact-table">
     <thead>
@@ -27,6 +30,7 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 {% endmacro %}
 
 {% block content %}
