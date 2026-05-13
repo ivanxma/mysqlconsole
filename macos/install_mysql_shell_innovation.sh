@@ -49,7 +49,38 @@ version_ge() {
   return 0
 }
 
-MYSQL_SHELL_MIN_VERSION="${MYSQL_SHELL_MIN_VERSION:-9.7.0}"
+MYSQL_SHELL_DOWNLOAD_PAGE="${MYSQL_SHELL_DOWNLOAD_PAGE:-https://dev.mysql.com/downloads/shell/}"
+
+resolve_mysql_shell_min_version() {
+  local page versions resolved
+
+  if [[ -n "${MYSQL_SHELL_MIN_VERSION:-}" ]]; then
+    printf '%s\n' "$MYSQL_SHELL_MIN_VERSION"
+    return 0
+  fi
+
+  page="$(curl -fsSL "$MYSQL_SHELL_DOWNLOAD_PAGE" 2>/dev/null || true)"
+  versions="$(
+    printf '%s\n' "$page" |
+      grep -Eo 'mysql-shell[-_][0-9]+[.][0-9]+[.][0-9]+|MySQL Shell[[:space:]]+[0-9]+[.][0-9]+[.][0-9]+' |
+      grep -Eo '[0-9]+[.][0-9]+[.][0-9]+' || true
+  )"
+  resolved="$(
+    printf '%s\n' "$versions" |
+      awk -F. 'NF == 3 {key=sprintf("%06d.%06d.%06d", $1, $2, $3); if (key > best_key) {best_key=key; best=$0}} END {print best}'
+  )"
+
+  if [[ -z "$resolved" ]]; then
+    echo "Unable to discover the latest MySQL Shell version from $MYSQL_SHELL_DOWNLOAD_PAGE." >&2
+    echo "Set MYSQL_SHELL_MIN_VERSION explicitly and rerun setup." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$resolved"
+}
+
+MYSQL_SHELL_MIN_VERSION="$(resolve_mysql_shell_min_version)"
+echo "Using MySQL Shell target version $MYSQL_SHELL_MIN_VERSION."
 MYSQL_SHELL_VERSION_OUTPUT="$(mysqlsh --version 2>/dev/null || true)"
 MYSQL_SHELL_VERSION="$(printf '%s\n' "$MYSQL_SHELL_VERSION_OUTPUT" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true)"
 
