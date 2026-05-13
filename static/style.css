@@ -1053,6 +1053,8 @@ dialog.management-dialog::backdrop {
 
 .workspace-toolbar-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-left: auto;
 }

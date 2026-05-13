@@ -1061,6 +1061,62 @@ def execute_multi_result_query(sql, params=None, *, database=None, use_secondary
     return result_sets
 
 
+def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
+    result_sets = []
+    result_index = 1
+    while True:
+        columns = [item[0] for item in cursor.description] if cursor.description else []
+        if columns:
+            rows = cursor.fetchall()
+            label = f"Statement {statement_index}"
+            if result_index > 1:
+                label = f"Statement {statement_index}.{result_index}"
+            result_sets.append(
+                {
+                    "label": label,
+                    "columns": columns,
+                    "rows": rows,
+                    "statement": sql,
+                }
+            )
+            result_index += 1
+        else:
+            rowcount = cursor.rowcount
+            if rowcount is not None and rowcount >= 0:
+                result_sets.append(
+                    {
+                        "label": f"Statement {statement_index}",
+                        "kind": "message",
+                        "message": f"Statement completed. Rows affected: {rowcount}.",
+                        "statement": sql,
+                    }
+                )
+        if not cursor.nextset():
+            break
+
+    if not result_sets:
+        result_sets.append(
+            {
+                "label": f"Statement {statement_index}",
+                "kind": "message",
+                "message": "Statement completed without a result set.",
+                "statement": sql,
+            }
+        )
+    return result_sets
+
+
+def execute_sql_workspace_statements(statements, *, database=None, use_secondary_engine=""):
+    result_sets = []
+    with mysql_connection(database_override=database) as connection:
+        with connection.cursor() as cursor:
+            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
+            for statement_index, statement in enumerate(statements, start=1):
+                cursor.execute(statement)
+                result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
+    return result_sets
+
+
 def execute_statement(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
@@ -1081,12 +1137,133 @@ def _normalize_sql_workspace_statement(sql_text):
     return statement
 
 
+def split_sql_workspace_statements(sql_text, *, require_terminator=False):
+    text = str(sql_text or "")
+    statements = []
+    current = []
+    quote_char = ""
+    in_backtick = False
+    in_line_comment = False
+    in_block_comment = False
+    escaped = False
+    last_statement_terminated = False
+    index = 0
+    length = len(text)
+
+    while index < length:
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < length else ""
+
+        if in_line_comment:
+            current.append(char)
+            if char in "\r\n":
+                in_line_comment = False
+            index += 1
+            continue
+
+        if in_block_comment:
+            current.append(char)
+            if char == "*" and next_char == "/":
+                current.append(next_char)
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if quote_char:
+            current.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                if next_char == quote_char:
+                    current.append(next_char)
+                    index += 2
+                    continue
+                quote_char = ""
+            index += 1
+            continue
+
+        if in_backtick:
+            current.append(char)
+            if char == "`":
+                if next_char == "`":
+                    current.append(next_char)
+                    index += 2
+                    continue
+                in_backtick = False
+            index += 1
+            continue
+
+        if char == "-" and next_char == "-" and (index + 2 >= length or text[index + 2].isspace()):
+            current.append(char)
+            current.append(next_char)
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "#":
+            current.append(char)
+            in_line_comment = True
+            index += 1
+            continue
+        if char == "/" and next_char == "*":
+            current.append(char)
+            current.append(next_char)
+            in_block_comment = True
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            current.append(char)
+            quote_char = char
+            escaped = False
+            index += 1
+            continue
+        if char == "`":
+            current.append(char)
+            in_backtick = True
+            index += 1
+            continue
+        if char == ";":
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            last_statement_terminated = True
+            index += 1
+            continue
+
+        if not char.isspace():
+            last_statement_terminated = False
+        current.append(char)
+        index += 1
+
+    if quote_char or in_backtick or in_block_comment:
+        raise ValueError("SQL text contains an unterminated quote, identifier, or block comment.")
+
+    trailing_statement = "".join(current).strip()
+    if trailing_statement:
+        if require_terminator and not last_statement_terminated:
+            raise ValueError("Every SQL statement must be terminated by ';'.")
+        statements.append(trailing_statement)
+
+    if not statements:
+        raise ValueError("Enter a SQL statement.")
+    return statements
+
+
+def terminate_sql_workspace_statements(statements):
+    return "\n\n".join(f"{statement.rstrip().rstrip(';')};" for statement in statements)
+
+
 def _normalize_sql_workspace_explain_statement(sql_text):
-    statement = _normalize_sql_workspace_statement(sql_text).rstrip().rstrip(";").strip()
+    statements = split_sql_workspace_statements(sql_text)
+    if len(statements) != 1:
+        raise ValueError("Explain supports one statement at a time.")
+    statement = statements[0].rstrip().rstrip(";").strip()
     if not statement:
         raise ValueError("Enter a SQL statement.")
-    if ";" in statement:
-        raise ValueError("Explain supports one SQL statement at a time.")
     if statement.lower().startswith("explain"):
         raise ValueError("Enter the SQL statement itself. Explain adds EXPLAIN automatically.")
     return statement
@@ -6633,12 +6810,74 @@ def sql_workspace_page():
                     ),
                 )
                 flash(str(error), "error")
-        else:
+        elif action == "split_statements":
             normalized_statement = sql_text
             try:
-                normalized_statement = _normalize_sql_workspace_statement(sql_text)
-                result_sets = execute_multi_result_query(
+                statements = split_sql_workspace_statements(sql_text)
+                normalized_statement = terminate_sql_workspace_statements(statements)
+                sql_text = normalized_statement
+                result_sets = [
+                    {
+                        "label": f"Statement {index}",
+                        "kind": "code",
+                        "text_output": f"{statement.rstrip().rstrip(';')};",
+                        "statement": statement,
+                    }
+                    for index, statement in enumerate(statements, start=1)
+                ]
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_result(
+                    "Generate split statements",
                     normalized_statement,
+                    selected_database,
+                    result_sets,
+                    duration_ms,
+                    use_secondary_engine=use_secondary_engine,
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Generate split statements",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        use_secondary_engine=use_secondary_engine,
+                        status="success",
+                    ),
+                )
+                flash(f"Generated {len(statements)} terminated statement(s).", "success")
+            except Exception as error:
+                duration_ms = (perf_counter() - started_at) * 1000
+                last_result = module_build_sql_workspace_result(
+                    "Generate split statements",
+                    normalized_statement,
+                    selected_database,
+                    [],
+                    duration_ms,
+                    use_secondary_engine=use_secondary_engine,
+                    error_message=str(error),
+                )
+                history_rows = module_append_sql_workspace_history(
+                    history_rows,
+                    module_build_sql_workspace_history_entry(
+                        "Generate split statements",
+                        selected_database,
+                        normalized_statement,
+                        duration_ms,
+                        use_secondary_engine=use_secondary_engine,
+                        status="error",
+                        error_message=str(error),
+                    ),
+                )
+                flash(str(error), "error")
+        else:
+            normalized_statement = sql_text
+            result_sets = []
+            try:
+                normalized_statement = _normalize_sql_workspace_statement(sql_text)
+                statements = split_sql_workspace_statements(normalized_statement)
+                result_sets = execute_sql_workspace_statements(
+                    statements,
                     database=selected_database or None,
                     use_secondary_engine=use_secondary_engine,
                 )
@@ -6668,7 +6907,7 @@ def sql_workspace_page():
                     "Execute",
                     normalized_statement,
                     selected_database,
-                    [],
+                    result_sets,
                     duration_ms,
                     use_secondary_engine=use_secondary_engine,
                     error_message=str(error),

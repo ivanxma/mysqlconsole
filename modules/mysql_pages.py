@@ -1150,7 +1150,7 @@ def build_sql_workspace_result(
     status_label = "Error" if error_message else "Success"
     tabs = []
 
-    if error_message:
+    if error_message and not result_sets:
         tabs.append(
             {
                 "key": "error",
@@ -1168,23 +1168,33 @@ def build_sql_workspace_result(
                 "message": "Statement completed without tabular result sets.",
             }
         )
-    else:
-        for index, result_set in enumerate(result_sets, start=1):
-            tabs.append(
-                {
-                    "key": f"result_{index}",
-                    "label": result_set.get("label") or f"Result {index}",
-                    "kind": result_set.get("kind", "table"),
-                    "columns": result_set.get("columns", []),
-                    "rows": result_set.get("rows", []),
-                    "export_rows": _normalize_sql_workspace_export_rows(
-                        result_set.get("columns", []),
-                        result_set.get("rows", []),
-                    ),
-                    "message": result_set.get("message", ""),
-                    "empty_text": result_set.get("empty_text", "This result did not return any rows."),
-                }
-            )
+    for index, result_set in enumerate(result_sets or [], start=1):
+        tabs.append(
+            {
+                "key": f"result_{index}",
+                "label": result_set.get("label") or f"Result {index}",
+                "kind": result_set.get("kind", "table"),
+                "columns": result_set.get("columns", []),
+                "rows": result_set.get("rows", []),
+                "export_rows": _normalize_sql_workspace_export_rows(
+                    result_set.get("columns", []),
+                    result_set.get("rows", []),
+                ),
+                "message": result_set.get("message", ""),
+                "statement": result_set.get("statement", ""),
+                "text_output": result_set.get("text_output", ""),
+                "empty_text": result_set.get("empty_text", "This result did not return any rows."),
+            }
+        )
+    if error_message and result_sets:
+        tabs.append(
+            {
+                "key": "error",
+                "label": "Error",
+                "kind": "message",
+                "message": error_message,
+            }
+        )
 
     return {
         "has_output": True,
