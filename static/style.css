@@ -2148,10 +2148,14 @@ code {
   background: linear-gradient(135deg, #bf3e33 0%, #651412 100%);
 }
 
-.button:disabled {
+.button:disabled,
+.button.primary:disabled,
+.button.secondary:disabled,
+.button.secondary.danger:disabled {
   cursor: not-allowed;
   color: #8e867d;
   background: #ddd5cb;
+  border-color: rgba(33, 29, 24, 0.1);
 }
 
 .form-actions,
