@@ -364,9 +364,11 @@ For `start_http.sh` and `start_https.sh`:
 - create events with database selection, event name, schedule selection, and event body SQL
 - refresh the event list after create or bulk actions and surface event action output in the page
 - inspect table charset/collation defaults and character columns that differ from the table default
+- inspect outgoing and referenced-by foreign key definitions in the charset/collation table list
 - bulk-change selected table charset/collation with `ALTER TABLE ... CONVERT TO CHARACTER SET`
 - change selected character-column charset/collation with generated `MODIFY COLUMN` clauses
-- optionally run charset/collation changes with `FOREIGN_KEY_CHECKS=0` and optionally drop outgoing foreign keys touching selected changes
+- preview charset/collation change SQL before execution, including generated foreign key drop and recreate statements
+- optionally run charset/collation changes with `FOREIGN_KEY_CHECKS=0` and drop/recreate outgoing foreign keys touching selected changes
 - view column metadata
 - view `CREATE TABLE`
 - view index metadata

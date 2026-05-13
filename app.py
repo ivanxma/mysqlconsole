@@ -1370,6 +1370,112 @@ def _fetch_db_admin_charset_column_rows(database_name):
     ]
 
 
+def _fetch_foreign_key_definitions(database_name, *, table_name="", referenced_table_name="", selected_columns=None):
+    normalized_database = str(database_name or "").strip()
+    normalized_table = str(table_name or "").strip()
+    normalized_referenced_table = str(referenced_table_name or "").strip()
+    if not normalized_database:
+        return []
+
+    selected_column_set = {
+        str(column_name or "").strip()
+        for column_name in selected_columns or []
+        if str(column_name or "").strip()
+    }
+    sql = """
+        SELECT
+          k.constraint_schema AS constraint_schema_value,
+          k.constraint_name AS constraint_name_value,
+          k.table_schema AS table_schema_value,
+          k.table_name AS table_name_value,
+          k.column_name AS column_name_value,
+          k.ordinal_position AS ordinal_position_value,
+          k.referenced_table_schema AS referenced_table_schema_value,
+          k.referenced_table_name AS referenced_table_name_value,
+          k.referenced_column_name AS referenced_column_name_value,
+          rc.update_rule AS update_rule_value,
+          rc.delete_rule AS delete_rule_value
+        FROM information_schema.key_column_usage AS k
+        LEFT JOIN information_schema.referential_constraints AS rc
+          ON rc.constraint_schema = k.constraint_schema
+         AND rc.constraint_name = k.constraint_name
+         AND rc.table_name = k.table_name
+        WHERE k.referenced_table_name IS NOT NULL
+    """
+    params = []
+    if normalized_table:
+        sql += " AND k.table_schema = %s AND k.table_name = %s"
+        params.extend([normalized_database, normalized_table])
+    elif normalized_referenced_table:
+        sql += " AND k.referenced_table_schema = %s AND k.referenced_table_name = %s"
+        params.extend([normalized_database, normalized_referenced_table])
+    else:
+        sql += " AND k.table_schema = %s"
+        params.append(normalized_database)
+    sql += " ORDER BY k.table_schema, k.table_name, k.constraint_name, k.ordinal_position"
+
+    grouped = {}
+    ordered_keys = []
+    for row in execute_query(sql, params):
+        key = (
+            row["table_schema_value"],
+            row["table_name_value"],
+            row["constraint_name_value"],
+        )
+        if key not in grouped:
+            grouped[key] = {
+                "constraint_schema": row["constraint_schema_value"],
+                "constraint_name": row["constraint_name_value"],
+                "table_schema": row["table_schema_value"],
+                "table_name": row["table_name_value"],
+                "referenced_table_schema": row["referenced_table_schema_value"],
+                "referenced_table_name": row["referenced_table_name_value"],
+                "update_rule": row["update_rule_value"] or "",
+                "delete_rule": row["delete_rule_value"] or "",
+                "columns": [],
+                "referenced_columns": [],
+            }
+            ordered_keys.append(key)
+        grouped[key]["columns"].append(row["column_name_value"])
+        grouped[key]["referenced_columns"].append(row["referenced_column_name_value"])
+
+    definitions = []
+    for key in ordered_keys:
+        definition = grouped[key]
+        if selected_column_set and not any(column in selected_column_set for column in definition["columns"]):
+            continue
+        safe_table_schema = quote_identifier(definition["table_schema"])
+        safe_table = quote_identifier(definition["table_name"])
+        safe_referenced_schema = quote_identifier(definition["referenced_table_schema"])
+        safe_referenced_table = quote_identifier(definition["referenced_table_name"])
+        column_list = ", ".join(quote_identifier(column) for column in definition["columns"])
+        referenced_column_list = ", ".join(quote_identifier(column) for column in definition["referenced_columns"])
+        create_statement = (
+            f"ALTER TABLE {safe_table_schema}.{safe_table} "
+            f"ADD CONSTRAINT {_quote_existing_mysql_identifier(definition['constraint_name'])} "
+            f"FOREIGN KEY ({column_list}) "
+            f"REFERENCES {safe_referenced_schema}.{safe_referenced_table} ({referenced_column_list})"
+        )
+        if definition["delete_rule"]:
+            create_statement += f" ON DELETE {definition['delete_rule']}"
+        if definition["update_rule"]:
+            create_statement += f" ON UPDATE {definition['update_rule']}"
+        drop_statement = (
+            f"ALTER TABLE {safe_table_schema}.{safe_table} "
+            f"DROP FOREIGN KEY {_quote_existing_mysql_identifier(definition['constraint_name'])}"
+        )
+        definitions.append(
+            {
+                **definition,
+                "column_list": ", ".join(definition["columns"]),
+                "referenced_column_list": ", ".join(definition["referenced_columns"]),
+                "drop_statement": drop_statement,
+                "create_statement": create_statement,
+            }
+        )
+    return definitions
+
+
 def fetch_db_admin_charset_collation_report(database_name):
     normalized_database = str(database_name or "").strip()
     report = {
@@ -1400,12 +1506,20 @@ def fetch_db_admin_charset_collation_report(database_name):
         [normalized_database],
     )
     column_rows = _fetch_db_admin_charset_column_rows(normalized_database)
+    outgoing_foreign_keys = _fetch_foreign_key_definitions(normalized_database)
+    outgoing_by_table = {}
+    for definition in outgoing_foreign_keys:
+        outgoing_by_table.setdefault(definition["table_name"], []).append(definition)
     columns_by_table = {}
     for column in column_rows:
         columns_by_table.setdefault(column["table_name"], []).append(column)
 
     for row in table_rows:
         table_name = row["table_name_value"]
+        incoming_foreign_keys = _fetch_foreign_key_definitions(
+            normalized_database,
+            referenced_table_name=table_name,
+        )
         table_charset = row["table_charset_value"] or ""
         table_collation = row["table_collation_value"] or ""
         columns = []
@@ -1435,6 +1549,8 @@ def fetch_db_admin_charset_collation_report(database_name):
                 "text_column_count": len(columns),
                 "column_difference_count": difference_count,
                 "has_column_differences": difference_count > 0,
+                "foreign_key_definitions": outgoing_by_table.get(table_name, []),
+                "referenced_by_foreign_keys": incoming_foreign_keys,
             }
         )
         report["text_column_count"] += len(columns)
@@ -1574,7 +1690,7 @@ def _quote_existing_mysql_identifier(identifier):
     return "`" + str(identifier or "").replace("`", "``") + "`"
 
 
-def modify_db_admin_charset_collation(database_name, payload):
+def build_db_admin_charset_collation_plan(database_name, payload):
     normalized_database = str(database_name or "").strip()
     if not normalized_database:
         raise ValueError("Choose a database before modifying charset or collation.")
@@ -1619,14 +1735,13 @@ def modify_db_admin_charset_collation(database_name, payload):
     safe_database = quote_identifier(normalized_database)
 
     alter_statements = []
-    drop_statements = []
+    foreign_key_definitions = []
     for table_name in selected_tables:
         safe_table = quote_identifier(table_name)
         if drop_foreign_keys:
-            for constraint_name in _fetch_outgoing_foreign_key_names(normalized_database, table_name):
-                drop_statements.append(
-                    f"ALTER TABLE {safe_database}.{safe_table} DROP FOREIGN KEY {_quote_existing_mysql_identifier(constraint_name)}"
-                )
+            foreign_key_definitions.extend(
+                _fetch_foreign_key_definitions(normalized_database, table_name=table_name)
+            )
         alter_statements.append(
             f"ALTER TABLE {safe_database}.{safe_table} CONVERT TO CHARACTER SET {target_charset} COLLATE {target_collation}"
         )
@@ -1645,14 +1760,13 @@ def modify_db_admin_charset_collation(database_name, payload):
         ddl_statement = fetch_create_table_statement(normalized_database, table_name)
         definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
         if drop_foreign_keys:
-            for constraint_name in _fetch_outgoing_foreign_key_names(
-                normalized_database,
-                table_name,
-                selected_columns=column_names,
-            ):
-                drop_statements.append(
-                    f"ALTER TABLE {safe_database}.{safe_table} DROP FOREIGN KEY {_quote_existing_mysql_identifier(constraint_name)}"
+            foreign_key_definitions.extend(
+                _fetch_foreign_key_definitions(
+                    normalized_database,
+                    table_name=table_name,
+                    selected_columns=column_names,
                 )
+            )
         for column_name in column_names:
             column_row = column_rows.get(column_name)
             if not column_row:
@@ -1671,37 +1785,83 @@ def modify_db_admin_charset_collation(database_name, payload):
     if not alter_statements:
         raise ValueError("No charset/collation changes were submitted.")
 
-    executed_drops = 0
-    with mysql_connection(database_override=normalized_database) as connection:
-        with connection.cursor() as cursor:
-            if disable_fk_checks:
-                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
-            try:
-                for statement in dict.fromkeys(drop_statements):
-                    cursor.execute(statement)
-                    executed_drops += 1
-                for statement in alter_statements:
-                    cursor.execute(statement)
-            finally:
-                if disable_fk_checks:
-                    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+    deduped_foreign_keys = []
+    seen_foreign_keys = set()
+    for definition in foreign_key_definitions:
+        key = (
+            definition["table_schema"],
+            definition["table_name"],
+            definition["constraint_name"],
+        )
+        if key in seen_foreign_keys:
+            continue
+        seen_foreign_keys.add(key)
+        if not definition.get("drop_statement") or not definition.get("create_statement"):
+            raise ValueError(
+                f"Unable to generate full drop/recreate SQL for foreign key `{definition.get('constraint_name')}`."
+            )
+        deduped_foreign_keys.append(definition)
 
+    drop_statements = [definition["drop_statement"] for definition in deduped_foreign_keys]
+    recreate_statements = [definition["create_statement"] for definition in deduped_foreign_keys]
     changed_parts = []
     if selected_tables:
         changed_parts.append(f"{len(selected_tables)} table(s)")
     if selected_columns:
         changed_parts.append(f"{len(selected_columns)} column(s)")
+
+    return {
+        "database_name": normalized_database,
+        "target_charset": target_charset,
+        "target_collation": target_collation,
+        "selected_table_count": len(selected_tables),
+        "selected_column_count": len(selected_columns),
+        "changed_parts": changed_parts,
+        "disable_fk_checks": disable_fk_checks,
+        "drop_foreign_keys": drop_foreign_keys,
+        "drop_statements": drop_statements,
+        "alter_statements": alter_statements,
+        "recreate_statements": recreate_statements,
+        "foreign_key_definitions": deduped_foreign_keys,
+    }
+
+
+def preview_db_admin_charset_collation(database_name, payload):
+    return build_db_admin_charset_collation_plan(database_name, payload)
+
+
+def modify_db_admin_charset_collation(database_name, payload):
+    plan = build_db_admin_charset_collation_plan(database_name, payload)
+    executed_drops = 0
+    executed_recreates = 0
+    with mysql_connection(database_override=plan["database_name"]) as connection:
+        with connection.cursor() as cursor:
+            if plan["disable_fk_checks"]:
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+            try:
+                for statement in plan["drop_statements"]:
+                    cursor.execute(statement)
+                    executed_drops += 1
+                for statement in plan["alter_statements"]:
+                    cursor.execute(statement)
+                for statement in plan["recreate_statements"]:
+                    cursor.execute(statement)
+                    executed_recreates += 1
+            finally:
+                if plan["disable_fk_checks"]:
+                    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+
     message = (
-        f"Updated charset/collation to `{target_charset}` / `{target_collation}` "
-        f"for {' and '.join(changed_parts)} in `{normalized_database}`."
+        f"Updated charset/collation to `{plan['target_charset']}` / `{plan['target_collation']}` "
+        f"for {' and '.join(plan['changed_parts'])} in `{plan['database_name']}`."
     )
     if executed_drops:
-        message += f" Dropped {executed_drops} outgoing foreign key constraint(s)."
-    if disable_fk_checks:
+        message += f" Dropped and recreated {executed_recreates} of {executed_drops} outgoing foreign key constraint(s)."
+    if plan["disable_fk_checks"]:
         message += " FOREIGN_KEY_CHECKS was disabled for this execution and restored afterward."
     return {
         "message": message,
-        "database_name": normalized_database,
+        "database_name": plan["database_name"],
     }
 
 
@@ -6345,6 +6505,8 @@ def db_admin_page():
     db_open_dialog = "modify-columns-dialog" if str(request.args.get("dialog", "")).strip() == "modify-columns" else ""
     db_admin_edit_payload = None
     db_admin_event_form_payload = None
+    db_admin_charset_collation_payload = None
+    charset_collation_preview = None
     event_action_output = session.pop(DB_ADMIN_EVENT_OUTPUT_SESSION_KEY, None)
 
     if request.method == "POST":
@@ -6372,13 +6534,19 @@ def db_admin_page():
                 set_db_events_enabled=set_db_admin_events_enabled,
                 delete_db_events=delete_db_admin_events,
                 modify_charset_collation=modify_db_admin_charset_collation,
+                preview_charset_collation=preview_db_admin_charset_collation,
             )
-            if action_result.get("event_action_output"):
-                session[DB_ADMIN_EVENT_OUTPUT_SESSION_KEY] = action_result["event_action_output"]
-            flash(action_result["flash_message"], action_result["flash_category"])
-            redirect_values = dict(action_result["redirect_values"])
-            redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
-            return redirect(url_for(action_result["redirect_endpoint"], **redirect_values))
+            if action_result.get("charset_collation_preview"):
+                db_admin_charset_collation_payload = request.form
+                charset_collation_preview = action_result["charset_collation_preview"]
+                flash(action_result["flash_message"], action_result["flash_category"])
+            else:
+                if action_result.get("event_action_output"):
+                    session[DB_ADMIN_EVENT_OUTPUT_SESSION_KEY] = action_result["event_action_output"]
+                flash(action_result["flash_message"], action_result["flash_category"])
+                redirect_values = dict(action_result["redirect_values"])
+                redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
+                return redirect(url_for(action_result["redirect_endpoint"], **redirect_values))
         except Exception as error:
             flash(str(error), "error")
             if action == "modify_table_columns":
@@ -6397,6 +6565,8 @@ def db_admin_page():
                     "category": "error",
                     "message": str(error),
                 }
+            elif action in {"modify_charset_collation", "preview_charset_collation"}:
+                db_admin_charset_collation_payload = request.form
 
     page_context = module_build_db_admin_context(
         selected_database,
@@ -6420,6 +6590,7 @@ def db_admin_page():
         focused_event_name=focus_event_name,
         fetch_charset_collation_report=fetch_db_admin_charset_collation_report,
         fetch_charset_collation_options=fetch_charset_collation_options,
+        charset_collation_payload=db_admin_charset_collation_payload,
     )
     if page_context.get("redirect_endpoint"):
         flash(page_context["flash_message"], page_context["flash_category"])
@@ -6434,6 +6605,7 @@ def db_admin_page():
         db_admin_tab=db_admin_tab,
         event_schedule_options=EVENT_SCHEDULE_OPTIONS,
         event_action_output=event_action_output,
+        charset_collation_preview=charset_collation_preview,
         **page_context,
     )
 

@@ -578,6 +578,7 @@ def handle_db_admin_action(
     set_db_events_enabled=None,
     delete_db_events=None,
     modify_charset_collation=None,
+    preview_charset_collation=None,
 ):
     normalized_action = str(action or "").strip()
     normalized_name = str(database_name or "").strip()
@@ -769,6 +770,15 @@ def handle_db_admin_action(
             },
         }
 
+    if normalized_action == "preview_charset_collation":
+        if preview_charset_collation is None or payload is None:
+            raise ValueError("Charset/collation preview helper is not available.")
+        return {
+            "flash_category": "success",
+            "flash_message": "Charset/collation change plan generated.",
+            "charset_collation_preview": preview_charset_collation(normalized_name, payload),
+        }
+
     raise ValueError("Unsupported DB Admin action.")
 
 
@@ -807,6 +817,7 @@ def build_db_admin_context(
     focused_event_name="",
     fetch_charset_collation_report=None,
     fetch_charset_collation_options=None,
+    charset_collation_payload=None,
 ):
     inventory = fetch_database_inventory()
     available_database_names = {row["database_name"] for row in inventory}
@@ -856,6 +867,14 @@ def build_db_admin_context(
         "column_difference_count": 0,
     }
     charset_collation_options = {"charsets": [], "collations": []}
+    charset_collation_form = {
+        "target_charset": "utf8mb4",
+        "target_collation": "utf8mb4_0900_ai_ci",
+        "foreign_key_checks": "on",
+        "drop_foreign_keys": False,
+        "selected_tables": set(),
+        "selected_columns": set(),
+    }
     event_form = _build_db_admin_event_form(
         inventory,
         fallback_database=normalized_database,
@@ -890,10 +909,47 @@ def build_db_admin_context(
 
     if db_admin_tab == "charset-collation":
         try:
+            if charset_collation_payload is not None and hasattr(charset_collation_payload, "getlist"):
+                charset_collation_form["target_charset"] = str(
+                    charset_collation_payload.get("target_charset", charset_collation_form["target_charset"]) or ""
+                ).strip()
+                charset_collation_form["target_collation"] = str(
+                    charset_collation_payload.get("target_collation", charset_collation_form["target_collation"]) or ""
+                ).strip()
+                charset_collation_form["foreign_key_checks"] = str(
+                    charset_collation_payload.get("foreign_key_checks", charset_collation_form["foreign_key_checks"]) or "on"
+                ).strip()
+                charset_collation_form["drop_foreign_keys"] = (
+                    str(charset_collation_payload.get("drop_foreign_keys", "")).strip().lower()
+                    in {"1", "true", "yes", "on"}
+                )
+                charset_collation_form["selected_tables"] = {
+                    str(value or "").strip()
+                    for value in charset_collation_payload.getlist("selected_charset_table")
+                    if str(value or "").strip()
+                }
+                selected_columns = set()
+                for raw_value in charset_collation_payload.getlist("selected_charset_column"):
+                    try:
+                        column_payload = json.loads(str(raw_value or ""))
+                    except json.JSONDecodeError:
+                        continue
+                    table_name = str(column_payload.get("table") or "").strip()
+                    column_name = str(column_payload.get("column") or "").strip()
+                    if table_name and column_name:
+                        selected_columns.add(f"{table_name}.{column_name}")
+                charset_collation_form["selected_columns"] = selected_columns
             if fetch_charset_collation_options is not None:
                 charset_collation_options = fetch_charset_collation_options()
             if normalized_database and fetch_charset_collation_report is not None:
                 charset_collation_report = fetch_charset_collation_report(normalized_database)
+                for row in charset_collation_report.get("rows", []):
+                    table_name = str(row.get("table_name") or "")
+                    row["is_selected"] = table_name in charset_collation_form["selected_tables"]
+                    for column in row.get("text_columns", []):
+                        column["is_selected"] = (
+                            f"{table_name}.{column.get('column_name')}" in charset_collation_form["selected_columns"]
+                        )
         except Exception as error:  # pragma: no cover - depends on server metadata
             charset_collation_report["error"] = str(error)
 
@@ -952,6 +1008,7 @@ def build_db_admin_context(
         "event_form": event_form,
         "charset_collation_report": charset_collation_report,
         "charset_collation_options": charset_collation_options,
+        "charset_collation_form": charset_collation_form,
     }
 
 
