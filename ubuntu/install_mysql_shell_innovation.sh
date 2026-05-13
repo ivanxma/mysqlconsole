@@ -64,7 +64,13 @@ run_root install -m 0644 "$TMP_KEYRING_FILE" "$MYSQL_APT_KEYRING"
 run_root install -m 0644 "$TMP_LIST_FILE" "$MYSQL_APT_LIST"
 run_root apt-get update
 
-if ! run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-shell; then
+if dpkg-query -W -f='${Status}' mysql-shell 2>/dev/null | grep -q "install ok installed"; then
+  install_args=(--only-upgrade mysql-shell)
+else
+  install_args=(mysql-shell)
+fi
+
+if ! run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${install_args[@]}"; then
   echo "Unable to install mysql-shell from the MySQL innovation APT repository on Ubuntu." >&2
   exit 1
 fi
@@ -74,4 +80,40 @@ if ! command -v mysqlsh >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "mysqlsh installed successfully."
+version_ge() {
+  local installed="$1"
+  local required="$2"
+  local IFS=.
+  local installed_parts required_parts
+  read -r -a installed_parts <<<"$installed"
+  read -r -a required_parts <<<"$required"
+
+  for index in 0 1 2; do
+    local installed_part="${installed_parts[$index]:-0}"
+    local required_part="${required_parts[$index]:-0}"
+    if ((10#$installed_part > 10#$required_part)); then
+      return 0
+    fi
+    if ((10#$installed_part < 10#$required_part)); then
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+MYSQL_SHELL_MIN_VERSION="${MYSQL_SHELL_MIN_VERSION:-9.7.0}"
+MYSQL_SHELL_VERSION_OUTPUT="$(mysqlsh --version 2>/dev/null || true)"
+MYSQL_SHELL_VERSION="$(printf '%s\n' "$MYSQL_SHELL_VERSION_OUTPUT" | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n 1 || true)"
+
+if [[ -z "$MYSQL_SHELL_VERSION" ]]; then
+  echo "Unable to determine mysqlsh version from: $MYSQL_SHELL_VERSION_OUTPUT" >&2
+  exit 1
+fi
+
+if ! version_ge "$MYSQL_SHELL_VERSION" "$MYSQL_SHELL_MIN_VERSION"; then
+  echo "mysqlsh $MYSQL_SHELL_VERSION is installed, but MySQL Shell Innovation $MYSQL_SHELL_MIN_VERSION or newer is required." >&2
+  exit 1
+fi
+
+echo "mysqlsh $MYSQL_SHELL_VERSION installed successfully."

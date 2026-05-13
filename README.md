@@ -230,9 +230,10 @@ The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. Dur
 - create `.venv`
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
-  - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, and install `mysql-shell`
-  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, then install `mysql-shell`
-  - `macos`: install or upgrade `mysql-shell` with Homebrew and fall back to the formula path if needed
+  - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and install or upgrade `mysql-shell`
+  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade `mysql-shell`
+  - `macos`: refresh Homebrew metadata, install or upgrade `mysql-shell`, and fall back to the formula path if needed
+  - all platforms verify that `mysqlsh` is at least MySQL Shell Innovation `9.7.0`; override `MYSQL_SHELL_MIN_VERSION` only when you intentionally need a different minimum
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
@@ -267,6 +268,8 @@ The `Admin > Auto-Update` page works best when the DBConsole service user can ru
 
 In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
 
+When passwordless `sudo` is available, auto-update reruns the full `setup.sh` path and upgrades MySQL Shell Innovation to the latest package available for the platform before restarting DBConsole.
+
 DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs from the local version. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch. HTTPS version checks use `certifi` by default; set `DBCONSOLE_VERSION_CA_BUNDLE` to a specific CA bundle path if your environment requires one.
 
 If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
@@ -287,6 +290,7 @@ For `setup.sh`:
 - `SERVICE_USER`
 - `SERVICE_GROUP`
 - `VENV_DIR`
+- `MYSQL_SHELL_MIN_VERSION`
 - `BOOTSTRAP_REPO_URL`
 - `BOOTSTRAP_CLONE_DIR`
 - `BOOTSTRAP_PARENT_DIR`

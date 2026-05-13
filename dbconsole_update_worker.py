@@ -358,12 +358,15 @@ class UpdateWorker:
         full_completion_message = "Repository refresh, setup, and service restart completed."
         limited_completion_message = (
             "Repository refresh, Python dependencies, and service restart completed. "
-            "Privileged setup changes were skipped because passwordless sudo was unavailable from the running service."
+            "Privileged setup changes, including the MySQL Shell Innovation package upgrade, were skipped because passwordless sudo was unavailable from the running service."
         )
         sudo_ready, sudo_error = self.passwordless_sudo_available()
 
         if sudo_ready:
-            self.log_step("Running setup", "Rerunning setup.sh to refresh dependencies and service wiring.")
+            self.log_step(
+                "Running setup",
+                "Rerunning setup.sh to refresh dependencies, upgrade MySQL Shell Innovation, and update service wiring.",
+            )
             self.run_setup(os_family, deploy_mode, runtime_env)
         else:
             self.log_step(
@@ -377,7 +380,7 @@ class UpdateWorker:
                 "setup.sh will skip privileged steps such as Linux package installation, firewall changes, and systemd unit rewrites."
             )
             self.append_log(
-                "Re-run ./setup.sh from an SSH shell if you need MySQL Shell package updates, firewall changes, or refreshed systemd units."
+                "Re-run ./setup.sh from an SSH shell if you need the MySQL Shell Innovation package upgrade, firewall changes, or refreshed systemd units."
             )
             self.run_setup(os_family, deploy_mode, runtime_env, skip_privileged_setup=True)
 
