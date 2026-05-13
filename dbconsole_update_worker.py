@@ -15,6 +15,14 @@ from pathlib import Path
 
 HTTP_SERVICE = "dbconsole-http.service"
 HTTPS_SERVICE = "dbconsole-https.service"
+ALLOWED_LOCAL_STATE_PATHS = {
+    ".runtime.env",
+    "object_storage.json",
+    "profiles.json",
+}
+ALLOWED_LOCAL_STATE_PREFIXES = (
+    "tls/",
+)
 
 
 def utc_now_iso():
@@ -181,10 +189,43 @@ class UpdateWorker:
         return "http", [HTTP_SERVICE] if shutil.which("systemctl") else []
 
     def ensure_clean_worktree(self):
-        status_output = self.run_capture(["git", "status", "--porcelain"], cwd=self.repo_dir).strip()
-        if status_output:
-            self.append_log(status_output)
+        status_lines = [
+            line
+            for line in self.run_capture(["git", "status", "--porcelain"], cwd=self.repo_dir).splitlines()
+            if line.strip()
+        ]
+        blocking_lines = []
+        ignored_lines = []
+        for line in status_lines:
+            path = self.status_line_path(line)
+            if self.is_allowed_local_state_path(path):
+                ignored_lines.append(line)
+            else:
+                blocking_lines.append(line)
+        if ignored_lines:
+            self.append_log("Ignoring local DBConsole state files during worktree validation:")
+            for line in ignored_lines:
+                self.append_log(line)
+        if blocking_lines:
+            for line in blocking_lines:
+                self.append_log(line)
             raise RuntimeError("Repository has local changes. Commit or stash them before running Update DBConsole.")
+
+    @staticmethod
+    def status_line_path(line):
+        path = str(line or "")[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[-1].strip()
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        return path
+
+    @staticmethod
+    def is_allowed_local_state_path(path):
+        normalized = str(path or "").strip().lstrip("./")
+        return normalized in ALLOWED_LOCAL_STATE_PATHS or any(
+            normalized.startswith(prefix) for prefix in ALLOWED_LOCAL_STATE_PREFIXES
+        )
 
     def current_user_group(self):
         try:

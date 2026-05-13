@@ -4,4 +4,5 @@ __pycache__/
 .DS_Store
 .runtime.env
 profiles.json
+object_storage.json
 tls/
