@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
-{% macro render_report_table(report, empty_text="No rows returned.") %}
-<div class="table-wrap">
-  <table>
+{% macro render_report_table(report, empty_text="No rows returned.", table_class="") %}
+<div class="table-wrap hw-table-wrap">
+  <table class="hw-flex-table {{ table_class }}">
     <thead>
       <tr>
         {% for column in report.columns %}
@@ -40,8 +40,8 @@
 {% endmacro %}
 
 {% macro render_load_detail_table(rows, empty_text="No rows returned.") %}
-<div class="table-wrap">
-  <table>
+<div class="table-wrap hw-table-wrap">
+  <table class="hw-flex-table hw-load-detail-table">
     <thead>
       <tr>
         <th>Database</th>
@@ -73,8 +73,8 @@
 {% endmacro %}
 
 {% macro render_lakehouse_table(rows, empty_text="No Lakehouse tables found.") %}
-<div class="table-wrap">
-  <table>
+<div class="table-wrap hw-table-wrap">
+  <table class="hw-flex-table hw-lakehouse-table">
     <thead>
       <tr>
         <th>Database</th>
@@ -145,7 +145,7 @@
     {% if status_report.error %}
     <p class="helper-text error-text">{{ status_report.error }}</p>
     {% else %}
-    {{ render_report_table(status_report, "No HeatWave status rows returned.") }}
+    {{ render_report_table(status_report, "No HeatWave status rows returned.", "hw-status-table") }}
     {% endif %}
   </article>
 
@@ -174,7 +174,7 @@
   {% if nodes_report.error %}
   <p class="helper-text error-text">{{ nodes_report.error }}</p>
   {% else %}
-  {{ render_report_table(nodes_report, "No HeatWave node rows returned.") }}
+  {{ render_report_table(nodes_report, "No HeatWave node rows returned.", "hw-rpd-nodes-table") }}
   {% endif %}
 </section>
 
@@ -219,8 +219,8 @@
         </span>
       </summary>
       <div class="accordion-body">
-        <div class="table-wrap">
-          <table>
+        <div class="table-wrap hw-table-wrap">
+          <table class="hw-flex-table hw-inventory-table">
             <thead>
               <tr>
                 <th rowspan="2">Table</th>

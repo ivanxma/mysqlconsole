@@ -885,6 +885,13 @@ dialog.management-dialog::backdrop {
   align-items: center;
 }
 
+.db-admin-table-delete-select-all {
+  grid-column: auto;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.db-admin-table-delete-select-all input[type="checkbox"],
 [data-table-delete-row] {
   width: auto;
   min-height: 0;
@@ -1825,6 +1832,68 @@ h4 {
 .hw-load-neutral {
   color: var(--muted);
   background: rgba(33, 29, 24, 0.06);
+}
+
+.hw-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.hw-table-wrap .hw-flex-table {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.hw-table-wrap .hw-flex-table th,
+.hw-table-wrap .hw-flex-table td {
+  min-width: 140px;
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.hw-table-wrap .hw-status-table th,
+.hw-table-wrap .hw-status-table td {
+  min-width: 180px;
+}
+
+.hw-table-wrap .hw-rpd-nodes-table th,
+.hw-table-wrap .hw-rpd-nodes-table td {
+  min-width: 180px;
+  max-width: 520px;
+}
+
+.hw-table-wrap .hw-load-detail-table th,
+.hw-table-wrap .hw-load-detail-table td,
+.hw-table-wrap .hw-lakehouse-table th,
+.hw-table-wrap .hw-lakehouse-table td {
+  min-width: 150px;
+  max-width: 360px;
+}
+
+.hw-table-wrap .hw-load-detail-table th:nth-child(1),
+.hw-table-wrap .hw-load-detail-table td:nth-child(1),
+.hw-table-wrap .hw-load-detail-table th:nth-child(2),
+.hw-table-wrap .hw-load-detail-table td:nth-child(2),
+.hw-table-wrap .hw-lakehouse-table th:nth-child(1),
+.hw-table-wrap .hw-lakehouse-table td:nth-child(1),
+.hw-table-wrap .hw-lakehouse-table th:nth-child(2),
+.hw-table-wrap .hw-lakehouse-table td:nth-child(2) {
+  min-width: 220px;
+}
+
+.hw-table-wrap .hw-inventory-table th,
+.hw-table-wrap .hw-inventory-table td {
+  min-width: 160px;
+  max-width: 420px;
+}
+
+.hw-table-wrap .hw-inventory-table th:first-child,
+.hw-table-wrap .hw-inventory-table td:first-child {
+  min-width: 280px;
+  max-width: 520px;
 }
 
 .detail-list {

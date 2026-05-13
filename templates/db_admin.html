@@ -666,6 +666,14 @@
     <input type="hidden" name="database_name" value="{{ selected_database }}">
     <div class="table-wrap">
       <div class="table-layout-toolbar db-admin-table-delete-toolbar">
+        <label class="checkbox-field db-admin-table-delete-select-all">
+          <input
+            type="checkbox"
+            data-table-delete-select-all
+            {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+          >
+          <span>Select all</span>
+        </label>
         <button
           class="button secondary danger"
           type="submit"
@@ -1174,11 +1182,16 @@
 
     const tableDeleteForm = document.querySelector("[data-table-delete-form]");
     if (tableDeleteForm) {
+      const tableDeleteSelectAll = tableDeleteForm.querySelector("[data-table-delete-select-all]");
       const tableDeleteCheckboxes = Array.from(tableDeleteForm.querySelectorAll("[data-table-delete-row]"));
       const tableDeleteButton = tableDeleteForm.querySelector("[data-table-delete-action]");
       const tableDeleteCount = tableDeleteForm.querySelector("[data-table-delete-count]");
       const syncTableDeleteState = () => {
         const checkedCount = tableDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (tableDeleteSelectAll) {
+          tableDeleteSelectAll.checked = tableDeleteCheckboxes.length > 0 && checkedCount === tableDeleteCheckboxes.length;
+          tableDeleteSelectAll.indeterminate = checkedCount > 0 && checkedCount < tableDeleteCheckboxes.length;
+        }
         if (tableDeleteButton) {
           tableDeleteButton.disabled = checkedCount === 0;
         }
@@ -1186,6 +1199,14 @@
           tableDeleteCount.textContent = `${checkedCount} selected`;
         }
       };
+      if (tableDeleteSelectAll) {
+        tableDeleteSelectAll.addEventListener("change", () => {
+          tableDeleteCheckboxes.forEach((checkbox) => {
+            checkbox.checked = tableDeleteSelectAll.checked;
+          });
+          syncTableDeleteState();
+        });
+      }
       tableDeleteCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", syncTableDeleteState);
       });
