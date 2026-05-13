@@ -659,30 +659,34 @@
       {% endif %}
     </div>
   </div>
-  <form method="post" data-table-delete-form onsubmit="return confirm('Delete the selected table(s)? This cannot be undone.');">
+  <form method="post" data-table-delete-form>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="select">
     <input type="hidden" name="db_action" value="delete_tables">
     <input type="hidden" name="database_name" value="{{ selected_database }}">
     <div class="table-wrap">
       <div class="table-layout-toolbar db-admin-table-delete-toolbar">
-        <label class="checkbox-field db-admin-table-delete-select-all">
-          <input
-            type="checkbox"
-            data-table-delete-select-all
+        <div class="db-admin-table-delete-left-actions">
+          <label class="checkbox-field db-admin-table-delete-select-all">
+            <input
+              type="checkbox"
+              data-table-delete-select-all
+              {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
+            >
+            <span>Select all</span>
+          </label>
+          <button
+            class="button secondary danger db-admin-table-delete-action"
+            type="submit"
+            data-table-delete-action
             {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
           >
-          <span>Select all</span>
-        </label>
-        <button
-          class="button secondary danger"
-          type="submit"
-          data-table-delete-action
-          {% if not tables or not selected_database or selected_database in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}disabled{% endif %}
-        >
-          Delete Table(s)
-        </button>
-        <span class="helper-text" data-table-delete-count>0 selected</span>
+            Delete Table(s)
+          </button>
+        </div>
+        <div class="db-admin-table-delete-right-actions">
+          <span class="helper-text" data-table-delete-count>0 selected</span>
+        </div>
       </div>
     <table>
       <thead>
@@ -1183,7 +1187,7 @@
     const tableDeleteForm = document.querySelector("[data-table-delete-form]");
     if (tableDeleteForm) {
       const tableDeleteSelectAll = tableDeleteForm.querySelector("[data-table-delete-select-all]");
-      const tableDeleteCheckboxes = Array.from(tableDeleteForm.querySelectorAll("[data-table-delete-row]"));
+      const tableDeleteCheckboxes = Array.from(tableDeleteForm.querySelectorAll("[data-table-delete-row]:not(:disabled)"));
       const tableDeleteButton = tableDeleteForm.querySelector("[data-table-delete-action]");
       const tableDeleteCount = tableDeleteForm.querySelector("[data-table-delete-count]");
       const syncTableDeleteState = () => {
@@ -1209,6 +1213,17 @@
       }
       tableDeleteCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", syncTableDeleteState);
+      });
+      tableDeleteForm.addEventListener("submit", (event) => {
+        const checkedCount = tableDeleteCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (checkedCount === 0) {
+          event.preventDefault();
+          syncTableDeleteState();
+          return;
+        }
+        if (!confirm("Delete the selected table(s)? This cannot be undone.")) {
+          event.preventDefault();
+        }
       });
       syncTableDeleteState();
     }

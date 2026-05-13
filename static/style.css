@@ -881,14 +881,49 @@ dialog.management-dialog::backdrop {
 }
 
 .db-admin-table-delete-toolbar {
-  justify-content: flex-start;
+  justify-content: space-between;
   align-items: center;
+  gap: 10px 12px;
+}
+
+.db-admin-table-delete-left-actions,
+.db-admin-table-delete-right-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.db-admin-table-delete-left-actions {
+  justify-content: flex-start;
+}
+
+.db-admin-table-delete-right-actions {
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .db-admin-table-delete-select-all {
   grid-column: auto;
   min-height: 42px;
   white-space: nowrap;
+}
+
+.db-admin-table-delete-action:not(:disabled) {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--danger) 0%, #6a1a18 100%);
+}
+
+.db-admin-table-delete-action:hover:not(:disabled),
+.db-admin-table-delete-action:focus-visible:not(:disabled) {
+  background: linear-gradient(135deg, #bf3e33 0%, #651412 100%);
+}
+
+.db-admin-table-delete-action:disabled {
+  color: #8e867d;
+  border-color: rgba(33, 29, 24, 0.1);
+  background: #ddd5cb;
 }
 
 .db-admin-table-delete-select-all input[type="checkbox"],
