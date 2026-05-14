@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3l</span>
+      <span class="badge">Release 1.0.3m</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3l</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3m</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3m Summary</h2>
+      <p>
+        Version <code>1.0.3m</code> tightens generated MySQL artifact ignore and auto-update validation behavior.
+      </p>
+      <ul>
+        <li>Validated that <code>.data/</code> is ignored for the DBConsole-managed MySQL datadir, socket, PID, temporary files, and error log.</li>
+        <li>Confirmed that only generated <code>etc/my.cnf</code> is ignored; the <code>etc/</code> directory remains available for future tracked templates.</li>
+        <li>Tightened Auto-Update clean-worktree allowances so <code>etc/my.cnf</code> is treated as an exact generated local file, not a path prefix.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3l Summary</h2>

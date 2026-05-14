@@ -21,6 +21,7 @@ DEFAULT_ALLOWED_UPDATE_BRANCH = "main"
 ALLOWED_LOCAL_STATE_PATHS = {
     ".flask_secret_key",
     ".runtime.env",
+    "etc/my.cnf",
     "object_storage.json",
     "profiles.json",
     "security_vulnerability_report.html",
@@ -33,7 +34,6 @@ ALLOWED_LOCAL_STATE_SUFFIXES = (
 ALLOWED_LOCAL_STATE_PREFIXES = (
     ".data/",
     ".embedded/",
-    "etc/my.cnf",
     "pip-audit-report.",
     "profile_ssh_keys/",
     "security_review",

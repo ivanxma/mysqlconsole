@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3l`.
+Version summary from `1.0.2a` to `1.0.3m`.
+
+## 1.0.3m Summary
+
+Version `1.0.3m` tightens generated MySQL artifact ignore and auto-update validation behavior.
+
+- Validated that `.data/` is ignored for the DBConsole-managed MySQL datadir, socket, PID, temporary files, and error log.
+- Confirmed that only generated `etc/my.cnf` is ignored; the `etc/` directory remains available for future tracked templates.
+- Tightened Auto-Update clean-worktree allowances so `etc/my.cnf` is treated as an exact generated local file, not a path prefix.
 
 ## 1.0.3l Summary
 
