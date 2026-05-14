@@ -7,3 +7,4 @@ __pycache__/
 profiles.json
 object_storage.json
 tls/
+profile_ssh_keys/

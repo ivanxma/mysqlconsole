@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 APP_TITLE="${APP_TITLE:-MySQL DBConsole}"
 APP_REPO="${APP_REPO:-https://github.com/ivanxma/mysqlconsole.git}"
@@ -12,6 +12,11 @@ HTTP_PORT="${HTTP_PORT:-}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
 SERVICE_NAME="${SERVICE_NAME:-dbconsole-https.service}"
 HOST="${HOST:-0.0.0.0}"
+LOCAL_MYSQL_PROFILE_NAME="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
+LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
+LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-mysql}"
+LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-}"
 
 STATE_DIR="/var/lib/dbconsole-init"
 INSTALLING_FLAG="$STATE_DIR/installing"
@@ -119,6 +124,11 @@ fi
 run_as_app_user git clone "$APP_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
+if [ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]; then
+  echo "LOCAL_MYSQL_ADMIN_PASSWORD must be provided to bootstrap the local-admin-profile. Refusing to generate or log a password automatically." >&2
+  exit 1
+fi
+
 SETUP_ARGS=( "$OS_FAMILY" "$DEPLOY_MODE" )
 if [ -n "$HTTP_PORT" ]; then
   SETUP_ARGS+=( "--http-port" "$HTTP_PORT" )
@@ -131,6 +141,11 @@ run_as_app_user env \
   HOST="$HOST" \
   SERVICE_USER="$APP_USER" \
   SERVICE_GROUP="$APP_GROUP" \
+  LOCAL_MYSQL_PROFILE_NAME="$LOCAL_MYSQL_PROFILE_NAME" \
+  LOCAL_MYSQL_ADMIN_USER="$LOCAL_MYSQL_ADMIN_USER" \
+  LOCAL_MYSQL_ADMIN_PASSWORD="$LOCAL_MYSQL_ADMIN_PASSWORD" \
+  LOCAL_MYSQL_DATABASE="$LOCAL_MYSQL_DATABASE" \
+  LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET" \
   bash ./setup.sh "${SETUP_ARGS[@]}"
 
 systemctl --no-pager --full --lines=12 status "$SERVICE_NAME" || true

@@ -176,7 +176,7 @@ Oracle Linux 9 images use the `opc` login user:
 
 ```bash
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 dnf install -y curl
 curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh -o /tmp/oci_compute_init.sh
 chmod 0755 /tmp/oci_compute_init.sh
@@ -187,6 +187,9 @@ APP_DIR=/home/opc/mysqlconsole \
 OS_FAMILY=ol9 \
 DEPLOY_MODE=https \
 HTTPS_PORT=443 \
+LOCAL_MYSQL_ADMIN_USER=localadmin \
+LOCAL_MYSQL_ADMIN_PASSWORD='<strong-password>' \
+LOCAL_MYSQL_SOCKET=/var/lib/mysql/mysql.sock \
 SERVICE_NAME=dbconsole-https.service \
 bash /tmp/oci_compute_init.sh
 ```
@@ -195,7 +198,7 @@ Ubuntu images usually use the `ubuntu` login user:
 
 ```bash
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl
 curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh -o /tmp/oci_compute_init.sh
@@ -207,6 +210,9 @@ APP_DIR=/home/ubuntu/mysqlconsole \
 OS_FAMILY=ubuntu \
 DEPLOY_MODE=https \
 HTTPS_PORT=443 \
+LOCAL_MYSQL_ADMIN_USER=localadmin \
+LOCAL_MYSQL_ADMIN_PASSWORD='<strong-password>' \
+LOCAL_MYSQL_SOCKET=/var/run/mysqld/mysqld.sock \
 SERVICE_NAME=dbconsole-https.service \
 bash /tmp/oci_compute_init.sh
 ```
@@ -226,6 +232,10 @@ For HTTP only, set `DEPLOY_MODE=http`, `HTTP_PORT=80`, `HTTPS_PORT=`, and `SERVI
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
+The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD`; it refuses to generate or log a password automatically. Setup uses `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` to install/start the local MySQL Innovation server where supported, configure the local MySQL daemon for socket-only access, create or refresh the `user@localhost` local admin account, and write the first non-secret login profile named `local-admin-profile` into `profiles.json`. Do not enable shell xtrace (`set -x`) in wrappers that pass this password, because cloud-init and console logs can retain command traces.
+
+On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` values supplied to setup. DBConsole sends that session directly to the local-admin password-change screen. After the password is changed, DBConsole logs the user out so the old setup password is no longer active in the browser session. Sign in again with `local-admin-profile` and the new password to manage profiles.
+
 ### What `setup.sh` Does
 
 `setup.sh` will:
@@ -239,6 +249,8 @@ The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. Dur
   - all platforms discover the latest MySQL Shell version from the vendor download page and verify that `mysqlsh` meets that version; set `MYSQL_SHELL_MIN_VERSION` only when you intentionally need to pin a specific minimum
   - Linux installers try the configured vendor package repository first; if the repository has not published the required MySQL Shell version yet, setup computes a MySQL vendor package URL from the discovered or pinned version, platform, and CPU architecture and installs that package
 - save default HTTP and HTTPS ports in `.runtime.env`
+- when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install/start a local MySQL Innovation server, write a socket-only MySQL configuration (`skip-networking` and disabled MySQL X Plugin), create or refresh only the `user@localhost` local admin account, and create the first `local-admin-profile` entry in `profiles.json`; setup does not create application tables or default schemas on connected databases
+- mark the generated `local-admin-profile` for first-login password rotation; DBConsole requires the password change before profile management and logs out after the change
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
 - synchronize the selected HTTP/HTTPS TCP ports with the host firewall when `firewall-cmd` or `ufw` is available, including removing stale DBConsole ports that are no longer selected
@@ -303,6 +315,11 @@ For `setup.sh`:
 - `BOOTSTRAP_PARENT_DIR`
 - `DBCONSOLE_VERSION_URL`
 - `DBCONSOLE_VERSION_CA_BUNDLE`
+- `LOCAL_MYSQL_PROFILE_NAME`
+- `LOCAL_MYSQL_ADMIN_USER`
+- `LOCAL_MYSQL_ADMIN_PASSWORD`
+- `LOCAL_MYSQL_SOCKET`
+- `LOCAL_MYSQL_DATABASE`
 
 For `start_http.sh` and `start_https.sh`:
 
@@ -318,17 +335,20 @@ For `start_http.sh` and `start_https.sh`:
 - `.runtime.env`: saved host, port, and TLS defaults written by `setup.sh`
 - `.flask_secret_key`: generated Flask session signing key used when `FLASK_SECRET_KEY` is not set
 - `profiles.json`: non-secret saved connection defaults created locally by the app
+- `profile_ssh_keys/`: uploaded SSH private keys for SSH tunnel profiles; paths are stored server-side only and keys are written with restrictive file permissions
 - `tls/`: default self-signed TLS assets generated by `setup.sh` when you do not supply your own certificate and key
 - `object_storage.json`: object storage settings used by HeatWave-related screens
 
-`.runtime.env`, `.flask_secret_key`, `profiles.json`, `object_storage.json`, and `tls/` are git-ignored local state. The auto-update worker allows local changes to these files during the repository clean-check.
+`.runtime.env`, `.flask_secret_key`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/` are git-ignored local state. The auto-update worker allows local changes to these files during the repository clean-check.
+
+`profiles.json` must not contain database passwords. The generated `local-admin-profile` stores only the local socket path, default database, default username, and first-login password-change marker. SSH private keys are also not stored in `profiles.json`; uploaded key files are kept under `profile_ssh_keys/` with restrictive permissions and only the server-side path is retained.
 
 ## Main Screens
 
 ### Admin
 
 - `Dashboard`
-- `Profile`
+- `Profile` (available only after signing in with the socket-only `local-admin-profile`)
 - `Status and Variables`
 - `Setup Object Storage`
 - `Auto-Update`

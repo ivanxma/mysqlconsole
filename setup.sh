@@ -166,6 +166,12 @@ SSL_CERT_FILE_INPUT="${SSL_CERT_FILE:-}"
 SSL_KEY_FILE_INPUT="${SSL_KEY_FILE:-}"
 SERVICE_USER_INPUT="${SERVICE_USER:-}"
 SERVICE_GROUP_INPUT="${SERVICE_GROUP:-}"
+LOCAL_MYSQL_PROFILE_NAME_INPUT="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
+LOCAL_MYSQL_ADMIN_USER_INPUT="${LOCAL_MYSQL_ADMIN_USER:-}"
+LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_PORT_INPUT="${LOCAL_MYSQL_PORT:-3306}"
+LOCAL_MYSQL_SOCKET_INPUT="${LOCAL_MYSQL_SOCKET:-}"
+LOCAL_MYSQL_DATABASE_INPUT="${LOCAL_MYSQL_DATABASE:-mysql}"
 EXISTING_DEFAULT_HTTP_PORT=""
 EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
@@ -177,6 +183,7 @@ print_usage() {
 Usage:
   ./setup.sh [os_family] [deploy_mode] [http_port] [https_port]
   ./setup.sh [os_family] [deploy_mode] [--http-port PORT] [--https-port PORT]
+  ./setup.sh [os_family] [deploy_mode] --local-mysql-admin-user USER --local-mysql-admin-password PASSWORD
   curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- [args]
 
 Arguments:
@@ -185,7 +192,9 @@ Arguments:
 
 Environment overrides:
   OS_FAMILY, DEPLOY_MODE, HOST, HTTP_PORT, HTTPS_PORT, SSL_CERT_FILE,
-  SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE
+  SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
+  LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD, LOCAL_MYSQL_PROFILE_NAME,
+  LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -271,6 +280,46 @@ parse_args() {
           return 1
         fi
         HTTPS_PORT_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-admin-user)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-admin-user requires a username value." >&2
+          return 1
+        fi
+        LOCAL_MYSQL_ADMIN_USER_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-admin-password)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-admin-password requires a password value." >&2
+          return 1
+        fi
+        LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-profile-name)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-profile-name requires a profile name value." >&2
+          return 1
+        fi
+        LOCAL_MYSQL_PROFILE_NAME_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-database)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-database requires a database value." >&2
+          return 1
+        fi
+        LOCAL_MYSQL_DATABASE_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-socket)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-socket requires a socket path value." >&2
+          return 1
+        fi
+        LOCAL_MYSQL_SOCKET_INPUT="$2"
         shift 2
         ;;
       --)
@@ -1042,6 +1091,388 @@ run_mysqlsh_installer() {
   "$installer"
 }
 
+local_mysql_bootstrap_requested() {
+  [[ -n "$LOCAL_MYSQL_ADMIN_USER_INPUT" || -n "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" ]]
+}
+
+validate_local_mysql_bootstrap_inputs() {
+  if ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+  if [[ -z "$LOCAL_MYSQL_ADMIN_USER_INPUT" || -z "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" ]]; then
+    echo "LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD must both be provided to bootstrap the local MySQL admin account." >&2
+    return 1
+  fi
+  if [[ ! "$LOCAL_MYSQL_ADMIN_USER_INPUT" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$ ]]; then
+    echo "Local MySQL admin username must start with a letter, digit, or underscore and contain only letters, digits, underscore, dot, or dash." >&2
+    return 1
+  fi
+  if [[ ! "$LOCAL_MYSQL_PROFILE_NAME_INPUT" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    echo "Local MySQL profile name may contain only letters, digits, underscore, dot, or dash." >&2
+    return 1
+  fi
+  LOCAL_MYSQL_PORT_INPUT="$(normalize_port "Local MySQL" "$LOCAL_MYSQL_PORT_INPUT")"
+}
+
+default_local_mysql_socket() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9)
+      printf '%s\n' "/var/lib/mysql/mysql.sock"
+      ;;
+    ubuntu)
+      printf '%s\n' "/var/run/mysqld/mysqld.sock"
+      ;;
+    macos)
+      printf '%s\n' "/tmp/mysql.sock"
+      ;;
+    *)
+      printf '%s\n' "/tmp/mysql.sock"
+      ;;
+  esac
+}
+
+local_mysql_service_name() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9) printf '%s\n' "mysqld" ;;
+    ubuntu) printf '%s\n' "mysql" ;;
+    macos) printf '%s\n' "mysql" ;;
+    *) printf '%s\n' "mysql" ;;
+  esac
+}
+
+restart_local_mysql_service() {
+  local os_family="$1"
+  local service_name
+  service_name="$(local_mysql_service_name "$os_family")"
+  case "$os_family" in
+    macos)
+      brew services restart mysql || mysql.server restart
+      ;;
+    *)
+      if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl restart "$service_name"
+      else
+        run_as_root service "$service_name" restart
+      fi
+      ;;
+  esac
+}
+
+write_local_mysql_socket_only_config() {
+  local os_family="$1"
+  local config_path
+  local socket_dir
+
+  if ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+
+  socket_dir="$(dirname "$LOCAL_MYSQL_SOCKET_INPUT")"
+  case "$os_family" in
+    ol8|ol9)
+      config_path="/etc/my.cnf.d/dbconsole-local-socket.cnf"
+      ;;
+    ubuntu)
+      config_path="/etc/mysql/conf.d/dbconsole-local-socket.cnf"
+      ;;
+    macos)
+      config_path="/usr/local/etc/my.cnf.d/dbconsole-local-socket.cnf"
+      if [[ -d "/opt/homebrew/etc" ]]; then
+        config_path="/opt/homebrew/etc/my.cnf.d/dbconsole-local-socket.cnf"
+      fi
+      mkdir -p "$(dirname "$config_path")"
+      ;;
+    *)
+      echo "Local MySQL socket-only config is not supported for OS family '$os_family'." >&2
+      return 1
+      ;;
+  esac
+
+  if [[ "$os_family" != "macos" ]]; then
+    run_as_root mkdir -p "$(dirname "$config_path")" "$socket_dir"
+    run_as_root chown mysql:mysql "$socket_dir" 2>/dev/null || true
+  else
+    mkdir -p "$socket_dir"
+  fi
+
+  {
+    echo "[mysqld]"
+    echo "skip-networking"
+    echo "mysqlx=0"
+    echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
+    echo ""
+    echo "[client]"
+    echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
+  } | write_root_file "$config_path"
+}
+
+install_local_mysql_server() {
+  local os_family="$1"
+
+  if ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+
+  if skip_privileged_setup_enabled; then
+    log_skipped_privileged_step "local MySQL Server installation"
+    return 1
+  fi
+
+  case "$os_family" in
+    ol8|ol9)
+      if ! command -v dnf >/dev/null 2>&1; then
+        echo "dnf is required to install local MySQL Server on $os_family." >&2
+        return 1
+      fi
+      run_as_root dnf install -y --refresh --best --allowerasing mysql-community-server mysql-community-client
+      if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl enable --now mysqld
+      else
+        run_as_root service mysqld start
+      fi
+      ;;
+    ubuntu)
+      if ! command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get is required to install local MySQL Server on Ubuntu." >&2
+        return 1
+      fi
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client
+      if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl enable --now mysql
+      else
+        run_as_root service mysql start
+      fi
+      ;;
+    macos)
+      if ! command -v brew >/dev/null 2>&1; then
+        echo "Homebrew is required to install local MySQL Server on macOS." >&2
+        return 1
+      fi
+      brew install mysql || brew upgrade mysql || true
+      brew services start mysql || mysql.server start
+      ;;
+    *)
+      echo "Local MySQL Server bootstrap is not supported for OS family '$os_family'." >&2
+      return 1
+      ;;
+  esac
+}
+
+sql_quote_literal() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\'/\'\'}"
+  printf "'%s'" "$value"
+}
+
+mysql_identifier_quote() {
+  local value="$1"
+  if [[ ! "$value" =~ ^[A-Za-z0-9_$]+$ ]]; then
+    echo "Invalid MySQL identifier '$value'." >&2
+    return 1
+  fi
+  printf '`%s`' "$value"
+}
+
+find_mysql_client() {
+  if [[ -n "${MYSQL_CLIENT:-}" && -x "$MYSQL_CLIENT" ]]; then
+    printf '%s\n' "$MYSQL_CLIENT"
+    return 0
+  fi
+  command -v mysql
+}
+
+write_mysql_defaults_file() {
+  local target_file="$1"
+  local user_name="$2"
+  local password_value="$3"
+  local protocol="${4:-socket}"
+  local socket_path="${5:-}"
+
+  {
+    echo "[client]"
+    echo "user=$user_name"
+    echo "password=$password_value"
+    echo "protocol=$protocol"
+    if [[ "$protocol" == "socket" && -n "$socket_path" ]]; then
+      echo "socket=$socket_path"
+    fi
+  } >"$target_file"
+  chmod 600 "$target_file"
+}
+
+run_mysql_file() {
+  local mysql_bin="$1"
+  local defaults_file="$2"
+  local sql_file="$3"
+  shift 3
+  "$mysql_bin" --defaults-extra-file="$defaults_file" "$@" <"$sql_file"
+}
+
+run_mysql_socket_root_file() {
+  local mysql_bin="$1"
+  local sql_file="$2"
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$mysql_bin" --protocol=socket --socket="$LOCAL_MYSQL_SOCKET_INPUT" -uroot <"$sql_file"
+    return 0
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    return 1
+  fi
+  if is_interactive_terminal; then
+    sudo "$mysql_bin" --protocol=socket --socket="$LOCAL_MYSQL_SOCKET_INPUT" -uroot <"$sql_file"
+  else
+    sudo -n "$mysql_bin" --protocol=socket --socket="$LOCAL_MYSQL_SOCKET_INPUT" -uroot <"$sql_file"
+  fi
+}
+
+read_temporary_mysql_root_password() {
+  local log_file="/var/log/mysqld.log"
+  local line
+
+  if [[ -r "$log_file" ]]; then
+    line="$(grep -F "temporary password" "$log_file" | tail -n 1 || true)"
+  elif command -v sudo >/dev/null 2>&1; then
+    line="$(sudo grep -F "temporary password" "$log_file" 2>/dev/null | tail -n 1 || true)"
+  else
+    line=""
+  fi
+
+  if [[ -n "$line" ]]; then
+    printf '%s\n' "${line##* }"
+  fi
+}
+
+write_local_admin_sql() {
+  local sql_file="$1"
+  local include_root_reset="$2"
+  local admin_user_literal
+  local admin_password_literal
+
+  admin_user_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_USER_INPUT")"
+  admin_password_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT")"
+
+  {
+    if [[ "$include_root_reset" == "yes" ]]; then
+      printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "'root'" "'localhost'" "$admin_password_literal"
+    fi
+    printf 'CREATE USER IF NOT EXISTS %s@%s IDENTIFIED BY %s;\n' "$admin_user_literal" "'localhost'" "$admin_password_literal"
+    printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "$admin_user_literal" "'localhost'" "$admin_password_literal"
+    printf 'GRANT ALL PRIVILEGES ON *.* TO %s@%s WITH GRANT OPTION;\n' "$admin_user_literal" "'localhost'"
+    printf 'FLUSH PRIVILEGES;\n'
+  } >"$sql_file"
+  chmod 600 "$sql_file"
+}
+
+configure_local_mysql_admin_account() {
+  local mysql_bin
+  local admin_defaults
+  local root_defaults
+  local sql_file
+  local root_sql_file
+  local temporary_root_password
+
+  if ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+
+  mysql_bin="$(find_mysql_client)" || {
+    echo "mysql client was not found after local MySQL Server installation." >&2
+    return 1
+  }
+
+  admin_defaults="$(mktemp)"
+  root_defaults="$(mktemp)"
+  sql_file="$(mktemp)"
+  root_sql_file="$(mktemp)"
+
+  write_mysql_defaults_file "$admin_defaults" "$LOCAL_MYSQL_ADMIN_USER_INPUT" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+  write_local_admin_sql "$sql_file" "no"
+
+  if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
+    echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' refreshed."
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+    return 0
+  fi
+
+  if run_mysql_socket_root_file "$mysql_bin" "$sql_file" >/dev/null 2>&1; then
+    echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with socket-root access."
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+    return 0
+  fi
+
+  temporary_root_password="$(read_temporary_mysql_root_password)"
+  if [[ -n "$temporary_root_password" ]]; then
+    write_mysql_defaults_file "$root_defaults" "root" "$temporary_root_password" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+    write_local_admin_sql "$root_sql_file" "yes"
+    if run_mysql_file "$mysql_bin" "$root_defaults" "$root_sql_file" --connect-expired-password >/dev/null 2>&1; then
+      echo "Local MySQL root password was initialized and admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' was configured."
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+      return 0
+    fi
+  fi
+
+  rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+  echo "Unable to configure the local MySQL admin account automatically. If MySQL already has a root password, create '$LOCAL_MYSQL_ADMIN_USER_INPUT' manually or rerun setup with matching LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD." >&2
+  return 1
+}
+
+write_local_admin_profile() {
+  if ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+
+  PROFILE_STORE="$SCRIPT_DIR/profiles.json" \
+  LOCAL_MYSQL_PROFILE_NAME="$LOCAL_MYSQL_PROFILE_NAME_INPUT" \
+  LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT_INPUT" \
+  LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET_INPUT" \
+  LOCAL_MYSQL_DATABASE="$LOCAL_MYSQL_DATABASE_INPUT" \
+  LOCAL_MYSQL_ADMIN_USER="$LOCAL_MYSQL_ADMIN_USER_INPUT" \
+  "$VENV_DIR/bin/python" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+profile_store = Path(os.environ["PROFILE_STORE"])
+profile_name = os.environ["LOCAL_MYSQL_PROFILE_NAME"]
+profile = {
+    "name": profile_name,
+    "host": "",
+    "port": int(os.environ["LOCAL_MYSQL_PORT"]),
+    "database": os.environ["LOCAL_MYSQL_DATABASE"],
+    "username": os.environ["LOCAL_MYSQL_ADMIN_USER"],
+    "socket_enabled": True,
+    "socket_path": os.environ["LOCAL_MYSQL_SOCKET"],
+    "ssh_enabled": False,
+    "ssh_host": "",
+    "ssh_port": 22,
+    "ssh_user": "",
+    "ssh_key_path": "",
+    "require_password_change": True,
+}
+
+try:
+    payload = json.loads(profile_store.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    payload = {"profiles": []}
+
+profiles = payload.get("profiles", [])
+if not isinstance(profiles, list):
+    profiles = []
+
+remaining = [
+    row for row in profiles
+    if str((row or {}).get("name", "")).strip().lower() != profile_name.lower()
+]
+remaining.insert(0, profile)
+profile_store.write_text(json.dumps({"profiles": remaining}, indent=2) + "\n", encoding="utf-8")
+profile_store.chmod(0o600)
+PY
+}
+
 resolve_platform_dir() {
   local os_family="$1"
   local candidate
@@ -1082,7 +1513,6 @@ main() {
   load_existing_runtime_env
   parse_args "$@"
   os_family="$OS_FAMILY_INPUT"
-
   ensure_python
 
   if [[ -z "$os_family" ]]; then
@@ -1093,6 +1523,11 @@ main() {
   else
     os_family="$(normalize_os_family "$os_family")"
   fi
+
+  if [[ -z "$LOCAL_MYSQL_SOCKET_INPUT" ]]; then
+    LOCAL_MYSQL_SOCKET_INPUT="$(default_local_mysql_socket "$os_family")"
+  fi
+  validate_local_mysql_bootstrap_inputs
 
   if [[ -z "$DEPLOY_MODE_INPUT" ]]; then
     deploy_mode="http"
@@ -1152,6 +1587,13 @@ main() {
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
 
   run_mysqlsh_installer "$os_family"
+  install_local_mysql_server "$os_family"
+  write_local_mysql_socket_only_config "$os_family"
+  if local_mysql_bootstrap_requested; then
+    restart_local_mysql_service "$os_family"
+  fi
+  configure_local_mysql_admin_account
+  write_local_admin_profile
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file"
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 

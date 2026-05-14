@@ -74,6 +74,7 @@ PROFILE_STORE = ROOT_DIR / "profiles.json"
 OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
 FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
+PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
 IMPORT_CACHE_DIR = Path(tempfile.gettempdir()) / "dbconsole-import-cache"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
@@ -87,11 +88,15 @@ DEFAULT_PROFILE = {
     "host": "",
     "port": 3306,
     "database": "mysql",
+    "username": "",
+    "socket_enabled": False,
+    "socket_path": "",
     "ssh_enabled": False,
     "ssh_host": "",
     "ssh_port": 22,
     "ssh_user": "",
     "ssh_key_path": "",
+    "require_password_change": False,
 }
 DEFAULT_OBJECT_STORAGE = {
     "region": "",
@@ -136,6 +141,7 @@ DB_ADMIN_TABLE_INFO_TABS = {"columns", "ddl", "indexes", "partitions", "preview"
 DB_ADMIN_TABLE_INFO_DEFAULT_TAB = "columns"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
 DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
+LOCAL_ADMIN_PROFILE_NAME = "local-admin-profile"
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
 ACTIVE_DBCONSOLE_SESSIONS = {}
 EVENT_SCHEDULE_OPTIONS = (
@@ -783,11 +789,16 @@ def normalize_profile(payload):
         "host": str(payload.get("host", "")).strip(),
         "port": _normalize_int(payload.get("port"), DEFAULT_PROFILE["port"], minimum=1),
         "database": str(payload.get("database", "")).strip() or DEFAULT_PROFILE["database"],
+        "username": str(payload.get("username", "")).strip(),
+        "socket_enabled": str(payload.get("socket_enabled", "")).strip().lower() in {"1", "true", "yes", "on"},
+        "socket_path": str(payload.get("socket_path", "")).strip(),
         "ssh_enabled": str(payload.get("ssh_enabled", "")).strip().lower() in {"1", "true", "yes", "on"},
         "ssh_host": str(payload.get("ssh_host", "")).strip(),
         "ssh_port": _normalize_int(payload.get("ssh_port"), DEFAULT_PROFILE["ssh_port"], minimum=1),
         "ssh_user": str(payload.get("ssh_user", "")).strip(),
         "ssh_key_path": str(payload.get("ssh_key_path", "")).strip(),
+        "require_password_change": str(payload.get("require_password_change", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
     }
 
 
@@ -826,6 +837,98 @@ def get_profile_by_name(profile_name):
         if profile["name"].lower() == profile_lookup:
             return profile
     return None
+
+
+def public_profile(profile):
+    payload = normalize_profile(profile)
+    payload["ssh_key_path"] = ""
+    payload["ssh_key_uploaded"] = bool(normalize_profile(profile).get("ssh_key_path"))
+    return payload
+
+
+def public_profiles(profiles):
+    return [public_profile(profile) for profile in profiles]
+
+
+def is_local_admin_profile_session():
+    profile = get_session_profile()
+    return (
+        profile.get("name") == LOCAL_ADMIN_PROFILE_NAME
+        and bool(profile.get("socket_enabled"))
+        and bool(str(profile.get("socket_path") or "").strip())
+    )
+
+
+def local_admin_password_change_required():
+    profile = get_session_profile()
+    return bool(is_local_admin_profile_session() and profile.get("require_password_change"))
+
+
+def clear_local_admin_password_change_required():
+    profiles = load_profiles()
+    changed = False
+    updated_profiles = []
+    for profile in profiles:
+        if profile.get("name") == LOCAL_ADMIN_PROFILE_NAME and profile.get("require_password_change"):
+            profile = dict(profile)
+            profile["require_password_change"] = False
+            changed = True
+        updated_profiles.append(profile)
+    if changed:
+        save_profiles(updated_profiles)
+        current_profile = get_session_profile()
+        if current_profile.get("name") == LOCAL_ADMIN_PROFILE_NAME:
+            current_profile["require_password_change"] = False
+            set_session_profile(current_profile)
+
+
+def nav_groups_for_current_session():
+    if is_local_admin_profile_session():
+        return NAV_GROUPS
+    filtered_groups = []
+    for group in NAV_GROUPS:
+        filtered_items = [item for item in group["items"] if item["endpoint"] != "profile_page"]
+        filtered_groups.append({**group, "items": filtered_items})
+    return filtered_groups
+
+
+def _safe_profile_key_dir_name(profile_name):
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(profile_name or "").strip()).strip("._")
+    if not cleaned:
+        cleaned = "profile"
+    return cleaned[:80]
+
+
+def save_uploaded_profile_ssh_key(profile_name, upload_storage):
+    if upload_storage is None or not getattr(upload_storage, "filename", ""):
+        return ""
+    key_payload = upload_storage.read()
+    if not key_payload:
+        raise ValueError("Uploaded SSH private key file is empty.")
+    if len(key_payload) > 65536:
+        raise ValueError("Uploaded SSH private key file is too large.")
+    key_text = key_payload.decode("utf-8", errors="ignore")
+    if "PRIVATE KEY" not in key_text:
+        raise ValueError("Upload a valid SSH private key file.")
+
+    profile_dir = PROFILE_SSH_KEY_DIR / _safe_profile_key_dir_name(profile_name)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        PROFILE_SSH_KEY_DIR.chmod(0o700)
+        profile_dir.chmod(0o700)
+    except OSError:
+        pass
+
+    key_path = profile_dir / "ssh_private_key"
+    temp_path = profile_dir / f".{uuid4().hex}.tmp"
+    temp_path.write_bytes(key_payload)
+    temp_path.chmod(0o600)
+    temp_path.replace(key_path)
+    try:
+        key_path.chmod(0o600)
+    except OSError:
+        pass
+    return str(key_path)
 
 
 def normalize_object_storage(payload):
@@ -962,6 +1065,8 @@ def session_login_required(view):
             flash("Log in to continue.", "error")
             clear_login_state(keep_profile=True)
             return redirect(url_for("login"))
+        if local_admin_password_change_required() and request.endpoint != "local_admin_password_page":
+            return redirect(url_for("local_admin_password_page"))
         return view(*args, **kwargs)
 
     return wrapped_view
@@ -974,6 +1079,8 @@ def login_required(view):
             flash("Log in to continue.", "error")
             clear_login_state(keep_profile=True)
             return redirect(url_for("login"))
+        if local_admin_password_change_required() and request.endpoint != "local_admin_password_page":
+            return redirect(url_for("local_admin_password_page"))
         try:
             with mysql_connection(connect_timeout=3):
                 pass
@@ -989,6 +1096,10 @@ def quote_identifier(identifier):
     if not IDENTIFIER_RE.fullmatch(candidate):
         raise ValueError(f"Invalid identifier: {candidate!r}")
     return f"`{candidate}`"
+
+
+def quote_sql_string(value):
+    return "'" + str(value or "").replace("\\", "\\\\").replace("'", "''") + "'"
 
 
 def normalize_page_number(value):
@@ -1038,8 +1149,11 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
     credentials = get_session_credentials()
     if not credentials["username"]:
         raise ValueError("No active MySQL login is available in the current session.")
-    if not profile["host"]:
+    use_unix_socket = bool(profile.get("socket_enabled") and profile.get("socket_path"))
+    if not use_unix_socket and not profile["host"]:
         raise ValueError("The selected profile does not have a MySQL host configured.")
+    if use_unix_socket and profile["ssh_enabled"]:
+        raise ValueError("Unix socket profiles cannot also use SSH tunneling.")
 
     tunnel = None
     target_host = profile["host"]
@@ -1062,17 +1176,21 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
 
     connection = None
     try:
-        connection = pymysql.connect(
-            host=target_host,
-            port=target_port,
-            user=credentials["username"],
-            password=credentials["password"],
-            database=database_override or profile["database"] or None,
-            connect_timeout=connect_timeout,
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-            autocommit=autocommit,
-        )
+        connect_kwargs = {
+            "user": credentials["username"],
+            "password": credentials["password"],
+            "database": database_override or profile["database"] or None,
+            "connect_timeout": connect_timeout,
+            "charset": "utf8mb4",
+            "cursorclass": DictCursor,
+            "autocommit": autocommit,
+        }
+        if use_unix_socket:
+            connect_kwargs["unix_socket"] = os.path.expanduser(profile["socket_path"])
+        else:
+            connect_kwargs["host"] = target_host
+            connect_kwargs["port"] = target_port
+        connection = pymysql.connect(**connect_kwargs)
         yield connection
     finally:
         if connection is not None:
@@ -6934,6 +7052,36 @@ def normalize_error_log_message_like(value):
     return str(value or "").strip()
 
 
+def change_local_admin_profile_password(new_password):
+    profile = get_session_profile()
+    credentials = get_session_credentials()
+    if profile.get("name") != LOCAL_ADMIN_PROFILE_NAME:
+        raise ValueError(f"Password changes here are only available for `{LOCAL_ADMIN_PROFILE_NAME}`.")
+    username = str(profile.get("username") or credentials.get("username") or "").strip()
+    if not username:
+        raise ValueError("The local admin profile does not have a MySQL username.")
+    if credentials.get("username") and credentials["username"] != username:
+        raise ValueError(f"Log in as `{username}` before changing the local admin profile password.")
+    normalized_password = str(new_password or "")
+    if not normalized_password:
+        raise ValueError("Enter a new password for the local admin profile.")
+
+    user_literal = quote_sql_string(username)
+    password_literal = quote_sql_string(normalized_password)
+    account_hosts = ("localhost",)
+    with mysql_connection(database_override="mysql") as connection:
+        with connection.cursor() as cursor:
+            for host in account_hosts:
+                cursor.execute(
+                    f"CREATE USER IF NOT EXISTS {user_literal}@{quote_sql_string(host)} IDENTIFIED BY {password_literal}"
+                )
+                cursor.execute(
+                    f"ALTER USER {user_literal}@{quote_sql_string(host)} IDENTIFIED BY {password_literal}"
+                )
+            cursor.execute("FLUSH PRIVILEGES")
+    set_session_credentials(username, normalized_password)
+
+
 def render_dashboard(template_name, **context):
     profile = get_session_profile()
     overview = context.pop("server_overview", None)
@@ -6949,7 +7097,7 @@ def render_dashboard(template_name, **context):
         current_user=get_session_username(),
         current_profile_name=session.get("profile_name", ""),
         connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
-        nav_groups=NAV_GROUPS,
+        nav_groups=nav_groups_for_current_session(),
         current_endpoint=request.endpoint or "",
         session_profile=profile,
         setup_status=fetch_setup_status(),
@@ -6963,22 +7111,18 @@ def render_dashboard(template_name, **context):
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        profile_payload = {
-            "name": request.form.get("profile_name", ""),
-            "host": request.form.get("host", ""),
-            "port": request.form.get("port", ""),
-            "database": request.form.get("database", ""),
-            "ssh_enabled": request.form.get("ssh_enabled", ""),
-            "ssh_host": request.form.get("ssh_host", ""),
-            "ssh_port": request.form.get("ssh_port", ""),
-            "ssh_user": request.form.get("ssh_user", ""),
-            "ssh_key_path": request.form.get("ssh_key_path", ""),
-        }
+        picked_profile = get_profile_by_name(request.form.get("profile_picker", ""))
+        if picked_profile:
+            profile_payload = dict(picked_profile)
+        else:
+            profile_payload = normalize_profile(DEFAULT_PROFILE)
         profile = normalize_profile(profile_payload)
         username = str(request.form.get("username", "")).strip()
+        if username:
+            profile["username"] = username
         password = request.form.get("password", "")
-        if not profile["host"]:
-            flash("MySQL host is required.", "error")
+        if not profile.get("socket_enabled") and not profile["host"]:
+            flash("Choose a saved profile.", "error")
         elif not username:
             flash("MySQL username is required.", "error")
         else:
@@ -6990,8 +7134,10 @@ def login():
                 with mysql_connection(connect_timeout=5):
                     pass
                 session["logged_in"] = True
-                version_check = refresh_repo_version_check()
                 flash("Connected to MySQL.", "success")
+                if local_admin_password_change_required():
+                    return redirect(url_for("local_admin_password_page"))
+                version_check = refresh_repo_version_check()
                 if version_check.get("update_available"):
                     flash(
                         f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
@@ -7011,13 +7157,14 @@ def login():
 
     selected_name = str(request.args.get("profile", "")).strip()
     selected_profile = get_profile_by_name(selected_name) or get_session_profile()
+    visible_profiles = public_profiles(load_profiles())
     return render_template(
         "login.html",
         app_title=APP_TITLE,
         page_title="Login",
         logged_in=False,
-        profiles=load_profiles(),
-        selected_profile=selected_profile,
+        profiles=visible_profiles,
+        selected_profile=public_profile(selected_profile),
         selected_profile_name=selected_name or selected_profile.get("name", ""),
     )
 
@@ -7029,8 +7176,39 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.route("/admin/local-admin-password", methods=["GET", "POST"])
+@session_login_required
+def local_admin_password_page():
+    if not is_local_admin_profile_session():
+        abort(403)
+    if request.method == "POST":
+        new_password = request.form.get("new_local_admin_password", "")
+        confirm_password = request.form.get("confirm_local_admin_password", "")
+        if new_password != confirm_password:
+            flash("Local admin profile password confirmation does not match.", "error")
+        else:
+            try:
+                change_local_admin_profile_password(new_password)
+                clear_local_admin_password_change_required()
+                clear_login_state(keep_profile=False)
+                flash("Password changed. Sign in again.", "success")
+                return redirect(url_for("login"))
+            except Exception as error:
+                flash(str(error), "error")
+    return render_template(
+        "local_admin_password.html",
+        app_title=APP_TITLE,
+        page_title="Change Local Admin Password",
+        logged_in=False,
+        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+    )
+
+
 @app.route("/admin/profile", methods=["GET", "POST"])
+@session_login_required
 def profile_page():
+    if not is_local_admin_profile_session():
+        abort(403)
     profiles = load_profiles()
     selected_name = str(request.values.get("selected_profile", "")).strip()
     editing_profile = get_profile_by_name(selected_name) or get_session_profile()
@@ -7039,16 +7217,65 @@ def profile_page():
         action = str(request.form.get("profile_action", "")).strip()
         profile_payload = normalize_profile(request.form)
         profile_name = profile_payload["name"]
-        if action == "save":
+        if action == "change_local_admin_password":
+            new_password = request.form.get("new_local_admin_password", "")
+            confirm_password = request.form.get("confirm_local_admin_password", "")
+            if new_password != confirm_password:
+                flash("Local admin profile password confirmation does not match.", "error")
+            else:
+                try:
+                    change_local_admin_profile_password(new_password)
+                    clear_local_admin_password_change_required()
+                    clear_login_state(keep_profile=False)
+                    flash("Password changed. Sign in again.", "success")
+                    return redirect(url_for("login"))
+                except Exception as error:
+                    flash(str(error), "error")
+        elif action == "save":
             if not profile_name:
                 flash("Profile name is required.", "error")
-            elif not profile_payload["host"]:
-                flash("Profile host is required.", "error")
-            elif profile_payload["ssh_enabled"] and (
-                not profile_payload["ssh_host"] or not profile_payload["ssh_user"] or not profile_payload["ssh_key_path"]
-            ):
-                flash("SSH profiles require jump host, SSH user, and private key path.", "error")
+            elif not profile_payload["socket_enabled"] and not profile_payload["host"]:
+                flash("Profile host is required unless Unix socket is enabled.", "error")
+            elif profile_payload["socket_enabled"] and not profile_payload["socket_path"]:
+                flash("Unix socket path is required when Unix socket is enabled.", "error")
+            elif profile_payload["socket_enabled"] and profile_payload["ssh_enabled"]:
+                flash("Unix socket profiles cannot use SSH tunneling.", "error")
             else:
+                existing_profile = get_profile_by_name(profile_name)
+                if existing_profile and not request.files.get("ssh_key_file"):
+                    profile_payload["ssh_key_path"] = existing_profile.get("ssh_key_path", "")
+                try:
+                    uploaded_ssh_key_path = save_uploaded_profile_ssh_key(profile_name, request.files.get("ssh_key_file"))
+                except Exception as error:
+                    flash(str(error), "error")
+                    editing_profile = profile_payload
+                    profiles = load_profiles()
+                    return render_dashboard(
+                        "profile.html",
+                        page_title="Profile",
+                        profiles=profiles,
+                        selected_profile_name=selected_name,
+                        editing_profile=public_profile(editing_profile),
+                        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+                        can_change_local_admin_password=is_local_admin_profile_session(),
+                    )
+                if uploaded_ssh_key_path:
+                    profile_payload["ssh_key_path"] = uploaded_ssh_key_path
+                if profile_payload["ssh_enabled"] and (
+                    not profile_payload["ssh_host"] or not profile_payload["ssh_user"] or not profile_payload["ssh_key_path"]
+                ):
+                    flash("SSH profiles require jump host, SSH user, and an uploaded private key.", "error")
+                    editing_profile = profile_payload
+                    profiles = load_profiles()
+                    return render_dashboard(
+                        "profile.html",
+                        page_title="Profile",
+                        profiles=profiles,
+                        selected_profile_name=selected_name,
+                        editing_profile=public_profile(editing_profile),
+                        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+                        can_change_local_admin_password=is_local_admin_profile_session(),
+                    )
                 remaining = [row for row in profiles if row["name"].lower() != profile_name.lower()]
                 remaining.append(profile_payload)
                 save_profiles(remaining)
@@ -7078,7 +7305,9 @@ def profile_page():
         page_title="Profile",
         profiles=profiles,
         selected_profile_name=selected_name,
-        editing_profile=editing_profile,
+        editing_profile=public_profile(editing_profile),
+        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+        can_change_local_admin_password=is_local_admin_profile_session(),
     )
 
 
