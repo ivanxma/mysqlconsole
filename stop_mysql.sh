@@ -11,6 +11,15 @@ fi
 
 LOCAL_MYSQL_SERVICE="${LOCAL_MYSQL_SERVICE:-mysql}"
 LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-}"
+LOCAL_MYSQL_PID_FILE="${LOCAL_MYSQL_PID_FILE:-}"
+LOCAL_MYSQL_CONFIG_FILE="${LOCAL_MYSQL_CONFIG_FILE:-$SCRIPT_DIR/etc/my.cnf}"
+
+if [[ -z "$LOCAL_MYSQL_SOCKET" && -f "$LOCAL_MYSQL_CONFIG_FILE" ]]; then
+  LOCAL_MYSQL_SOCKET="$(awk -F= '$1 == "socket" {print $2; exit}' "$LOCAL_MYSQL_CONFIG_FILE")"
+fi
+if [[ -z "$LOCAL_MYSQL_PID_FILE" && -f "$LOCAL_MYSQL_CONFIG_FILE" ]]; then
+  LOCAL_MYSQL_PID_FILE="$(awk -F= '$1 == "pid-file" {print $2; exit}' "$LOCAL_MYSQL_CONFIG_FILE")"
+fi
 
 socket_ready() {
   [[ -n "$LOCAL_MYSQL_SOCKET" && -S "$LOCAL_MYSQL_SOCKET" ]]
@@ -39,7 +48,12 @@ case "$(uname -s)" in
     fi
     ;;
   *)
-    if command -v systemctl >/dev/null 2>&1; then
+    if [[ -n "$LOCAL_MYSQL_PID_FILE" && -f "$LOCAL_MYSQL_PID_FILE" ]]; then
+      pid="$(cat "$LOCAL_MYSQL_PID_FILE" 2>/dev/null || true)"
+      if [[ "$pid" =~ ^[0-9]+$ ]]; then
+        kill "$pid" >/dev/null 2>&1 || true
+      fi
+    elif command -v systemctl >/dev/null 2>&1; then
       stop_with_privilege systemctl stop "$LOCAL_MYSQL_SERVICE" || true
     elif command -v service >/dev/null 2>&1; then
       stop_with_privilege service "$LOCAL_MYSQL_SERVICE" stop || true

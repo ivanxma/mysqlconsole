@@ -31,7 +31,9 @@ ALLOWED_LOCAL_STATE_SUFFIXES = (
     "_vulnerability_report.html",
 )
 ALLOWED_LOCAL_STATE_PREFIXES = (
+    ".data/",
     ".embedded/",
+    "etc/my.cnf",
     "pip-audit-report.",
     "profile_ssh_keys/",
     "security_review",
@@ -392,6 +394,16 @@ class UpdateWorker:
                     mode = 0o600 if path.suffix.lower() in private_suffixes else 0o644
                     self.chmod_path(path, mode)
             self.append_log("Hardened TLS directory permissions.")
+
+        mysql_data_dir = self.repo_dir / ".data"
+        if mysql_data_dir.is_dir():
+            self.chmod_path(mysql_data_dir, 0o700)
+            self.append_log("Hardened local MySQL data directory permissions.")
+
+        mysql_config = self.repo_dir / "etc" / "my.cnf"
+        if mysql_config.is_file():
+            self.chmod_path(mysql_config, 0o600)
+            self.append_log("Hardened local MySQL config file permissions.")
 
     def current_user_group(self):
         try:

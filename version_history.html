@@ -128,10 +128,23 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3j</span>
+      <span class="badge">Release 1.0.3k</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3j</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3k</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3k Summary</h2>
+      <p>
+        Version <code>1.0.3k</code> changes Linux local MySQL bootstrap to an app-managed initialization model for OCI Compute and other fresh hosts.
+      </p>
+      <ul>
+        <li>Linux setup now installs MySQL Server binaries from the platform package manager but writes DBConsole's own <code>etc/my.cnf</code>.</li>
+        <li>The generated MySQL config uses the installed MySQL <code>basedir</code>, stores the datadir under <code>.data/mysql</code>, writes the error log under <code>.data/log</code>, uses an app-local socket under <code>.data/run</code>, and keeps MySQL socket-only with <code>skip-networking</code> and MySQL X Plugin disabled.</li>
+        <li>Setup runs <code>mysqld --initialize</code>, reads the generated temporary root password from the app-local error log, renames <code>root@localhost</code> to the submitted local admin account, and sets the submitted password.</li>
+        <li>Runtime start and stop scripts now manage the DBConsole-owned Linux MySQL process from the saved app-local config instead of relying on the package-created system MySQL datadir.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3j Summary</h2>

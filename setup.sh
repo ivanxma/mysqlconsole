@@ -170,6 +170,11 @@ SERVICE_USER_INPUT="${SERVICE_USER:-}"
 SERVICE_GROUP_INPUT="${SERVICE_GROUP:-}"
 EMBEDDED_MYSQL_SHELL_DIR="${EMBEDDED_MYSQL_SHELL_DIR:-$SCRIPT_DIR/.embedded/mysql-shell}"
 EMBEDDED_MYSQL_SERVER_DIR="${EMBEDDED_MYSQL_SERVER_DIR:-$SCRIPT_DIR/.embedded/mysql-server}"
+LOCAL_MYSQL_BASEDIR_INPUT="${LOCAL_MYSQL_BASEDIR:-}"
+LOCAL_MYSQL_DATADIR_INPUT="${LOCAL_MYSQL_DATADIR:-}"
+LOCAL_MYSQL_CONFIG_FILE_INPUT="${LOCAL_MYSQL_CONFIG_FILE:-}"
+LOCAL_MYSQL_ERROR_LOG_INPUT="${LOCAL_MYSQL_ERROR_LOG:-}"
+LOCAL_MYSQL_PID_FILE_INPUT="${LOCAL_MYSQL_PID_FILE:-}"
 MYSQL_SHELL_VENDOR_DOWNLOAD_BASE="${MYSQL_SHELL_VENDOR_DOWNLOAD_BASE:-https://dev.mysql.com/get/Downloads/MySQL-Shell}"
 MYSQL_SHELL_DOWNLOAD_PAGE="${MYSQL_SHELL_DOWNLOAD_PAGE:-https://dev.mysql.com/downloads/shell/}"
 MYSQL_SHELL_EMBEDDED_URL="${MYSQL_SHELL_EMBEDDED_URL:-}"
@@ -198,6 +203,8 @@ EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
 EXISTING_SSL_CERT_FILE=""
 EXISTING_SSL_KEY_FILE=""
+LOCAL_MYSQL_TEMP_ROOT_PASSWORD=""
+LOCAL_MYSQL_DATADIR_INITIALIZED=0
 
 print_usage() {
   cat <<EOF
@@ -1131,8 +1138,11 @@ write_runtime_env() {
         echo "LOCAL_MYSQL_BASEDIR=$EMBEDDED_MYSQL_SERVER_DIR"
         echo "LOCAL_MYSQL_DATADIR=$EMBEDDED_MYSQL_SERVER_DIR/data"
       else
-        echo "# LOCAL_MYSQL_BASEDIR="
-        echo "# LOCAL_MYSQL_DATADIR="
+        echo "LOCAL_MYSQL_BASEDIR=$LOCAL_MYSQL_BASEDIR_INPUT"
+        echo "LOCAL_MYSQL_DATADIR=$(local_mysql_datadir "$os_family")"
+        echo "LOCAL_MYSQL_CONFIG_FILE=$(local_mysql_config_file "$os_family")"
+        echo "LOCAL_MYSQL_ERROR_LOG=$(local_mysql_error_log "$os_family")"
+        echo "LOCAL_MYSQL_PID_FILE=$(local_mysql_pid_file "$os_family")"
       fi
     else
       echo "LOCAL_MYSQL_AUTOSTART=0"
@@ -1231,6 +1241,13 @@ harden_local_file_permissions() {
     while IFS= read -r -d '' file_path; do
       chmod 600 "$file_path" 2>/dev/null || true
     done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
+  fi
+
+  if [[ -d "$SCRIPT_DIR/.data" ]]; then
+    chmod 700 "$SCRIPT_DIR/.data" 2>/dev/null || true
+  fi
+  if [[ -f "$SCRIPT_DIR/etc/my.cnf" ]]; then
+    chmod 600 "$SCRIPT_DIR/etc/my.cnf" 2>/dev/null || true
   fi
 
   if [[ -d "$SCRIPT_DIR/tls" ]]; then
@@ -1979,17 +1996,131 @@ validate_local_mysql_bootstrap_inputs() {
 default_local_mysql_socket() {
   local os_family="$1"
   case "$os_family" in
-    ol8|ol9)
-      printf '%s\n' "/var/lib/mysql/mysql.sock"
-      ;;
-    ubuntu)
-      printf '%s\n' "/var/run/mysqld/mysqld.sock"
+    ol8|ol9|ubuntu)
+      printf '%s\n' "$SCRIPT_DIR/.data/run/mysql.sock"
       ;;
     macos)
       printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/run/mysql.sock"
       ;;
     *)
       printf '%s\n' "/tmp/mysql.sock"
+      ;;
+  esac
+}
+
+local_mysql_config_file() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      printf '%s\n' "${LOCAL_MYSQL_CONFIG_FILE_INPUT:-$SCRIPT_DIR/etc/my.cnf}"
+      ;;
+    *)
+      printf '%s\n' ""
+      ;;
+  esac
+}
+
+local_mysql_datadir() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      printf '%s\n' "${LOCAL_MYSQL_DATADIR_INPUT:-$SCRIPT_DIR/.data/mysql}"
+      ;;
+    macos)
+      printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/data"
+      ;;
+    *)
+      printf '%s\n' "${LOCAL_MYSQL_DATADIR_INPUT:-$SCRIPT_DIR/.data/mysql}"
+      ;;
+  esac
+}
+
+local_mysql_error_log() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      printf '%s\n' "${LOCAL_MYSQL_ERROR_LOG_INPUT:-$SCRIPT_DIR/.data/log/mysqld.err}"
+      ;;
+    macos)
+      printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/log/mysqld.err"
+      ;;
+    *)
+      printf '%s\n' "${LOCAL_MYSQL_ERROR_LOG_INPUT:-$SCRIPT_DIR/.data/log/mysqld.err}"
+      ;;
+  esac
+}
+
+local_mysql_pid_file() {
+  local os_family="$1"
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      printf '%s\n' "${LOCAL_MYSQL_PID_FILE_INPUT:-$SCRIPT_DIR/.data/run/mysqld.pid}"
+      ;;
+    macos)
+      printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/run/mysqld.pid"
+      ;;
+    *)
+      printf '%s\n' "${LOCAL_MYSQL_PID_FILE_INPUT:-$SCRIPT_DIR/.data/run/mysqld.pid}"
+      ;;
+  esac
+}
+
+find_mysqld_server() {
+  if [[ -n "${MYSQLD_BIN:-}" && -x "$MYSQLD_BIN" ]]; then
+    printf '%s\n' "$MYSQLD_BIN"
+    return 0
+  fi
+  if [[ -x "$EMBEDDED_MYSQL_SERVER_DIR/bin/mysqld" ]]; then
+    printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/bin/mysqld"
+    return 0
+  fi
+  if command -v mysqld >/dev/null 2>&1; then
+    command -v mysqld
+    return 0
+  fi
+  if [[ -x /usr/sbin/mysqld ]]; then
+    printf '%s\n' "/usr/sbin/mysqld"
+    return 0
+  fi
+  if [[ -x /usr/bin/mysqld ]]; then
+    printf '%s\n' "/usr/bin/mysqld"
+    return 0
+  fi
+  return 1
+}
+
+find_mysqld_safe() {
+  if [[ -n "${MYSQLD_SAFE_BIN:-}" && -x "$MYSQLD_SAFE_BIN" ]]; then
+    printf '%s\n' "$MYSQLD_SAFE_BIN"
+    return 0
+  fi
+  if [[ -x "$EMBEDDED_MYSQL_SERVER_DIR/bin/mysqld_safe" ]]; then
+    printf '%s\n' "$EMBEDDED_MYSQL_SERVER_DIR/bin/mysqld_safe"
+    return 0
+  fi
+  if command -v mysqld_safe >/dev/null 2>&1; then
+    command -v mysqld_safe
+    return 0
+  fi
+  if [[ -x /usr/bin/mysqld_safe ]]; then
+    printf '%s\n' "/usr/bin/mysqld_safe"
+    return 0
+  fi
+  return 1
+}
+
+mysql_basedir_from_mysqld() {
+  local mysqld_bin="$1"
+  if [[ -n "$LOCAL_MYSQL_BASEDIR_INPUT" ]]; then
+    printf '%s\n' "$LOCAL_MYSQL_BASEDIR_INPUT"
+    return 0
+  fi
+  case "$mysqld_bin" in
+    /usr/sbin/mysqld|/usr/bin/mysqld)
+      printf '%s\n' "/usr"
+      ;;
+    *)
+      dirname "$(dirname "$mysqld_bin")"
       ;;
   esac
 }
@@ -2012,6 +2143,10 @@ restart_local_mysql_service() {
     macos)
       stop_macos_embedded_mysql_server || true
       start_macos_embedded_mysql_server
+      ;;
+    ol8|ol9|ubuntu)
+      stop_app_managed_mysql_server "$os_family" || true
+      start_app_managed_mysql_server "$os_family"
       ;;
     *)
       if command -v systemctl >/dev/null 2>&1; then
@@ -2177,10 +2312,117 @@ stop_macos_embedded_mysql_server() {
   "$EMBEDDED_MYSQL_SERVER_DIR/bin/mysqladmin" --protocol=socket --socket="$LOCAL_MYSQL_SOCKET_INPUT" -uroot shutdown >/dev/null 2>&1 || true
 }
 
+extract_temporary_mysql_password() {
+  local log_file="$1"
+  if [[ ! -f "$log_file" ]]; then
+    return 1
+  fi
+  sed -n 's/^.*temporary password.*root@localhost: //p' "$log_file" | tail -n 1
+}
+
+initialize_app_managed_mysql_datadir() {
+  local os_family="$1"
+  local mysqld_bin
+  local basedir
+  local datadir
+  local log_file
+  local config_file
+
+  datadir="$(local_mysql_datadir "$os_family")"
+  if [[ -d "$datadir/mysql" ]]; then
+    return 0
+  fi
+
+  mysqld_bin="$(find_mysqld_server)" || {
+    echo "mysqld was not found after local MySQL Server installation." >&2
+    return 1
+  }
+  basedir="$(mysql_basedir_from_mysqld "$mysqld_bin")"
+  LOCAL_MYSQL_BASEDIR_INPUT="$basedir"
+  config_file="$(local_mysql_config_file "$os_family")"
+  log_file="$(local_mysql_error_log "$os_family")"
+
+  mkdir -p "$datadir" "$(dirname "$LOCAL_MYSQL_SOCKET_INPUT")" "$(dirname "$log_file")" "$SCRIPT_DIR/.data/tmp"
+  rm -f "$log_file"
+  echo "Initializing DBConsole-managed local MySQL datadir at $datadir."
+  "$mysqld_bin" --defaults-file="$config_file" --initialize
+  LOCAL_MYSQL_TEMP_ROOT_PASSWORD="$(extract_temporary_mysql_password "$log_file" || true)"
+  if [[ -z "$LOCAL_MYSQL_TEMP_ROOT_PASSWORD" ]]; then
+    echo "Unable to read the temporary MySQL root password from $log_file after mysqld --initialize." >&2
+    return 1
+  fi
+  LOCAL_MYSQL_DATADIR_INITIALIZED=1
+}
+
+start_app_managed_mysql_server() {
+  local os_family="$1"
+  local mysqld_safe_bin
+  local mysqld_bin
+  local config_file
+  local log_file
+
+  config_file="$(local_mysql_config_file "$os_family")"
+  log_file="$(local_mysql_error_log "$os_family")"
+  initialize_app_managed_mysql_datadir "$os_family"
+
+  if [[ -S "$LOCAL_MYSQL_SOCKET_INPUT" ]]; then
+    return 0
+  fi
+
+  mysqld_safe_bin="$(find_mysqld_safe || true)"
+  if [[ -n "$mysqld_safe_bin" ]]; then
+    "$mysqld_safe_bin" --defaults-file="$config_file" >/dev/null 2>&1 &
+  else
+    mysqld_bin="$(find_mysqld_server)" || {
+      echo "mysqld was not found after local MySQL Server installation." >&2
+      return 1
+    }
+    "$mysqld_bin" --defaults-file="$config_file" --daemonize >/dev/null 2>&1
+  fi
+
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if [[ -S "$LOCAL_MYSQL_SOCKET_INPUT" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "DBConsole-managed local MySQL did not create socket $LOCAL_MYSQL_SOCKET_INPUT. Check $log_file." >&2
+  return 1
+}
+
+stop_app_managed_mysql_server() {
+  local os_family="$1"
+  local pid_file
+  local pid
+
+  pid_file="$(local_mysql_pid_file "$os_family")"
+  if [[ -f "$pid_file" ]]; then
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ ! -S "$LOCAL_MYSQL_SOCKET_INPUT" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 0
+}
+
 write_local_mysql_socket_only_config() {
   local os_family="$1"
   local config_path
+  local basedir
+  local datadir
+  local error_log
+  local pid_file
   local socket_dir
+  local tmp_dir
+  local mysqld_bin
 
   if ! local_mysql_bootstrap_requested; then
     return 0
@@ -2188,11 +2430,18 @@ write_local_mysql_socket_only_config() {
 
   socket_dir="$(dirname "$LOCAL_MYSQL_SOCKET_INPUT")"
   case "$os_family" in
-    ol8|ol9)
-      config_path="/etc/my.cnf.d/dbconsole-local-socket.cnf"
-      ;;
-    ubuntu)
-      config_path="/etc/mysql/conf.d/dbconsole-local-socket.cnf"
+    ol8|ol9|ubuntu)
+      mysqld_bin="$(find_mysqld_server)" || {
+        echo "mysqld was not found after local MySQL Server installation." >&2
+        return 1
+      }
+      LOCAL_MYSQL_BASEDIR_INPUT="$(mysql_basedir_from_mysqld "$mysqld_bin")"
+      basedir="$LOCAL_MYSQL_BASEDIR_INPUT"
+      datadir="$(local_mysql_datadir "$os_family")"
+      config_path="$(local_mysql_config_file "$os_family")"
+      error_log="$(local_mysql_error_log "$os_family")"
+      pid_file="$(local_mysql_pid_file "$os_family")"
+      tmp_dir="$SCRIPT_DIR/.data/tmp"
       ;;
     macos)
       mkdir -p "$socket_dir" "$EMBEDDED_MYSQL_SERVER_DIR/run" "$EMBEDDED_MYSQL_SERVER_DIR/log" "$EMBEDDED_MYSQL_SERVER_DIR/tmp"
@@ -2204,25 +2453,23 @@ write_local_mysql_socket_only_config() {
       ;;
   esac
 
-  if [[ "$os_family" != "macos" ]]; then
-    ensure_mysql_config_include_dir "$os_family"
-    run_as_root mkdir -p "$(dirname "$config_path")" "$socket_dir"
-    run_as_root chown mysql:mysql "$socket_dir" 2>/dev/null || true
-  else
-    mkdir -p "$socket_dir"
-  fi
+  mkdir -p "$(dirname "$config_path")" "$datadir" "$socket_dir" "$(dirname "$error_log")" "$(dirname "$pid_file")" "$tmp_dir"
 
   {
     echo "[mysqld]"
+    echo "basedir=$basedir"
+    echo "datadir=$datadir"
     echo "skip-networking"
     echo "mysqlx=0"
     echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
+    echo "pid-file=$pid_file"
+    echo "log-error=$error_log"
+    echo "tmpdir=$tmp_dir"
     echo ""
     echo "[client]"
     echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
-  } | write_root_file "$config_path"
-  run_as_root chmod 644 "$config_path" 2>/dev/null || true
-  restore_selinux_context "$config_path"
+  } >"$config_path"
+  chmod 600 "$config_path" 2>/dev/null || true
 }
 
 install_local_mysql_server() {
@@ -2245,9 +2492,9 @@ install_local_mysql_server() {
       fi
       run_as_root dnf install -y --refresh --best --allowerasing mysql-community-server mysql-community-client
       if command -v systemctl >/dev/null 2>&1; then
-        run_as_root systemctl enable --now mysqld
+        run_as_root systemctl disable --now mysqld >/dev/null 2>&1 || true
       else
-        run_as_root service mysqld start
+        run_as_root service mysqld stop >/dev/null 2>&1 || true
       fi
       ;;
     ubuntu)
@@ -2257,9 +2504,9 @@ install_local_mysql_server() {
       fi
       run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-community-server mysql-community-client
       if command -v systemctl >/dev/null 2>&1; then
-        run_as_root systemctl enable --now mysql
+        run_as_root systemctl disable --now mysql >/dev/null 2>&1 || true
       else
-        run_as_root service mysql start
+        run_as_root service mysql stop >/dev/null 2>&1 || true
       fi
       ;;
     macos)
@@ -2301,6 +2548,13 @@ find_mysql_client() {
   command -v mysql
 }
 
+mysql_option_file_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
 write_mysql_defaults_file() {
   local target_file="$1"
   local user_name="$2"
@@ -2310,11 +2564,11 @@ write_mysql_defaults_file() {
 
   {
     echo "[client]"
-    echo "user=$user_name"
-    echo "password=$password_value"
+    printf 'user=%s\n' "$(mysql_option_file_quote "$user_name")"
+    printf 'password=%s\n' "$(mysql_option_file_quote "$password_value")"
     echo "protocol=$protocol"
     if [[ "$protocol" == "socket" && -n "$socket_path" ]]; then
-      echo "socket=$socket_path"
+      printf 'socket=%s\n' "$(mysql_option_file_quote "$socket_path")"
     fi
   } >"$target_file"
   chmod 600 "$target_file"
@@ -2367,6 +2621,55 @@ write_local_admin_sql() {
     printf 'FLUSH PRIVILEGES;\n'
   } >"$sql_file"
   chmod 600 "$sql_file"
+}
+
+configure_initialized_mysql_root_account() {
+  local mysql_bin="$1"
+  local admin_defaults="$2"
+  local sql_file="$3"
+  local root_temp_defaults
+  local root_admin_defaults
+  local root_reset_sql_file
+  local root_rename_sql_file
+  local admin_user_literal
+  local admin_password_literal
+
+  if [[ -z "$LOCAL_MYSQL_TEMP_ROOT_PASSWORD" ]]; then
+    return 1
+  fi
+
+  root_temp_defaults="$(mktemp)"
+  root_admin_defaults="$(mktemp)"
+  root_reset_sql_file="$(mktemp)"
+  root_rename_sql_file="$(mktemp)"
+  admin_user_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_USER_INPUT")"
+  admin_password_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT")"
+
+  write_mysql_defaults_file "$root_temp_defaults" "root" "$LOCAL_MYSQL_TEMP_ROOT_PASSWORD" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+  write_mysql_defaults_file "$root_admin_defaults" "root" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+  {
+    printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "'root'" "'localhost'" "$admin_password_literal"
+  } >"$root_reset_sql_file"
+  chmod 600 "$root_reset_sql_file"
+  {
+    if [[ "$LOCAL_MYSQL_ADMIN_USER_INPUT" != "root" ]]; then
+      printf 'RENAME USER %s@%s TO %s@%s;\n' "'root'" "'localhost'" "$admin_user_literal" "'localhost'"
+    fi
+    printf 'GRANT ALL PRIVILEGES ON *.* TO %s@%s WITH GRANT OPTION;\n' "$admin_user_literal" "'localhost'"
+    printf 'FLUSH PRIVILEGES;\n'
+  } >"$root_rename_sql_file"
+  chmod 600 "$root_rename_sql_file"
+
+  if run_mysql_file "$mysql_bin" "$root_temp_defaults" "$root_reset_sql_file" --connect-expired-password >/dev/null 2>&1 &&
+    run_mysql_file "$mysql_bin" "$root_admin_defaults" "$root_rename_sql_file" >/dev/null 2>&1 &&
+    run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
+    rm -f "$root_temp_defaults" "$root_admin_defaults" "$root_reset_sql_file" "$root_rename_sql_file"
+    echo "Renamed initialized MySQL root account to '$LOCAL_MYSQL_ADMIN_USER_INPUT'@'localhost' and set the supplied password."
+    return 0
+  fi
+
+  rm -f "$root_temp_defaults" "$root_admin_defaults" "$root_reset_sql_file" "$root_rename_sql_file"
+  return 1
 }
 
 provision_local_mysql_admin_with_init_file() {
@@ -2465,6 +2768,8 @@ provision_local_mysql_admin_with_grant_table_bypass() {
   local bypass_sql_file
   local attempt
   local verify_attempt
+  local config_file
+  local app_managed_mysql=0
 
   if ! local_mysql_init_file_provisioning_enabled; then
     return 1
@@ -2475,12 +2780,22 @@ provision_local_mysql_admin_with_grant_table_bypass() {
 
   case "$os_family" in
     ol8|ol9)
-      ensure_mysql_config_include_dir "$os_family"
-      bypass_config_file="/etc/my.cnf.d/dbconsole-local-grant-bypass.cnf"
+      config_file="$(local_mysql_config_file "$os_family")"
+      if [[ -f "$config_file" ]]; then
+        app_managed_mysql=1
+      else
+        ensure_mysql_config_include_dir "$os_family"
+        bypass_config_file="/etc/my.cnf.d/dbconsole-local-grant-bypass.cnf"
+      fi
       ;;
     ubuntu)
-      ensure_mysql_config_include_dir "$os_family"
-      bypass_config_file="/etc/mysql/conf.d/dbconsole-local-grant-bypass.cnf"
+      config_file="$(local_mysql_config_file "$os_family")"
+      if [[ -f "$config_file" ]]; then
+        app_managed_mysql=1
+      else
+        ensure_mysql_config_include_dir "$os_family"
+        bypass_config_file="/etc/mysql/conf.d/dbconsole-local-grant-bypass.cnf"
+      fi
       ;;
     *)
       return 1
@@ -2491,6 +2806,9 @@ provision_local_mysql_admin_with_grant_table_bypass() {
   {
     echo "FLUSH PRIVILEGES;"
     cat "$sql_file"
+    if [[ "$LOCAL_MYSQL_ADMIN_USER_INPUT" != "root" ]]; then
+      echo "DROP USER IF EXISTS 'root'@'localhost';"
+    fi
   } >"$bypass_sql_file"
   chmod 600 "$bypass_sql_file"
 
@@ -2498,29 +2816,42 @@ provision_local_mysql_admin_with_grant_table_bypass() {
   echo "Attempting one-time local MySQL grant-table bypass provisioning for '$LOCAL_MYSQL_ADMIN_USER_INPUT'."
   echo "This temporary recovery path uses skip-grant-tables with skip-networking and creates or resets only '$LOCAL_MYSQL_ADMIN_USER_INPUT'@'localhost'."
 
-  {
-    echo "[mysqld]"
-    echo "skip-grant-tables"
-    echo "skip-networking"
-    echo "mysqlx=0"
-    echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
-  } | write_root_file "$bypass_config_file"
-  run_as_root chmod 644 "$bypass_config_file" || true
-  restore_selinux_context "$bypass_config_file"
-
-  if command -v systemctl >/dev/null 2>&1; then
-    run_as_root systemctl restart "$service_name" || true
+  if [[ "$app_managed_mysql" == "1" ]]; then
+    stop_app_managed_mysql_server "$os_family" || true
+    if ! "$(find_mysqld_server)" --defaults-file="$config_file" --skip-grant-tables --daemonize >/dev/null 2>&1; then
+      rm -f "$bypass_sql_file"
+      return 1
+    fi
   else
-    run_as_root service "$service_name" restart || true
+    {
+      echo "[mysqld]"
+      echo "skip-grant-tables"
+      echo "skip-networking"
+      echo "mysqlx=0"
+      echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
+    } | write_root_file "$bypass_config_file"
+    run_as_root chmod 644 "$bypass_config_file" || true
+    restore_selinux_context "$bypass_config_file"
+
+    if command -v systemctl >/dev/null 2>&1; then
+      run_as_root systemctl restart "$service_name" || true
+    else
+      run_as_root service "$service_name" restart || true
+    fi
   fi
 
   for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if run_mysql_socket_root_file "$mysql_bin" "$bypass_sql_file" >/dev/null 2>&1; then
-      run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
-      if command -v systemctl >/dev/null 2>&1; then
-        run_as_root systemctl restart "$service_name" || true
+      if [[ "$app_managed_mysql" == "1" ]]; then
+        stop_app_managed_mysql_server "$os_family" || true
+        start_app_managed_mysql_server "$os_family"
       else
-        run_as_root service "$service_name" restart || true
+        run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
+        if command -v systemctl >/dev/null 2>&1; then
+          run_as_root systemctl restart "$service_name" || true
+        else
+          run_as_root service "$service_name" restart || true
+        fi
       fi
       for verify_attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
         if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
@@ -2536,11 +2867,16 @@ provision_local_mysql_admin_with_grant_table_bypass() {
     sleep 1
   done
 
-  run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
-  if command -v systemctl >/dev/null 2>&1; then
-    run_as_root systemctl restart "$service_name" || true
+  if [[ "$app_managed_mysql" == "1" ]]; then
+    stop_app_managed_mysql_server "$os_family" || true
+    start_app_managed_mysql_server "$os_family" || true
   else
-    run_as_root service "$service_name" restart || true
+    run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
+    if command -v systemctl >/dev/null 2>&1; then
+      run_as_root systemctl restart "$service_name" || true
+    else
+      run_as_root service "$service_name" restart || true
+    fi
   fi
   rm -f "$bypass_sql_file"
   return 1
@@ -2570,6 +2906,11 @@ configure_local_mysql_admin_account() {
 
   write_mysql_defaults_file "$admin_defaults" "$LOCAL_MYSQL_ADMIN_USER_INPUT" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
   write_local_admin_sql "$sql_file"
+
+  if configure_initialized_mysql_root_account "$mysql_bin" "$admin_defaults" "$sql_file"; then
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$existing_root_sql_file"
+    return 0
+  fi
 
   if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
     echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' refreshed."

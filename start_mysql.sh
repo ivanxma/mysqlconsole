@@ -11,6 +11,13 @@ fi
 
 LOCAL_MYSQL_SERVICE="${LOCAL_MYSQL_SERVICE:-mysql}"
 LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-}"
+LOCAL_MYSQL_CONFIG_FILE="${LOCAL_MYSQL_CONFIG_FILE:-$SCRIPT_DIR/etc/my.cnf}"
+LOCAL_MYSQL_BASEDIR="${LOCAL_MYSQL_BASEDIR:-}"
+LOCAL_MYSQL_DATADIR="${LOCAL_MYSQL_DATADIR:-}"
+
+if [[ -z "$LOCAL_MYSQL_SOCKET" && -f "$LOCAL_MYSQL_CONFIG_FILE" ]]; then
+  LOCAL_MYSQL_SOCKET="$(awk -F= '$1 == "socket" {print $2; exit}' "$LOCAL_MYSQL_CONFIG_FILE")"
+fi
 
 socket_ready() {
   [[ -n "$LOCAL_MYSQL_SOCKET" && -S "$LOCAL_MYSQL_SOCKET" ]]
@@ -54,7 +61,16 @@ case "$(uname -s)" in
     fi
     ;;
   *)
-    if command -v systemctl >/dev/null 2>&1; then
+    if [[ -n "$LOCAL_MYSQL_CONFIG_FILE" && -f "$LOCAL_MYSQL_CONFIG_FILE" ]]; then
+      if command -v mysqld_safe >/dev/null 2>&1; then
+        mysqld_safe --defaults-file="$LOCAL_MYSQL_CONFIG_FILE" >/dev/null 2>&1 &
+      elif command -v mysqld >/dev/null 2>&1; then
+        mysqld --defaults-file="$LOCAL_MYSQL_CONFIG_FILE" --daemonize >/dev/null 2>&1
+      else
+        echo "mysqld was not found. Run ./setup.sh first." >&2
+        exit 1
+      fi
+    elif command -v systemctl >/dev/null 2>&1; then
       start_with_privilege systemctl start "$LOCAL_MYSQL_SERVICE" || true
     elif command -v service >/dev/null 2>&1; then
       start_with_privilege service "$LOCAL_MYSQL_SERVICE" start || true

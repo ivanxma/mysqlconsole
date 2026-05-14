@@ -21,7 +21,9 @@ htmlcov/
 .runtime.env
 .runtime.env.*
 .flask_secret_key
+.data/
 .embedded/
+etc/my.cnf
 profiles.json
 object_storage.json
 tls/

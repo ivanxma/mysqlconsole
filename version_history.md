@@ -1,6 +1,15 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3j`.
+Version summary from `1.0.2a` to `1.0.3k`.
+
+## 1.0.3k Summary
+
+Version `1.0.3k` changes Linux local MySQL bootstrap to an app-managed initialization model for OCI Compute and other fresh hosts.
+
+- Linux setup now installs MySQL Server binaries from the platform package manager but writes DBConsole's own `etc/my.cnf`.
+- The generated MySQL config uses the installed MySQL `basedir`, stores the datadir under `.data/mysql`, writes the error log under `.data/log`, uses an app-local socket under `.data/run`, and keeps MySQL socket-only with `skip-networking` and MySQL X Plugin disabled.
+- Setup runs `mysqld --initialize`, reads the generated temporary root password from the app-local error log, renames `root@localhost` to the submitted local admin account, and sets the submitted password.
+- Runtime start and stop scripts now manage the DBConsole-owned Linux MySQL process from the saved app-local config instead of relying on the package-created system MySQL datadir.
 
 ## 1.0.3j Summary
 

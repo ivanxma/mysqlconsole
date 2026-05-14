@@ -234,6 +234,13 @@ sql_quote() {
   printf "'%s'" "$value"
 }
 
+mysql_option_file_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
 make_sql_file() {
   local sql_file="$1"
   local user_literal
@@ -253,13 +260,18 @@ write_defaults_file() {
   local defaults_file="$1"
   local user="$2"
   local password="$3"
+  local quoted_user quoted_password quoted_socket quoted_database
+  quoted_user="$(mysql_option_file_quote "$user")"
+  quoted_password="$(mysql_option_file_quote "$password")"
+  quoted_socket="$(mysql_option_file_quote "$LOCAL_MYSQL_SOCKET")"
+  quoted_database="$(mysql_option_file_quote "$LOCAL_MYSQL_DATABASE")"
   {
     printf '[client]\n'
-    printf 'user=%s\n' "$user"
-    printf 'password=%s\n' "$password"
+    printf 'user=%s\n' "$quoted_user"
+    printf 'password=%s\n' "$quoted_password"
     printf 'protocol=socket\n'
-    printf 'socket=%s\n' "$LOCAL_MYSQL_SOCKET"
-    printf 'database=%s\n' "$LOCAL_MYSQL_DATABASE"
+    printf 'socket=%s\n' "$quoted_socket"
+    printf 'database=%s\n' "$quoted_database"
   } >"$defaults_file"
   chmod 600 "$defaults_file"
 }
