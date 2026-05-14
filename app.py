@@ -534,7 +534,39 @@ def get_dbconsole_update_status():
     return status
 
 
-def start_dbconsole_update_job():
+def local_admin_profile_needs_bootstrap():
+    profile = get_profile_by_name(LOCAL_ADMIN_PROFILE_NAME)
+    if not profile:
+        return True
+    return not (
+        profile.get("socket_enabled")
+        and str(profile.get("socket_path") or "").strip()
+        and not str(profile.get("host") or "").strip()
+    )
+
+
+def normalize_update_local_admin_bootstrap(form_payload):
+    username = str(form_payload.get("local_mysql_admin_user", "")).strip() or "localadmin"
+    password = str(form_payload.get("local_mysql_admin_password", "") or "")
+    confirm_password = str(form_payload.get("confirm_local_mysql_admin_password", "") or "")
+    requested = bool(password or confirm_password or username != "localadmin" or local_admin_profile_needs_bootstrap())
+
+    if not requested:
+        return {}
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}", username):
+        raise ValueError("Local MySQL admin username must start with a letter, digit, or underscore and contain only letters, digits, underscore, dot, or dash.")
+    if not password:
+        raise ValueError("Enter a temporary password for the local admin profile bootstrap.")
+    if password != confirm_password:
+        raise ValueError("Local admin bootstrap password confirmation does not match.")
+    return {
+        "LOCAL_MYSQL_ADMIN_USER": username,
+        "LOCAL_MYSQL_ADMIN_PASSWORD": password,
+        "LOCAL_MYSQL_PROFILE_NAME": LOCAL_ADMIN_PROFILE_NAME,
+    }
+
+
+def start_dbconsole_update_job(local_admin_bootstrap=None):
     current_status = get_dbconsole_update_status()
     if not current_status.get("can_start"):
         raise ValueError("A DBConsole update is already in progress.")
@@ -563,6 +595,15 @@ def start_dbconsole_update_job():
 
     worker_env = os.environ.copy()
     worker_env["PYTHONUNBUFFERED"] = "1"
+    local_admin_bootstrap = dict(local_admin_bootstrap or {})
+    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
+        value = str(local_admin_bootstrap.get(key, "") or "")
+        if value:
+            worker_env[key] = value
+    if local_admin_bootstrap:
+        _append_dbconsole_update_log(
+            "Local admin profile bootstrap credentials were supplied for this update. The password is not logged or saved."
+        )
     worker = subprocess.Popen(
         [
             sys.executable,
@@ -7353,7 +7394,8 @@ def update_dbconsole_page():
         action = str(request.form.get("update_action", "")).strip().lower()
         if action == "start":
             try:
-                start_dbconsole_update_job()
+                local_admin_bootstrap = normalize_update_local_admin_bootstrap(request.form)
+                start_dbconsole_update_job(local_admin_bootstrap=local_admin_bootstrap)
                 flash("Auto-update started.", "success")
             except Exception as error:
                 flash(str(error), "error")
@@ -7375,6 +7417,9 @@ def update_dbconsole_page():
         page_title="Auto-Update",
         update_status=_public_dbconsole_update_status(get_dbconsole_update_status()),
         update_poll_token=_ensure_dbconsole_update_poll_token(),
+        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+        local_admin_bootstrap_required=local_admin_profile_needs_bootstrap(),
+        default_local_admin_user="localadmin",
         app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
         or {
             "local_version": get_local_app_version(),

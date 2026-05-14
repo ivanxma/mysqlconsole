@@ -19,13 +19,55 @@
         <input type="hidden" name="update_action" value="retrieve-version">
         <button class="button secondary" type="submit">Retrieve Repo Version</button>
       </form>
-      <form method="post">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="update_action" value="start">
-        <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
-      </form>
     </div>
   </div>
+
+  <form method="post" class="update-bootstrap-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="update_action" value="start">
+    <div class="form-grid update-bootstrap-grid">
+      <label>
+        Local Admin Username
+        <input
+          type="text"
+          name="local_mysql_admin_user"
+          value="{{ default_local_admin_user }}"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          {% if local_admin_bootstrap_required %}required{% endif %}
+        >
+      </label>
+      <label>
+        Temporary Local Admin Password
+        <input
+          type="password"
+          name="local_mysql_admin_password"
+          autocomplete="new-password"
+          {% if local_admin_bootstrap_required %}required{% endif %}
+        >
+      </label>
+      <label>
+        Confirm Temporary Password
+        <input
+          type="password"
+          name="confirm_local_mysql_admin_password"
+          autocomplete="new-password"
+          {% if local_admin_bootstrap_required %}required{% endif %}
+        >
+      </label>
+    </div>
+    <p class="helper-text">
+      {% if local_admin_bootstrap_required %}
+      <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Auto-update requires a one-time temporary password to install the local MySQL admin account and create the socket-only profile. After update, sign in with this profile and DBConsole will require a password change, then log out.
+      {% else %}
+      Leave the password fields blank unless you want setup to repair or refresh <code>{{ local_admin_profile_name }}</code>. Supplied passwords are passed only to this update worker and are not saved.
+      {% endif %}
+    </p>
+    <div class="form-actions">
+      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
+    </div>
+  </form>
 
   <dl class="version-status-grid">
     <div>

@@ -338,6 +338,9 @@ class UpdateWorker:
             "LOCAL_MYSQL_SERVICE",
             "LOCAL_MYSQL_BASEDIR",
             "LOCAL_MYSQL_DATADIR",
+            "LOCAL_MYSQL_PROFILE_NAME",
+            "LOCAL_MYSQL_ADMIN_USER",
+            "LOCAL_MYSQL_ADMIN_PASSWORD",
             "EMBEDDED_MYSQL_SHELL_DIR",
             "EMBEDDED_MYSQL_SERVER_DIR",
             "MYSQL_SERVER_VERSION",
@@ -359,7 +362,7 @@ class UpdateWorker:
         if ssl_key_file:
             setup_env["SSL_KEY_FILE"] = ssl_key_file
         for key in passthrough_env_keys:
-            value = runtime_env.get(key, "")
+            value = runtime_env.get(key, "") or os.environ.get(key, "")
             if value:
                 setup_env[key] = value
 
