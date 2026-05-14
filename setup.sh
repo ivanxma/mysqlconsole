@@ -649,9 +649,9 @@ install_python_runtime() {
   case "$os_family" in
     ol8|ol9)
       if command -v dnf >/dev/null 2>&1; then
-        run_as_root dnf install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" || return 1
+        run_as_root dnf install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" >&2 || return 1
       elif command -v yum >/dev/null 2>&1; then
-        run_as_root yum install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" || return 1
+        run_as_root yum install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" >&2 || return 1
       else
         echo "Neither dnf nor yum was found. Install python${package_version} manually and rerun setup." >&2
         return 1
@@ -662,12 +662,12 @@ install_python_runtime() {
         echo "apt-get was not found. Install python${package_version} manually and rerun setup." >&2
         return 1
       fi
-      run_as_root apt-get update
-      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "python${package_version}" "python${package_version}-venv" "python${package_version}-dev" || return 1
+      run_as_root apt-get update >&2
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "python${package_version}" "python${package_version}-venv" "python${package_version}-dev" >&2 || return 1
       ;;
     macos)
       if command -v brew >/dev/null 2>&1; then
-        brew install "python@${package_version}" || return 1
+        brew install "python@${package_version}" >&2 || return 1
       else
         echo "Homebrew was not found. Install Python ${package_version} manually or set DBCONSOLE_PYTHON_BIN." >&2
         return 1

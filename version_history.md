@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3g`.
+Version summary from `1.0.2a` to `1.0.3h`.
+
+## 1.0.3h Summary
+
+Version `1.0.3h` fixes fresh OCI Compute setup when Python 3.12 must be installed during `setup.sh`.
+
+- Redirected Python package-manager install output away from the interpreter path capture so `setup.sh` records only the resolved Python command.
+- Prevents fresh Oracle Linux installs from treating DNF progress output as part of the Python executable path.
 
 ## 1.0.3g Summary
 
