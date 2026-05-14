@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3e</span>
+      <span class="badge">Release 1.0.3f</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3e</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3f</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3f Summary</h2>
+      <p>
+        Version <code>1.0.3f</code> makes the local-admin trust boundary explicit while preserving a first-time bootstrap path for older deployments.
+      </p>
+      <ul>
+        <li>Auto-Update is normally available only after signing in through <code>local-admin-profile</code>.</li>
+        <li>Older deployments where <code>local-admin-profile</code> is missing or not socket-only can use a first-time authenticated Auto-Update bootstrap that requires a temporary <code>localadmin</code> password, password confirmation, and explicit reset confirmation.</li>
+        <li>Added <code>reset_localadmin_password.sh</code> as a support utility for creating or resetting only <code>localadmin@localhost</code>.</li>
+        <li>Local MySQL provisioning creates or repairs only <code>localadmin@localhost</code>; it does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>.</li>
+        <li>Renamed the setup recovery switch to <code>LOCAL_MYSQL_INIT_FILE_PROVISIONING</code>, keeping <code>LOCAL_MYSQL_RESET_UNKNOWN_ROOT</code> only as a compatibility alias.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3e Summary</h2>
@@ -142,7 +156,7 @@
       <ul>
         <li>Setup now ensures the DBConsole MySQL config include directory is loaded before writing socket-only and temporary init-file recovery configs.</li>
         <li>Recovery config files are written with readable root-owned permissions and SELinux contexts are restored when <code>restorecon</code> is available.</li>
-        <li>The one-time unknown-root recovery path can now apply on Oracle Linux MySQL packages that only read <code>/etc/my.cnf</code> by default.</li>
+        <li>The one-time localadmin init-file provisioning path can now apply on Oracle Linux MySQL packages that only read <code>/etc/my.cnf</code> by default.</li>
       </ul>
     </section>
 
@@ -153,11 +167,10 @@
         <code>root@localhost</code> password during DBConsole-managed local MySQL bootstrap.
       </p>
       <ul>
-        <li>Added a one-time local MySQL root recovery path for OL and Ubuntu deployments when socket-root, supplied root credentials, and temporary-root log recovery are unavailable.</li>
+        <li>Added a one-time localadmin init-file provisioning path for OL and Ubuntu deployments when direct localadmin or root-authenticated setup is unavailable.</li>
         <li>The recovery path uses sudo, a temporary MySQL init file, and the existing socket-only local MySQL configuration to create or repair <code>localadmin</code>.</li>
-        <li>Root is reset to an unrecorded random password during recovery; DBConsole uses the socket-only <code>localadmin</code> account after bootstrap.</li>
-        <li>Added <code>LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0</code> to disable the unknown-root recovery path for hosts that should never reset local MySQL root.</li>
-        <li>Auto-Update now passes <code>LOCAL_MYSQL_RESET_UNKNOWN_ROOT</code> through to setup when it is set.</li>
+        <li>The recovery path creates or repairs only <code>localadmin@localhost</code>; it does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>.</li>
+        <li>Added a setup switch to disable init-file localadmin provisioning on hosts that should never use a MySQL init file.</li>
       </ul>
     </section>
 
@@ -181,9 +194,9 @@
         already installed and <code>root@localhost</code> has an existing password.
       </p>
       <ul>
-        <li>Added transient <code>LOCAL_MYSQL_ROOT_PASSWORD</code> support for setup and Auto-Update runs that need to create or repair <code>local-admin-profile</code> on an already-initialized MySQL server.</li>
-        <li>Added an optional Auto-Update root password field for one-time bootstrap repair; supplied root credentials are passed only to the update worker environment and are not written to runtime files, update status, or logs.</li>
-        <li>Updated setup recovery order to try the requested local admin account, socket-root authentication, supplied root credentials, supplied admin password as root credentials for compatibility, and then the MySQL temporary root password log.</li>
+        <li>Added transient <code>LOCAL_MYSQL_ROOT_PASSWORD</code> support for setup runs that need to create or repair <code>local-admin-profile</code> on an already-initialized MySQL server with known root credentials.</li>
+        <li>Added an optional Auto-Update root password field for one-time bootstrap repair in this release; later releases removed root-password handling from Auto-Update and kept only a localadmin password reset bootstrap.</li>
+        <li>Updated setup recovery order to try the requested local admin account, socket-root authentication, supplied root credentials, and supplied admin password as root credentials for compatibility; later releases removed root-password reset behavior.</li>
         <li>Updated deployment documentation to explain when <code>LOCAL_MYSQL_ROOT_PASSWORD</code> is needed.</li>
       </ul>
     </section>
@@ -258,7 +271,7 @@
         <li>Added explicit <code>start_mysql.sh</code> and <code>stop_mysql.sh</code> operations for local MySQL startup and shutdown.</li>
         <li>Updated OCI Compute initialization to require an explicit local admin password and pass through embedded runtime settings.</li>
         <li>Updated Auto-Update to preserve allowed local runtime files across git pulls that remove those files from source control.</li>
-        <li>Added Auto-Update bootstrap prompts for missing or non-socket <code>local-admin-profile</code>, including old-version compatibility where the first update refreshes code and the second update collects the temporary local admin password.</li>
+        <li>Added Auto-Update bootstrap prompts for missing or non-socket <code>local-admin-profile</code>; later releases narrowed this behavior so the refreshed page prompts only for a localadmin password reset and never for a root password.</li>
         <li>Expanded git ignore coverage for runtime, embedded, temporary, and security-sensitive local files.</li>
       </ul>
     </section>
@@ -275,7 +288,7 @@
         <tbody>
           <tr>
             <td>Existing Auto-Update pages</td>
-            <td>Old pages can complete a code-refresh update first. After restart, the refreshed Auto-Update page prompts for <code>localadmin</code> and a temporary password when local admin bootstrap is still required.</td>
+            <td>Old pages can complete a code-refresh update first. The refreshed page then requires a temporary localadmin password and confirmation when <code>local-admin-profile</code> is missing or not socket-only.</td>
           </tr>
           <tr>
             <td>Local admin profile</td>

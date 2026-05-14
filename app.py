@@ -555,41 +555,49 @@ def local_admin_profile_needs_bootstrap():
     )
 
 
-def normalize_update_local_admin_bootstrap(form_payload):
-    bootstrap_field_names = {
-        "local_mysql_admin_user",
-        "local_mysql_admin_password",
-        "confirm_local_mysql_admin_password",
-        "local_mysql_root_password",
-    }
-    if not any(field_name in form_payload for field_name in bootstrap_field_names):
-        return {}
+def can_access_update_page():
+    return is_local_admin_profile_session() or local_admin_profile_needs_bootstrap()
 
-    username = str(form_payload.get("local_mysql_admin_user", "")).strip() or "localadmin"
-    password = str(form_payload.get("local_mysql_admin_password", "") or "")
-    confirm_password = str(form_payload.get("confirm_local_mysql_admin_password", "") or "")
-    root_password = str(form_payload.get("local_mysql_root_password", "") or "")
-    requested = bool(password or confirm_password or root_password or username != "localadmin" or local_admin_profile_needs_bootstrap())
 
-    if not requested:
+UPDATE_LOCAL_ADMIN_RESET_FIELDS = {
+    "reset_local_mysql_admin_password",
+    "confirm_reset_local_mysql_admin_password",
+    "confirm_local_mysql_admin_reset",
+}
+
+
+def normalize_update_local_admin_password_reset(form_payload, require_password=False):
+    form_has_reset_fields = any(field_name in form_payload for field_name in UPDATE_LOCAL_ADMIN_RESET_FIELDS)
+    if require_password and not form_has_reset_fields:
         return {}
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}", username):
-        raise ValueError("Local MySQL admin username must start with a letter, digit, or underscore and contain only letters, digits, underscore, dot, or dash.")
+    password = str(form_payload.get("reset_local_mysql_admin_password", "") or "")
+    confirm_password = str(form_payload.get("confirm_reset_local_mysql_admin_password", "") or "")
+    acknowledged = str(form_payload.get("confirm_local_mysql_admin_reset", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if not password and not confirm_password:
+        if require_password:
+            raise ValueError("Enter and confirm the temporary localadmin password for first-time Auto-Update bootstrap.")
+        return {}
     if not password:
-        raise ValueError("Enter a temporary password for the local admin profile bootstrap.")
+        raise ValueError("Enter the new localadmin password.")
+    if not confirm_password:
+        raise ValueError("Confirm the new localadmin password.")
     if password != confirm_password:
-        raise ValueError("Local admin bootstrap password confirmation does not match.")
-    result = {
+        raise ValueError("Localadmin password confirmation does not match.")
+    if not acknowledged:
+        raise ValueError("Confirm that Auto-Update should reset the localadmin MySQL password.")
+
+    profile = get_session_profile() if is_local_admin_profile_session() else {}
+    username = str(profile.get("username") or "localadmin").strip() or "localadmin"
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}", username):
+        raise ValueError("Localadmin MySQL username in the current profile is not valid for setup.")
+    return {
         "LOCAL_MYSQL_ADMIN_USER": username,
         "LOCAL_MYSQL_ADMIN_PASSWORD": password,
         "LOCAL_MYSQL_PROFILE_NAME": LOCAL_ADMIN_PROFILE_NAME,
     }
-    if root_password:
-        result["LOCAL_MYSQL_ROOT_PASSWORD"] = root_password
-    return result
 
 
-def start_dbconsole_update_job(local_admin_bootstrap=None):
+def start_dbconsole_update_job(local_admin_password_reset=None):
     current_status = get_dbconsole_update_status()
     if not current_status.get("can_start"):
         raise ValueError("A DBConsole update is already in progress.")
@@ -618,14 +626,14 @@ def start_dbconsole_update_job(local_admin_bootstrap=None):
 
     worker_env = os.environ.copy()
     worker_env["PYTHONUNBUFFERED"] = "1"
-    local_admin_bootstrap = dict(local_admin_bootstrap or {})
-    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_ROOT_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
-        value = str(local_admin_bootstrap.get(key, "") or "")
+    local_admin_password_reset = dict(local_admin_password_reset or {})
+    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
+        value = str(local_admin_password_reset.get(key, "") or "")
         if value:
             worker_env[key] = value
-    if local_admin_bootstrap:
+    if local_admin_password_reset:
         _append_dbconsole_update_log(
-            "Local admin profile bootstrap credentials were supplied for this update. The password is not logged or saved."
+            "Localadmin password reset was requested for this update. The password is not logged or saved."
         )
     worker = subprocess.Popen(
         [
@@ -823,6 +831,8 @@ def refresh_repo_version_check():
 
 
 def should_show_update_page_after_login(version_check):
+    if not can_access_update_page():
+        return False
     if version_check.get("update_available"):
         return True
     return bool(version_check.get("error"))
@@ -950,9 +960,16 @@ def clear_local_admin_password_change_required():
 def nav_groups_for_current_session():
     if is_local_admin_profile_session():
         return NAV_GROUPS
+    can_bootstrap_update = local_admin_profile_needs_bootstrap()
     filtered_groups = []
     for group in NAV_GROUPS:
-        filtered_items = [item for item in group["items"] if item["endpoint"] != "profile_page"]
+        filtered_items = []
+        for item in group["items"]:
+            if item["endpoint"] == "profile_page":
+                continue
+            if item["endpoint"] == "update_dbconsole_page" and not can_bootstrap_update:
+                continue
+            filtered_items.append(item)
         filtered_groups.append({**group, "items": filtered_items})
     return filtered_groups
 
@@ -7166,6 +7183,7 @@ def render_dashboard(template_name, **context):
         nav_groups=nav_groups_for_current_session(),
         current_endpoint=request.endpoint or "",
         session_profile=profile,
+        can_use_auto_update=can_access_update_page(),
         setup_status=fetch_setup_status(),
         server_overview=overview,
         app_version=get_local_app_version(),
@@ -7205,15 +7223,29 @@ def login():
                     return redirect(url_for("local_admin_password_page"))
                 version_check = refresh_repo_version_check()
                 if version_check.get("update_available"):
-                    flash(
-                        f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
-                        "success",
-                    )
+                    if is_local_admin_profile_session():
+                        flash(
+                            f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
+                            "success",
+                        )
+                    elif local_admin_profile_needs_bootstrap():
+                        flash(
+                            "DBConsole update available. Use Auto-Update to complete first-time local-admin-profile bootstrap with a temporary localadmin password.",
+                            "success",
+                        )
+                    else:
+                        flash(
+                            "DBConsole update available. Sign in with local-admin-profile to run Auto-Update.",
+                            "success",
+                        )
                 elif version_check.get("error"):
-                    flash(
-                        "Repository version check could not complete. Review the Auto-Update page for details.",
-                        "error",
-                    )
+                    if is_local_admin_profile_session():
+                        flash(
+                            "Repository version check could not complete. Review the Auto-Update page for details.",
+                            "error",
+                        )
+                    else:
+                        flash("Repository version check could not complete.", "error")
                 if should_show_update_page_after_login(version_check):
                     return redirect(url_for("update_dbconsole_page"))
                 return redirect(url_for("mysql_dashboard_page"))
@@ -7415,15 +7447,21 @@ def admin_status_variables_page():
 @app.route("/admin/update-dbconsole", methods=["GET", "POST"])
 @session_login_required
 def update_dbconsole_page():
-    update_start_allowed = is_local_admin_profile_session() or local_admin_profile_needs_bootstrap()
+    bootstrap_required = local_admin_profile_needs_bootstrap()
+    update_start_allowed = is_local_admin_profile_session() or bootstrap_required
+    if not update_start_allowed:
+        abort(403)
     if request.method == "POST":
         action = str(request.form.get("update_action", "")).strip().lower()
         if action == "start":
             if not update_start_allowed:
                 abort(403)
             try:
-                local_admin_bootstrap = normalize_update_local_admin_bootstrap(request.form)
-                start_dbconsole_update_job(local_admin_bootstrap=local_admin_bootstrap)
+                local_admin_password_reset = normalize_update_local_admin_password_reset(
+                    request.form,
+                    require_password=bootstrap_required,
+                )
+                start_dbconsole_update_job(local_admin_password_reset=local_admin_password_reset)
                 flash("Auto-update started.", "success")
             except Exception as error:
                 flash(str(error), "error")
@@ -7446,9 +7484,11 @@ def update_dbconsole_page():
         update_status=_public_dbconsole_update_status(get_dbconsole_update_status()),
         update_poll_token=_ensure_dbconsole_update_poll_token(),
         local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-        local_admin_bootstrap_required=local_admin_profile_needs_bootstrap(),
+        local_admin_mysql_user=str(
+            (get_session_profile().get("username") if is_local_admin_profile_session() else "") or "localadmin"
+        ),
+        bootstrap_required=bootstrap_required,
         update_start_allowed=update_start_allowed,
-        default_local_admin_user="localadmin",
         app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
         or {
             "local_version": get_local_app_version(),

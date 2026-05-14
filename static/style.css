@@ -2084,6 +2084,16 @@ h4 {
   white-space: nowrap;
 }
 
+.update-bootstrap-grid .checkbox-field {
+  align-items: flex-start;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.update-bootstrap-grid .checkbox-field input[type="checkbox"] {
+  margin-top: 2px;
+}
+
 input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {

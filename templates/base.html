@@ -51,7 +51,9 @@
               </div>
             </dl>
             <div class="user-menu-actions">
+              {% if can_use_auto_update %}
               <a class="button secondary" href="{{ url_for('update_dbconsole_page') }}">Update</a>
+              {% endif %}
               <form method="post" action="{{ url_for('logout') }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button class="button secondary" type="submit">Logout</button>

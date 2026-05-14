@@ -25,57 +25,57 @@
   <form method="post" class="update-bootstrap-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="update_action" value="start">
+    <p class="helper-text">
+      {% if bootstrap_required %}
+      First-time bootstrap is available because <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Enter and confirm a temporary <code>{{ local_admin_mysql_user }}</code> password to create or reset only that local MySQL account during setup.
+      {% elif update_start_allowed %}
+      Auto-Update runs from an authenticated <code>{{ local_admin_profile_name }}</code> session.
+      {% else %}
+      Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update. Version retrieval and status viewing remain available for authenticated sessions.
+      {% endif %}
+    </p>
+    <div class="flash error">
+      {% if bootstrap_required %}
+      Required first-time bootstrap: this reset creates or repairs <code>{{ local_admin_mysql_user }}@localhost</code> only. DBConsole does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>. After the update, sign in with <code>{{ local_admin_profile_name }}</code>, username <code>{{ local_admin_mysql_user }}</code>, and this temporary password; DBConsole will require an immediate password change.
+      {% else %}
+      Optional localadmin reset: entering a new password below resets the MySQL account <code>{{ local_admin_mysql_user }}</code> during setup. Leave both password fields blank to keep the current localadmin password. No MySQL <code>root</code> user is created or reset.
+      {% endif %}
+    </div>
     <div class="form-grid update-bootstrap-grid">
       <label>
-        Local Admin Username
+        Local Admin Account
         <input
           type="text"
-          name="local_mysql_admin_user"
-          value="{{ default_local_admin_user }}"
+          value="{{ local_admin_mysql_user }}"
+          readonly
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
-          {% if local_admin_bootstrap_required %}required{% endif %}
         >
       </label>
       <label>
-        Temporary Local Admin Password
+        New Localadmin Password
         <input
           type="password"
-          name="local_mysql_admin_password"
+          name="reset_local_mysql_admin_password"
           autocomplete="new-password"
-          {% if local_admin_bootstrap_required %}required{% endif %}
+          {% if bootstrap_required %}required{% endif %}
         >
       </label>
       <label>
-        Confirm Temporary Password
+        Confirm New Password
         <input
           type="password"
-          name="confirm_local_mysql_admin_password"
+          name="confirm_reset_local_mysql_admin_password"
           autocomplete="new-password"
-          {% if local_admin_bootstrap_required %}required{% endif %}
+          {% if bootstrap_required %}required{% endif %}
         >
       </label>
-      <label>
-        Existing MySQL Root Password
-        <input
-          type="password"
-          name="local_mysql_root_password"
-          autocomplete="current-password"
-        >
+      <label class="checkbox-field">
+        <input type="checkbox" name="confirm_local_mysql_admin_reset" value="yes" {% if bootstrap_required %}required{% endif %}>
+        Confirm reset of the localadmin MySQL password
       </label>
     </div>
-    <p class="helper-text">
-      {% if local_admin_bootstrap_required %}
-      <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Auto-update requires a one-time temporary password to install the local MySQL admin account and create the socket-only profile. If this host already has a MySQL root password, enter it here for this run only. After update, sign in with this profile and DBConsole will require a password change, then log out.
-      {% else %}
-      {% if update_start_allowed %}
-      Leave the password fields blank unless you want setup to repair or refresh <code>{{ local_admin_profile_name }}</code>. Supplied admin and root passwords are passed only to this update worker and are not saved.
-      {% else %}
-      Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update after the local admin profile has been created. Version retrieval and status viewing remain available for authenticated sessions.
-      {% endif %}
-      {% endif %}
-    </p>
     <div class="form-actions">
       <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start or not update_start_allowed %}disabled{% endif %}>Auto-Update</button>
     </div>
