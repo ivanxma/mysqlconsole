@@ -56,13 +56,21 @@
           {% if local_admin_bootstrap_required %}required{% endif %}
         >
       </label>
+      <label>
+        Existing MySQL Root Password
+        <input
+          type="password"
+          name="local_mysql_root_password"
+          autocomplete="current-password"
+        >
+      </label>
     </div>
     <p class="helper-text">
       {% if local_admin_bootstrap_required %}
-      <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Auto-update requires a one-time temporary password to install the local MySQL admin account and create the socket-only profile. After update, sign in with this profile and DBConsole will require a password change, then log out.
+      <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Auto-update requires a one-time temporary password to install the local MySQL admin account and create the socket-only profile. If this host already has a MySQL root password, enter it here for this run only. After update, sign in with this profile and DBConsole will require a password change, then log out.
       {% else %}
       {% if update_start_allowed %}
-      Leave the password fields blank unless you want setup to repair or refresh <code>{{ local_admin_profile_name }}</code>. Supplied passwords are passed only to this update worker and are not saved.
+      Leave the password fields blank unless you want setup to repair or refresh <code>{{ local_admin_profile_name }}</code>. Supplied admin and root passwords are passed only to this update worker and are not saved.
       {% else %}
       Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update after the local admin profile has been created. Version retrieval and status viewing remain available for authenticated sessions.
       {% endif %}

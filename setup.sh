@@ -184,6 +184,7 @@ MYSQL_SERVER_MACOS_PACKAGE_TAG="${MYSQL_SERVER_MACOS_PACKAGE_TAG:-macos15}"
 LOCAL_MYSQL_PROFILE_NAME_INPUT="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
 LOCAL_MYSQL_ADMIN_USER_INPUT="${LOCAL_MYSQL_ADMIN_USER:-}"
 LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_ROOT_PASSWORD_INPUT="${LOCAL_MYSQL_ROOT_PASSWORD:-}"
 LOCAL_MYSQL_PORT_INPUT="${LOCAL_MYSQL_PORT:-3306}"
 LOCAL_MYSQL_SOCKET_INPUT="${LOCAL_MYSQL_SOCKET:-}"
 LOCAL_MYSQL_DATABASE_INPUT="${LOCAL_MYSQL_DATABASE:-mysql}"
@@ -218,10 +219,10 @@ Environment overrides:
   MYSQL_SHELL_EMBEDDED_PACKAGE, MYSQL_SHELL_MACOS_PACKAGE_TAG,
   MYSQL_SERVER_VERSION, MYSQL_SERVER_EMBEDDED_URL,
   MYSQL_SERVER_EMBEDDED_PACKAGE, MYSQL_SERVER_MACOS_PACKAGE_TAG,
-  LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD, LOCAL_MYSQL_PROFILE_NAME,
-  LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE, DBCONSOLE_DEPENDENCY_AUDIT,
-  DBCONSOLE_DEPENDENCY_AUDIT_STRICT, DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL,
-  DBCONSOLE_UPDATE_ALLOWED_BRANCH
+  LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD, LOCAL_MYSQL_ROOT_PASSWORD,
+  LOCAL_MYSQL_PROFILE_NAME, LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE,
+  DBCONSOLE_DEPENDENCY_AUDIT, DBCONSOLE_DEPENDENCY_AUDIT_STRICT,
+  DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL, DBCONSOLE_UPDATE_ALLOWED_BRANCH
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -324,6 +325,15 @@ parse_args() {
         fi
         echo "Warning: --local-mysql-admin-password can expose the password in shell history and process listings. Prefer LOCAL_MYSQL_ADMIN_PASSWORD or the interactive prompt." >&2
         LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="$2"
+        shift 2
+        ;;
+      --local-mysql-root-password)
+        if [[ $# -lt 2 ]]; then
+          echo "--local-mysql-root-password requires a password value." >&2
+          return 1
+        fi
+        echo "Warning: --local-mysql-root-password can expose the password in shell history and process listings. Prefer LOCAL_MYSQL_ROOT_PASSWORD." >&2
+        LOCAL_MYSQL_ROOT_PASSWORD_INPUT="$2"
         shift 2
         ;;
       --local-mysql-profile-name)
@@ -2267,15 +2277,18 @@ read_temporary_mysql_root_password() {
 write_local_admin_sql() {
   local sql_file="$1"
   local include_root_reset="$2"
+  local root_password_value="${3:-$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT}"
   local admin_user_literal
   local admin_password_literal
+  local root_password_literal
 
   admin_user_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_USER_INPUT")"
   admin_password_literal="$(sql_quote_literal "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT")"
+  root_password_literal="$(sql_quote_literal "$root_password_value")"
 
   {
     if [[ "$include_root_reset" == "yes" ]]; then
-      printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "'root'" "'localhost'" "$admin_password_literal"
+      printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "'root'" "'localhost'" "$root_password_literal"
     fi
     printf 'CREATE USER IF NOT EXISTS %s@%s IDENTIFIED BY %s;\n' "$admin_user_literal" "'localhost'" "$admin_password_literal"
     printf 'ALTER USER %s@%s IDENTIFIED BY %s;\n' "$admin_user_literal" "'localhost'" "$admin_password_literal"
@@ -2291,6 +2304,7 @@ configure_local_mysql_admin_account() {
   local root_defaults
   local sql_file
   local root_sql_file
+  local existing_root_sql_file
   local temporary_root_password
 
   if ! local_mysql_bootstrap_requested; then
@@ -2306,20 +2320,52 @@ configure_local_mysql_admin_account() {
   root_defaults="$(mktemp)"
   sql_file="$(mktemp)"
   root_sql_file="$(mktemp)"
+  existing_root_sql_file="$(mktemp)"
 
   write_mysql_defaults_file "$admin_defaults" "$LOCAL_MYSQL_ADMIN_USER_INPUT" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
   write_local_admin_sql "$sql_file" "no"
 
   if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
     echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' refreshed."
-    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
     return 0
   fi
 
   if run_mysql_socket_root_file "$mysql_bin" "$sql_file" >/dev/null 2>&1; then
     echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with socket-root access."
-    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
     return 0
+  fi
+
+  if [[ -n "$LOCAL_MYSQL_ROOT_PASSWORD_INPUT" ]]; then
+    write_mysql_defaults_file "$root_defaults" "root" "$LOCAL_MYSQL_ROOT_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+    if run_mysql_file "$mysql_bin" "$root_defaults" "$sql_file" --connect-expired-password >/dev/null 2>&1; then
+      echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with supplied root credentials."
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+      return 0
+    fi
+    write_local_admin_sql "$existing_root_sql_file" "yes" "$LOCAL_MYSQL_ROOT_PASSWORD_INPUT"
+    if run_mysql_file "$mysql_bin" "$root_defaults" "$existing_root_sql_file" --connect-expired-password >/dev/null 2>&1; then
+      echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with supplied root credentials."
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+      return 0
+    fi
+  fi
+
+  if [[ -z "$LOCAL_MYSQL_ROOT_PASSWORD_INPUT" && -n "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" ]]; then
+    write_mysql_defaults_file "$root_defaults" "root" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" "socket" "$LOCAL_MYSQL_SOCKET_INPUT"
+    if run_mysql_file "$mysql_bin" "$root_defaults" "$sql_file" --connect-expired-password >/dev/null 2>&1; then
+      echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with supplied admin password as root credentials."
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+      return 0
+    fi
+    write_local_admin_sql "$existing_root_sql_file" "yes" "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT"
+    if run_mysql_file "$mysql_bin" "$root_defaults" "$existing_root_sql_file" --connect-expired-password >/dev/null 2>&1; then
+      echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured with supplied admin password as root credentials."
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+      return 0
+    fi
+    : >"$root_defaults"
   fi
 
   temporary_root_password="$(read_temporary_mysql_root_password)"
@@ -2328,13 +2374,13 @@ configure_local_mysql_admin_account() {
     write_local_admin_sql "$root_sql_file" "yes"
     if run_mysql_file "$mysql_bin" "$root_defaults" "$root_sql_file" --connect-expired-password >/dev/null 2>&1; then
       echo "Local MySQL root password was initialized and admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' was configured."
-      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
+      rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
       return 0
     fi
   fi
 
-  rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file"
-  echo "Unable to configure the local MySQL admin account automatically. If MySQL already has a root password, create '$LOCAL_MYSQL_ADMIN_USER_INPUT' manually or rerun setup with matching LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD." >&2
+  rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+  echo "Unable to configure the local MySQL admin account automatically. If MySQL already has a root password, rerun setup with LOCAL_MYSQL_ROOT_PASSWORD plus LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD, or create '$LOCAL_MYSQL_ADMIN_USER_INPUT' manually." >&2
   return 1
 }
 

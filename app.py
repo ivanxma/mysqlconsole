@@ -560,6 +560,7 @@ def normalize_update_local_admin_bootstrap(form_payload):
         "local_mysql_admin_user",
         "local_mysql_admin_password",
         "confirm_local_mysql_admin_password",
+        "local_mysql_root_password",
     }
     if not any(field_name in form_payload for field_name in bootstrap_field_names):
         return {}
@@ -567,7 +568,8 @@ def normalize_update_local_admin_bootstrap(form_payload):
     username = str(form_payload.get("local_mysql_admin_user", "")).strip() or "localadmin"
     password = str(form_payload.get("local_mysql_admin_password", "") or "")
     confirm_password = str(form_payload.get("confirm_local_mysql_admin_password", "") or "")
-    requested = bool(password or confirm_password or username != "localadmin" or local_admin_profile_needs_bootstrap())
+    root_password = str(form_payload.get("local_mysql_root_password", "") or "")
+    requested = bool(password or confirm_password or root_password or username != "localadmin" or local_admin_profile_needs_bootstrap())
 
     if not requested:
         return {}
@@ -577,11 +579,14 @@ def normalize_update_local_admin_bootstrap(form_payload):
         raise ValueError("Enter a temporary password for the local admin profile bootstrap.")
     if password != confirm_password:
         raise ValueError("Local admin bootstrap password confirmation does not match.")
-    return {
+    result = {
         "LOCAL_MYSQL_ADMIN_USER": username,
         "LOCAL_MYSQL_ADMIN_PASSWORD": password,
         "LOCAL_MYSQL_PROFILE_NAME": LOCAL_ADMIN_PROFILE_NAME,
     }
+    if root_password:
+        result["LOCAL_MYSQL_ROOT_PASSWORD"] = root_password
+    return result
 
 
 def start_dbconsole_update_job(local_admin_bootstrap=None):
@@ -614,7 +619,7 @@ def start_dbconsole_update_job(local_admin_bootstrap=None):
     worker_env = os.environ.copy()
     worker_env["PYTHONUNBUFFERED"] = "1"
     local_admin_bootstrap = dict(local_admin_bootstrap or {})
-    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
+    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_ROOT_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
         value = str(local_admin_bootstrap.get(key, "") or "")
         if value:
             worker_env[key] = value

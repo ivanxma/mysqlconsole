@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3a</span>
+      <span class="badge">Release 1.0.3b</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3a</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3b</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3b Summary</h2>
+      <p>
+        Version <code>1.0.3b</code> improves local MySQL bootstrap recovery for hosts where MySQL Server is
+        already installed and <code>root@localhost</code> has an existing password.
+      </p>
+      <ul>
+        <li>Added transient <code>LOCAL_MYSQL_ROOT_PASSWORD</code> support for setup and Auto-Update runs that need to create or repair <code>local-admin-profile</code> on an already-initialized MySQL server.</li>
+        <li>Added an optional Auto-Update root password field for one-time bootstrap repair; supplied root credentials are passed only to the update worker environment and are not written to runtime files, update status, or logs.</li>
+        <li>Updated setup recovery order to try the requested local admin account, socket-root authentication, supplied root credentials, supplied admin password as root credentials for compatibility, and then the MySQL temporary root password log.</li>
+        <li>Updated deployment documentation to explain when <code>LOCAL_MYSQL_ROOT_PASSWORD</code> is needed.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3a Summary</h2>

@@ -1,6 +1,15 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3a`.
+Version summary from `1.0.2a` to `1.0.3b`.
+
+## 1.0.3b Summary
+
+Version `1.0.3b` improves local MySQL bootstrap recovery for hosts where MySQL Server is already installed and `root@localhost` has an existing password.
+
+- Added transient `LOCAL_MYSQL_ROOT_PASSWORD` support for setup and Auto-Update runs that need to create or repair `local-admin-profile` on an already-initialized MySQL server.
+- Added an optional Auto-Update root password field for one-time bootstrap repair; supplied root credentials are passed only to the update worker environment and are not written to runtime files, update status, or logs.
+- Updated setup recovery order to try the requested local admin account, socket-root authentication, supplied root credentials, supplied admin password as root credentials for compatibility, and then the MySQL temporary root password log.
+- Updated deployment documentation to explain when `LOCAL_MYSQL_ROOT_PASSWORD` is needed.
 
 ## 1.0.3a Summary
 
