@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3k`.
+Version summary from `1.0.2a` to `1.0.3l`.
+
+## 1.0.3l Summary
+
+Version `1.0.3l` documents and validates the platform setup and OCI init-script behavior after the app-managed MySQL bootstrap change.
+
+- Added README validation status for Oracle Linux 9, Oracle Linux 8, Ubuntu, and macOS.
+- Recorded that OL9 was live-validated on OCI Compute with app-local MySQL, `localadmin@localhost` socket login, active HTTPS service, and HTTPS `200` response.
+- Clarified that OL8 and Ubuntu use the same shared app-managed MySQL bootstrap path with static validation, while macOS remains a local-hosting target outside the OCI Linux init script.
 
 ## 1.0.3k Summary
 

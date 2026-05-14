@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3k</span>
+      <span class="badge">Release 1.0.3l</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3k</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3l</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3l Summary</h2>
+      <p>
+        Version <code>1.0.3l</code> documents and validates the platform setup and OCI init-script behavior after the app-managed MySQL bootstrap change.
+      </p>
+      <ul>
+        <li>Added README validation status for Oracle Linux 9, Oracle Linux 8, Ubuntu, and macOS.</li>
+        <li>Recorded that OL9 was live-validated on OCI Compute with app-local MySQL, <code>localadmin@localhost</code> socket login, active HTTPS service, and HTTPS <code>200</code> response.</li>
+        <li>Clarified that OL8 and Ubuntu use the same shared app-managed MySQL bootstrap path with static validation, while macOS remains a local-hosting target outside the OCI Linux init script.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3k Summary</h2>

@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3k`
+Current version: `1.0.3l`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -280,6 +280,15 @@ curl -kI "https://$PUBLIC_IP/"
 ```
 
 macOS is supported by `setup.sh macos ...` for local development or local hosting, but it is not an OCI Compute Linux image target. Do not use `oci_compute_init.sh` for macOS.
+
+Platform validation for this deployment path:
+
+| Platform | Validation status |
+| --- | --- |
+| Oracle Linux 9 OCI Compute | Live first-boot repair and setup validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. |
+| Oracle Linux 8 | Static validation covers `setup.sh`, `oci_compute_init.sh`, the OL8 MySQL Shell installer, README init snippets, and shared app-managed MySQL bootstrap logic. Use the same `.data/run/mysql.sock` local-admin socket under the `opc` app directory. |
+| Ubuntu | Static validation covers `setup.sh`, `oci_compute_init.sh`, the Ubuntu MySQL Shell installer, README init snippets, and shared app-managed MySQL bootstrap logic. Use the same `.data/run/mysql.sock` local-admin socket under the `ubuntu` app directory. |
+| macOS | Static validation covers `setup.sh macos`, start/stop scripts, and the macOS MySQL Shell installer. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
