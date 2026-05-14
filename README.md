@@ -149,13 +149,21 @@ curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh 
 
 ### OCI Compute Quick Start
 
-Use the reusable `oci_compute_init.sh` for first-boot installs. The script clones the repository, runs `setup.sh`, records install state, and installs a login banner that shows setup progress, failure details, or service status.
+Use the reusable `oci_compute_init.sh` for first-boot installs on OCI Compute Linux images. The script installs prerequisites, clones the repository, runs `setup.sh`, records install state under `/var/lib/dbconsole-init`, writes `/var/log/dbconsole-init.log`, and installs a login banner that shows setup progress, failure details, or service status.
+
+OCI Compute platform choices:
+
+| Platform | OCI image family | Login user | `OS_FAMILY` | Local MySQL socket |
+| --- | --- | --- | --- | --- |
+| Oracle Linux 8 | Oracle Linux 8 | `opc` | `ol8` | `/var/lib/mysql/mysql.sock` |
+| Oracle Linux 9 | Oracle Linux 9 | `opc` | `ol9` | `/var/lib/mysql/mysql.sock` |
+| Ubuntu | Ubuntu 22.04 or 24.04 | `ubuntu` | `ubuntu` | `/var/run/mysqld/mysqld.sock` |
+| macOS | Not an OCI Compute Linux target | n/a | `macos` | n/a |
 
 Instance values to choose in OCI:
 
 - Compartment: `<compartment>`
-- Platform: `ol9` or `ubuntu`
-- Image: Oracle Linux 9 or Ubuntu
+- Image: Oracle Linux 8, Oracle Linux 9, or Ubuntu
 - Shape: `<shape>`
 - VCN/Subnet: `<vcn>` / `<subnet>`
 - Public IPv4: enabled when you want direct browser/SSH access
@@ -167,6 +175,7 @@ Open ingress only for the selected deploy mode:
 - SSH: TCP `22` from your admin CIDR
 - HTTPS: TCP `443` when deploy mode is `https` or `both`
 - HTTP: TCP `80` when deploy mode is `http` or `both`
+- Custom listener ports: open only the ports you set with `HTTP_PORT` or `HTTPS_PORT`
 
 In the OCI Console:
 
@@ -178,6 +187,29 @@ In the OCI Console:
 6. Replace `<replace-with-explicit-strong-password>` with the actual temporary password string for the first `local-admin-profile` login before you create the instance. Do not leave it blank, do not leave the placeholder text unchanged, and do not omit `LOCAL_MYSQL_ADMIN_PASSWORD`.
 7. Create the instance and wait for first boot to finish.
 8. SSH to the instance and check the login banner.
+
+Oracle Linux 8 images use the `opc` login user:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+dnf install -y curl
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh -o /tmp/oci_compute_init.sh
+chmod 0755 /tmp/oci_compute_init.sh
+
+APP_USER=opc \
+APP_GROUP=opc \
+APP_DIR=/home/opc/mysqlconsole \
+OS_FAMILY=ol8 \
+DEPLOY_MODE=https \
+HTTPS_PORT=443 \
+LOCAL_MYSQL_ADMIN_USER=localadmin \
+LOCAL_MYSQL_ADMIN_PASSWORD='<replace-with-explicit-strong-password>' \
+LOCAL_MYSQL_SOCKET=/var/lib/mysql/mysql.sock \
+LOCAL_MYSQL_RESET_UNKNOWN_ROOT=1 \
+SERVICE_NAME=dbconsole-https.service \
+bash /tmp/oci_compute_init.sh
+```
 
 Oracle Linux 9 images use the `opc` login user:
 
@@ -197,6 +229,7 @@ HTTPS_PORT=443 \
 LOCAL_MYSQL_ADMIN_USER=localadmin \
 LOCAL_MYSQL_ADMIN_PASSWORD='<replace-with-explicit-strong-password>' \
 LOCAL_MYSQL_SOCKET=/var/lib/mysql/mysql.sock \
+LOCAL_MYSQL_RESET_UNKNOWN_ROOT=1 \
 SERVICE_NAME=dbconsole-https.service \
 bash /tmp/oci_compute_init.sh
 ```
@@ -220,22 +253,34 @@ HTTPS_PORT=443 \
 LOCAL_MYSQL_ADMIN_USER=localadmin \
 LOCAL_MYSQL_ADMIN_PASSWORD='<replace-with-explicit-strong-password>' \
 LOCAL_MYSQL_SOCKET=/var/run/mysqld/mysqld.sock \
+LOCAL_MYSQL_RESET_UNKNOWN_ROOT=1 \
 SERVICE_NAME=dbconsole-https.service \
 bash /tmp/oci_compute_init.sh
 ```
 
-OCI verification:
+For HTTP only, set `DEPLOY_MODE=http`, `HTTP_PORT=80`, `HTTPS_PORT=`, and `SERVICE_NAME=dbconsole-http.service` in the wrapper. For both listeners, set `DEPLOY_MODE=both`, `HTTP_PORT=80`, `HTTPS_PORT=443`, and choose the service you want the banner to show. When you use a non-default listener port such as `8443`, set the matching `HTTPS_PORT` or `HTTP_PORT`, update `SERVICE_NAME` if needed, and open the same TCP port in the subnet security rules or NSG.
+
+Oracle Linux verification:
 
 ```bash
-ssh opc@<public-ip>              # Oracle Linux
-ssh ubuntu@<public-ip>           # Ubuntu
+ssh opc@<public-ip>
 sudo tail -n 120 /var/log/dbconsole-init.log
 sudo ls -l /var/lib/dbconsole-init
 systemctl --no-pager status dbconsole-https.service
 curl -kI https://<public-ip>/
 ```
 
-For HTTP only, set `DEPLOY_MODE=http`, `HTTP_PORT=80`, `HTTPS_PORT=`, and `SERVICE_NAME=dbconsole-http.service` in the wrapper. For both listeners, set `DEPLOY_MODE=both`, `HTTP_PORT=80`, `HTTPS_PORT=443`, and choose the service you want the banner to show.
+Ubuntu verification:
+
+```bash
+ssh ubuntu@<public-ip>
+sudo tail -n 120 /var/log/dbconsole-init.log
+sudo ls -l /var/lib/dbconsole-init
+systemctl --no-pager status dbconsole-https.service
+curl -kI https://<public-ip>/
+```
+
+macOS is supported by `setup.sh macos ...` for local development or local hosting, but it is not an OCI Compute Linux image target. Do not use `oci_compute_init.sh` for macOS.
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
