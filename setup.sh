@@ -724,6 +724,7 @@ resolve_python_command() {
 
 prepare_virtualenv() {
   local python_command="$1"
+  local os_family="$2"
   local existing_version=""
 
   if [[ -x "$VENV_DIR/bin/python" ]]; then
@@ -734,7 +735,16 @@ prepare_virtualenv() {
     fi
   fi
 
-  "$python_command" -m venv "$VENV_DIR"
+  if ! "$python_command" -m venv "$VENV_DIR"; then
+    echo "Virtual environment creation failed. Installing Python ${DBCONSOLE_PYTHON_MIN_VERSION} runtime support and retrying." >&2
+    rm -rf "$VENV_DIR"
+    install_python_runtime "$os_family" || return 1
+    if [[ ! -x "$python_command" ]]; then
+      python_command="$(resolve_python_command "$os_family")"
+    fi
+    "$python_command" -m venv "$VENV_DIR"
+  fi
+
   if ! python_meets_min_version "$VENV_DIR/bin/python"; then
     existing_version="$(python_version_for_command "$VENV_DIR/bin/python" 2>/dev/null || true)"
     echo "Virtual environment at $VENV_DIR uses Python ${existing_version:-unknown}, but Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ is required." >&2
@@ -2343,6 +2353,9 @@ initialize_app_managed_mysql_datadir() {
   log_file="$(local_mysql_error_log "$os_family")"
 
   mkdir -p "$datadir" "$(dirname "$LOCAL_MYSQL_SOCKET_INPUT")" "$(dirname "$log_file")" "$SCRIPT_DIR/.data/tmp"
+  if [[ "$os_family" == "ubuntu" && -d "$datadir" && -z "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    rmdir "$datadir"
+  fi
   rm -f "$log_file"
   echo "Initializing DBConsole-managed local MySQL datadir at $datadir."
   "$mysqld_bin" --defaults-file="$config_file" --initialize
@@ -2472,6 +2485,34 @@ write_local_mysql_socket_only_config() {
   chmod 600 "$config_path" 2>/dev/null || true
 }
 
+configure_ubuntu_mysqld_apparmor() {
+  local os_family="$1"
+  local apparmor_profile="/etc/apparmor.d/usr.sbin.mysqld"
+  local apparmor_local="/etc/apparmor.d/local/usr.sbin.mysqld"
+
+  if [[ "$os_family" != "ubuntu" ]] || ! local_mysql_bootstrap_requested; then
+    return 0
+  fi
+  if [[ ! -r "$apparmor_profile" ]] || ! command -v apparmor_parser >/dev/null 2>&1; then
+    return 0
+  fi
+  if skip_privileged_setup_enabled; then
+    log_skipped_privileged_step "Ubuntu AppArmor allowance for DBConsole local MySQL"
+    return 0
+  fi
+
+  run_as_root install -d -m 0755 "$(dirname "$apparmor_local")"
+  run_as_root touch "$apparmor_local"
+  append_root_file_once "$apparmor_local" "# DBConsole app-managed socket-only MySQL state"
+  append_root_file_once "$apparmor_local" "$SCRIPT_DIR/etc/my.cnf r,"
+  append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.data/ rw,"
+  append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.data/** rwk,"
+  run_as_root apparmor_parser -r "$apparmor_profile" || {
+    echo "Unable to reload the mysqld AppArmor profile. DBConsole local MySQL may not start until AppArmor is reloaded." >&2
+    return 1
+  }
+}
+
 install_local_mysql_server() {
   local os_family="$1"
 
@@ -2489,6 +2530,9 @@ install_local_mysql_server() {
       if ! command -v dnf >/dev/null 2>&1; then
         echo "dnf is required to install local MySQL Server on $os_family." >&2
         return 1
+      fi
+      if [[ "$os_family" == "ol8" ]]; then
+        run_as_root dnf -y module disable mysql >/dev/null 2>&1 || true
       fi
       run_as_root dnf install -y --refresh --best --allowerasing mysql-community-server mysql-community-client
       if command -v systemctl >/dev/null 2>&1; then
@@ -3113,12 +3157,13 @@ main() {
 
   python_command="$(resolve_python_command "$os_family")"
   DBCONSOLE_PYTHON_BIN="$python_command"
-  prepare_virtualenv "$python_command"
+  prepare_virtualenv "$python_command" "$os_family"
   run_dependency_audit
 
   run_mysqlsh_installer "$os_family"
   install_local_mysql_server "$os_family"
   write_local_mysql_socket_only_config "$os_family"
+  configure_ubuntu_mysqld_apparmor "$os_family"
   if local_mysql_bootstrap_requested; then
     restart_local_mysql_service "$os_family"
   fi

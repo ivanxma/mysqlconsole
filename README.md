@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3m`
+Current version: `1.0.3n`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -286,8 +286,8 @@ Platform validation for this deployment path:
 | Platform | Validation status |
 | --- | --- |
 | Oracle Linux 9 OCI Compute | Live first-boot repair and setup validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. |
-| Oracle Linux 8 | Static validation covers `setup.sh`, `oci_compute_init.sh`, the OL8 MySQL Shell installer, README init snippets, and shared app-managed MySQL bootstrap logic. Use the same `.data/run/mysql.sock` local-admin socket under the `opc` app directory. |
-| Ubuntu | Static validation covers `setup.sh`, `oci_compute_init.sh`, the Ubuntu MySQL Shell installer, README init snippets, and shared app-managed MySQL bootstrap logic. Use the same `.data/run/mysql.sock` local-admin socket under the `ubuntu` app directory. |
+| Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
+| Ubuntu | Live OCI Compute validation completed with Python 3.12 venv repair, refreshed MySQL APT repository signing key, DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. Setup writes a local AppArmor allowance for DBConsole's app-local MySQL config and `.data/` paths before initializing the socket-only local MySQL instance. |
 | macOS | Static validation covers `setup.sh macos`, start/stop scripts, and the macOS MySQL Shell installer. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
@@ -303,16 +303,19 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
 `setup.sh` will:
 
 - select or install Python 3.12 or newer, then create `.venv` from that interpreter; if an existing `.venv` was created with an older Python, setup rebuilds it before installing dependencies
+- on Ubuntu, retry virtualenv creation after installing the matching `python3.12-venv` support package when the interpreter exists but `ensurepip` is unavailable
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
   - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and ask DNF for the best available vendor `mysql-shell` package
-  - `ubuntu`: write a MySQL APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade the vendor `mysql-shell` package
+  - `ubuntu`: remove a stale MySQL APT source list if present, write the current MySQL signing key and APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade the vendor `mysql-shell` package
   - `macos`: refresh Homebrew metadata, install or upgrade `mysql-shell`, and fall back to the formula path if needed
   - all platforms discover the latest MySQL Shell version from the vendor download page and verify that `mysqlsh` meets that version; set `MYSQL_SHELL_MIN_VERSION` only when you intentionally need to pin a specific minimum
   - if the platform package manager leaves no usable `mysqlsh` at the required version, setup installs an app-local embedded MySQL Shell under `.embedded/mysql-shell` and writes `DBCONSOLE_MYSQLSH` to `.runtime.env`
   - Linux installers try the configured vendor package repository first; if the repository has not published the required MySQL Shell version yet, setup computes a MySQL vendor package URL from the discovered or pinned version, platform, and CPU architecture and installs that package
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install MySQL Server binaries, write app-local `etc/my.cnf`, initialize `.data/mysql` with `mysqld --initialize`, rename the initialized `root@localhost` account to the submitted `user@localhost`, set the submitted password, and create the first `local-admin-profile` entry in `profiles.json`; setup does not create application tables or default schemas on connected databases
+- on Ubuntu, add a local AppArmor allowance for the generated `etc/my.cnf` file and `.data/` tree before running the app-managed `mysqld --initialize`
+- on OL8, disable the platform MySQL module before installing Oracle MySQL community server and client packages
 - mark the generated `local-admin-profile` for first-login password rotation; DBConsole requires the password change before profile management and logs out after the change
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`

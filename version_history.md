@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3m`.
+Version summary from `1.0.2a` to `1.0.3n`.
+
+## 1.0.3n Summary
+
+Version `1.0.3n` fixes Ubuntu and Oracle Linux 8 OCI Compute first-boot setup for the app-managed local MySQL deployment path.
+
+- Ubuntu setup now retries virtualenv creation after installing the matching `python3.12-venv` package when Python 3.12 exists but `ensurepip` support is missing.
+- Ubuntu MySQL Shell setup now removes a stale MySQL APT source list before the first `apt-get update` and uses the current MySQL 2025 signing key before recreating the repository file.
+- Ubuntu app-managed local MySQL setup now writes a local AppArmor allowance for DBConsole's generated `etc/my.cnf` and `.data/` tree before running `mysqld --initialize`.
+- Oracle Linux 8 setup now disables the platform MySQL module before installing Oracle MySQL community server/client packages, avoiding DNF modular filtering.
+- Live OCI Compute validation completed on Ubuntu and OL8 with active `dbconsole-https.service`, app-local socket-only MySQL, `localadmin@localhost`, and HTTPS `200` responses.
 
 ## 1.0.3m Summary
 

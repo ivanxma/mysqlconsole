@@ -35,7 +35,7 @@ if [[ -z "$UBUNTU_RELEASE_CODENAME" ]]; then
   exit 1
 fi
 
-MYSQL_APT_KEY_URL="${MYSQL_APT_KEY_URL:-https://repo.mysql.com/RPM-GPG-KEY-mysql-2023}"
+MYSQL_APT_KEY_URL="${MYSQL_APT_KEY_URL:-https://repo.mysql.com/RPM-GPG-KEY-mysql-2025}"
 MYSQL_APT_KEYRING="${MYSQL_APT_KEYRING:-/etc/apt/keyrings/mysql.gpg}"
 MYSQL_APT_LIST="${MYSQL_APT_LIST:-/etc/apt/sources.list.d/mysql.list}"
 MYSQL_APT_REPO_URL="${MYSQL_APT_REPO_URL:-http://repo.mysql.com/apt/ubuntu/}"
@@ -51,6 +51,10 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+if [[ -f "$MYSQL_APT_LIST" ]]; then
+  run_root rm -f "$MYSQL_APT_LIST"
+fi
 
 run_root apt-get update
 run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg

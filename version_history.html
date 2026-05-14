@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3m</span>
+      <span class="badge">Release 1.0.3n</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3m</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3n</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3n Summary</h2>
+      <p>
+        Version <code>1.0.3n</code> fixes Ubuntu and Oracle Linux 8 OCI Compute first-boot setup for the app-managed local MySQL deployment path.
+      </p>
+      <ul>
+        <li>Ubuntu setup now retries virtualenv creation after installing the matching <code>python3.12-venv</code> package when Python 3.12 exists but <code>ensurepip</code> support is missing.</li>
+        <li>Ubuntu MySQL Shell setup now removes a stale MySQL APT source list before the first <code>apt-get update</code> and uses the current MySQL 2025 signing key before recreating the repository file.</li>
+        <li>Ubuntu app-managed local MySQL setup now writes a local AppArmor allowance for DBConsole's generated <code>etc/my.cnf</code> and <code>.data/</code> tree before running <code>mysqld --initialize</code>.</li>
+        <li>Oracle Linux 8 setup now disables the platform MySQL module before installing Oracle MySQL community server/client packages, avoiding DNF modular filtering.</li>
+        <li>Live OCI Compute validation completed on Ubuntu and OL8 with active <code>dbconsole-https.service</code>, app-local socket-only MySQL, <code>localadmin@localhost</code>, and HTTPS <code>200</code> responses.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3m Summary</h2>
