@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DBConsole Version History</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --accent: #b91c1c;
+      --code: #f1f5f9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+
+    header {
+      margin-bottom: 22px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      font-size: 17px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul {
+      margin: 8px 0 0 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    code {
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      margin-top: 10px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf1f7;
+      font-weight: 700;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin: 16px 0;
+    }
+
+    .meta {
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-block;
+      border: 1px solid #fecaca;
+      border-radius: 999px;
+      background: #fff1f2;
+      color: var(--accent);
+      font-weight: 700;
+      padding: 3px 10px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="badge">Release 1.0.3</span>
+      <h1>DBConsole Version History</h1>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3</code>.</p>
+    </header>
+
+    <section class="panel">
+      <h2>1.0.3 Summary</h2>
+      <p>
+        Version <code>1.0.3</code> focuses on deployment hardening, secured connection profile management,
+        local socket-only MySQL administration, and safer auto-update behavior for existing installations.
+      </p>
+      <ul>
+        <li>Added socket-only local MySQL provisioning for the bootstrap <code>local-admin-profile</code>.</li>
+        <li>Restricted profile management to authenticated sessions using <code>local-admin-profile</code>.</li>
+        <li>Added first-login local admin password rotation and logout after the password change.</li>
+        <li>Added SSH private key upload handling with app-owned storage and restrictive file permissions.</li>
+        <li>Hardened the login screen so it displays profile names only, without internal hosts, sockets, SSH keys, or jump-server details.</li>
+        <li>Added embedded MySQL Shell fallback when the platform package manager does not provide the required Innovation version.</li>
+        <li>Added macOS local MySQL server support through public Oracle tar installation under the application runtime directory.</li>
+        <li>Added explicit <code>start_mysql.sh</code> and <code>stop_mysql.sh</code> operations for local MySQL startup and shutdown.</li>
+        <li>Updated OCI Compute initialization to require an explicit local admin password and pass through embedded runtime settings.</li>
+        <li>Updated Auto-Update to preserve allowed local runtime files across git pulls that remove those files from source control.</li>
+        <li>Added Auto-Update bootstrap prompts for missing or non-socket <code>local-admin-profile</code>, including old-version compatibility where the first update refreshes code and the second update collects the temporary local admin password.</li>
+        <li>Expanded git ignore coverage for runtime, embedded, temporary, and security-sensitive local files.</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>Upgrade Behavior</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th>Behavior in 1.0.3</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Existing Auto-Update pages</td>
+            <td>Old pages can complete a code-refresh update first. After restart, the refreshed Auto-Update page prompts for <code>localadmin</code> and a temporary password when local admin bootstrap is still required.</td>
+          </tr>
+          <tr>
+            <td>Local admin profile</td>
+            <td><code>local-admin-profile</code> is created as a socket-only profile and marked for first-login password change.</td>
+          </tr>
+          <tr>
+            <td>Credential handling</td>
+            <td>Temporary local admin passwords are passed only to setup/update worker process environments and are not stored in profile files, runtime env files, update status, or logs.</td>
+          </tr>
+          <tr>
+            <td>Local runtime files</td>
+            <td>Generated runtime files such as profiles, object storage settings, uploaded SSH keys, TLS files, and embedded runtimes are ignored by git and preserved during safe update flows.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Operational Notes</h2>
+      <ul>
+        <li>For new OCI Compute deployments, set <code>LOCAL_MYSQL_ADMIN_PASSWORD</code> explicitly in the initialization script before creating the instance.</li>
+        <li>For existing deployments without <code>local-admin-profile</code>, run Auto-Update once to refresh code, then rerun Auto-Update from the refreshed page with the temporary local admin password.</li>
+        <li>After bootstrap, sign in with <code>local-admin-profile</code>, username <code>localadmin</code>, and the temporary password; DBConsole requires an immediate password change and then logs out.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
