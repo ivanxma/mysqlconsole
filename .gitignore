@@ -1,10 +1,64 @@
+# Python runtime and caches
 .venv/
+venv/
+env/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS/editor noise
 .DS_Store
+*.swp
+*.swo
+
+# DBConsole generated runtime state
 .runtime.env
+.runtime.env.*
 .flask_secret_key
+.embedded/
 profiles.json
 object_storage.json
 tls/
 profile_ssh_keys/
+
+# Credentials, keys, certificates, and security-sensitive local files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.jks
+*.keystore
+*secret*
+*token*
+*credential*
+id_rsa*
+id_ed25519*
+security_vulnerability_review*.html
+security_review*.html
+vulnerability_review*.html
+*_security_report.*
+*_vulnerability_report.*
+
+# Logs, temp files, local databases, and generated archives
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.sqlite
+*.sqlite3
+*.db
+*.tar
+*.tar.gz
+*.tgz
+*.zip

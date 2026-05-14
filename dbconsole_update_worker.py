@@ -22,6 +22,8 @@ ALLOWED_LOCAL_STATE_PATHS = {
     "profiles.json",
 }
 ALLOWED_LOCAL_STATE_PREFIXES = (
+    ".embedded/",
+    "profile_ssh_keys/",
     "tls/",
 )
 
@@ -257,6 +259,22 @@ class UpdateWorker:
         https_port = runtime_env.get("DEFAULT_HTTPS_PORT", "")
         ssl_cert_file = runtime_env.get("SSL_CERT_FILE", "")
         ssl_key_file = runtime_env.get("SSL_KEY_FILE", "")
+        passthrough_env_keys = (
+            "DBCONSOLE_MYSQLSH",
+            "LOCAL_MYSQL_AUTOSTART",
+            "LOCAL_MYSQL_SOCKET",
+            "LOCAL_MYSQL_SERVICE",
+            "LOCAL_MYSQL_BASEDIR",
+            "LOCAL_MYSQL_DATADIR",
+            "EMBEDDED_MYSQL_SHELL_DIR",
+            "EMBEDDED_MYSQL_SERVER_DIR",
+            "MYSQL_SERVER_VERSION",
+            "MYSQL_SERVER_DOWNLOAD_PAGE",
+            "MYSQL_SERVER_VENDOR_DOWNLOAD_BASE",
+            "MYSQL_SERVER_EMBEDDED_URL",
+            "MYSQL_SERVER_EMBEDDED_PACKAGE",
+            "MYSQL_SERVER_MACOS_PACKAGE_TAG",
+        )
 
         if host_value:
             setup_env["HOST"] = host_value
@@ -268,6 +286,10 @@ class UpdateWorker:
             setup_env["SSL_CERT_FILE"] = ssl_cert_file
         if ssl_key_file:
             setup_env["SSL_KEY_FILE"] = ssl_key_file
+        for key in passthrough_env_keys:
+            value = runtime_env.get(key, "")
+            if value:
+                setup_env[key] = value
 
         command = ["/bin/bash", str(self.repo_dir / "setup.sh"), os_family, deploy_mode]
         if http_port:

@@ -16,7 +16,18 @@ fi
 HOST="${HOST:-0.0.0.0}"
 DEFAULT_HTTPS_PORT="${DEFAULT_HTTPS_PORT:-443}"
 PORT="${PORT:-$DEFAULT_HTTPS_PORT}"
-export HOST PORT SSL_CERT_FILE SSL_KEY_FILE
+export HOST PORT SSL_CERT_FILE SSL_KEY_FILE DBCONSOLE_MYSQLSH
+
+ensure_local_mysql_started() {
+  if [[ "${LOCAL_MYSQL_AUTOSTART:-0}" != "1" ]]; then
+    return 0
+  fi
+  if [[ -n "${LOCAL_MYSQL_SOCKET:-}" && -S "$LOCAL_MYSQL_SOCKET" ]]; then
+    return 0
+  fi
+
+  "$SCRIPT_DIR/start_mysql.sh"
+}
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python runtime not found at $PYTHON_BIN. Run ./setup.sh first or set PYTHON_BIN." >&2
@@ -32,6 +43,8 @@ if [[ ! -f "$SSL_CERT_FILE" || ! -f "$SSL_KEY_FILE" ]]; then
   echo "TLS certificate or key file does not exist." >&2
   exit 1
 fi
+
+ensure_local_mysql_started
 
 cd "$SCRIPT_DIR"
 exec "$PYTHON_BIN" - <<'PY'
