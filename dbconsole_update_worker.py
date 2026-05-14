@@ -9,6 +9,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,7 @@ ALLOWED_LOCAL_STATE_PATHS = {
     ".runtime.env",
     "object_storage.json",
     "profiles.json",
+    "security_vulnerability_review.html",
 }
 ALLOWED_LOCAL_STATE_PREFIXES = (
     ".embedded/",
@@ -213,6 +215,76 @@ class UpdateWorker:
             for line in blocking_lines:
                 self.append_log(line)
             raise RuntimeError("Repository has local changes. Commit or stash them before running Update DBConsole.")
+
+    def path_is_tracked(self, path):
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", path],
+            cwd=str(self.repo_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
+    def preserve_allowed_local_state_for_pull(self):
+        status_lines = [
+            line
+            for line in self.run_capture(["git", "status", "--porcelain"], cwd=self.repo_dir).splitlines()
+            if line.strip()
+        ]
+        paths = []
+        for line in status_lines:
+            path = self.status_line_path(line)
+            if path in ALLOWED_LOCAL_STATE_PATHS and self.path_is_tracked(path):
+                paths.append(path)
+
+        if not paths:
+            return None
+
+        backup_dir = Path(tempfile.mkdtemp(prefix="dbconsole-update-local-state-"))
+        preserved = []
+        for path in sorted(set(paths)):
+            source = self.repo_dir / path
+            backup_path = backup_dir / path
+            if source.is_dir():
+                shutil.copytree(source, backup_path)
+                existed = True
+            elif source.exists():
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, backup_path)
+                existed = True
+            else:
+                existed = False
+
+            preserved.append({"path": path, "backup_path": backup_path, "existed": existed})
+            self.append_log(f"Preserving local DBConsole state before pull: {path}")
+            self.run_command(["git", "restore", "--staged", "--worktree", "--", path], cwd=self.repo_dir)
+
+        return {"backup_dir": backup_dir, "items": preserved}
+
+    def restore_allowed_local_state_after_pull(self, preserved_state):
+        if not preserved_state:
+            return
+
+        for item in preserved_state["items"]:
+            path = item["path"]
+            target = self.repo_dir / path
+            backup_path = item["backup_path"]
+            if not item["existed"]:
+                continue
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if backup_path.is_dir():
+                shutil.copytree(backup_path, target)
+            else:
+                shutil.copy2(backup_path, target)
+            self.append_log(f"Restored local DBConsole state after pull: {path}")
+
+        shutil.rmtree(preserved_state["backup_dir"], ignore_errors=True)
 
     @staticmethod
     def status_line_path(line):
@@ -419,7 +491,13 @@ class UpdateWorker:
 
         self.log_step("Pulling repository", "Fetching the latest repository changes.")
         self.run_command(["git", "fetch", "--all", "--prune"], cwd=self.repo_dir)
-        self.run_command(["git", "pull", "--ff-only"], cwd=self.repo_dir)
+        preserved_state = self.preserve_allowed_local_state_for_pull()
+        try:
+            self.run_command(["git", "pull", "--ff-only"], cwd=self.repo_dir)
+        except Exception:
+            self.restore_allowed_local_state_after_pull(preserved_state)
+            raise
+        self.restore_allowed_local_state_after_pull(preserved_state)
 
         full_completion_message = "Repository refresh, setup, and service restart completed."
         limited_completion_message = (
