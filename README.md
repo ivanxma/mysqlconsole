@@ -4,7 +4,7 @@
 
 Current version: `1.0.3`
 
-Version history: `version_history.html`
+Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
 It provides:
 
