@@ -1550,6 +1550,7 @@ prompt_for_default_local_mysql_bootstrap() {
   if ! is_interactive_terminal; then
     if [[ "$profile_needs_patch" == "yes" && ! local_mysql_bootstrap_requested ]]; then
       echo "local-admin-profile is missing or not socket-only. Set LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD to let setup patch it non-interactively." >&2
+      echo "If this is running from an older DBConsole Auto-Update page, complete this update first, wait for DBConsole to restart, then open the refreshed Auto-Update page and enter the local admin username and temporary password there." >&2
     fi
     return 0
   fi

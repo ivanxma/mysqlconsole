@@ -546,6 +546,14 @@ def local_admin_profile_needs_bootstrap():
 
 
 def normalize_update_local_admin_bootstrap(form_payload):
+    bootstrap_field_names = {
+        "local_mysql_admin_user",
+        "local_mysql_admin_password",
+        "confirm_local_mysql_admin_password",
+    }
+    if not any(field_name in form_payload for field_name in bootstrap_field_names):
+        return {}
+
     username = str(form_payload.get("local_mysql_admin_user", "")).strip() or "localadmin"
     password = str(form_payload.get("local_mysql_admin_password", "") or "")
     confirm_password = str(form_payload.get("confirm_local_mysql_admin_password", "") or "")
