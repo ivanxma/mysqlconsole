@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3h`.
+Version summary from `1.0.2a` to `1.0.3i`.
+
+## 1.0.3i Summary
+
+Version `1.0.3i` applies the dependency security fixes from the latest vulnerability report.
+
+- Raised the Paramiko dependency range to the fixed 5.x release line for SSH tunnel handling.
+- Updated setup-created and auto-updated virtual environments to refresh `setuptools` with `pip` and `wheel`.
+- Keeps dependency audit automation in the deployment path so future setup and auto-update runs continue to report package vulnerabilities.
 
 ## 1.0.3h Summary
 

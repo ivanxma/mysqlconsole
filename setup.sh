@@ -735,7 +735,7 @@ prepare_virtualenv() {
     return 1
   fi
 
-  "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel setuptools
   "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 }
 
