@@ -185,6 +185,7 @@ LOCAL_MYSQL_PROFILE_NAME_INPUT="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}
 LOCAL_MYSQL_ADMIN_USER_INPUT="${LOCAL_MYSQL_ADMIN_USER:-}"
 LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
 LOCAL_MYSQL_ROOT_PASSWORD_INPUT="${LOCAL_MYSQL_ROOT_PASSWORD:-}"
+LOCAL_MYSQL_RESET_UNKNOWN_ROOT="${LOCAL_MYSQL_RESET_UNKNOWN_ROOT:-1}"
 LOCAL_MYSQL_PORT_INPUT="${LOCAL_MYSQL_PORT:-3306}"
 LOCAL_MYSQL_SOCKET_INPUT="${LOCAL_MYSQL_SOCKET:-}"
 LOCAL_MYSQL_DATABASE_INPUT="${LOCAL_MYSQL_DATABASE:-mysql}"
@@ -221,8 +222,9 @@ Environment overrides:
   MYSQL_SERVER_EMBEDDED_PACKAGE, MYSQL_SERVER_MACOS_PACKAGE_TAG,
   LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD, LOCAL_MYSQL_ROOT_PASSWORD,
   LOCAL_MYSQL_PROFILE_NAME, LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE,
-  DBCONSOLE_DEPENDENCY_AUDIT, DBCONSOLE_DEPENDENCY_AUDIT_STRICT,
-  DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL, DBCONSOLE_UPDATE_ALLOWED_BRANCH
+  LOCAL_MYSQL_RESET_UNKNOWN_ROOT, DBCONSOLE_DEPENDENCY_AUDIT,
+  DBCONSOLE_DEPENDENCY_AUDIT_STRICT, DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL,
+  DBCONSOLE_UPDATE_ALLOWED_BRANCH
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -524,6 +526,10 @@ dependency_audit_enabled() {
 
 dependency_audit_strict_enabled() {
   truthy_value "$DBCONSOLE_DEPENDENCY_AUDIT_STRICT"
+}
+
+local_mysql_reset_unknown_root_enabled() {
+  truthy_value "$LOCAL_MYSQL_RESET_UNKNOWN_ROOT"
 }
 
 current_update_remote_url() {
@@ -2298,6 +2304,25 @@ read_temporary_mysql_root_password() {
   fi
 }
 
+generate_unknown_mysql_root_password() {
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    "$VENV_DIR/bin/python" - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_letters + string.digits
+suffix = "".join(secrets.choice(alphabet) for _ in range(40))
+print(f"DBConsole-Root-9!{suffix}")
+PY
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    printf 'DBConsole-Root-9!%s\n' "$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40)"
+    return 0
+  fi
+  return 1
+}
+
 write_local_admin_sql() {
   local sql_file="$1"
   local include_root_reset="$2"
@@ -2322,7 +2347,92 @@ write_local_admin_sql() {
   chmod 600 "$sql_file"
 }
 
+reset_unknown_local_mysql_root_with_init_file() {
+  local os_family="$1"
+  local mysql_bin="$2"
+  local admin_defaults="$3"
+  local sql_file="$4"
+  local service_name
+  local init_sql_file
+  local init_config_file
+  local root_reset_sql_file
+  local generated_root_password
+  local attempt
+  local mysql_user="mysql"
+
+  if ! local_mysql_reset_unknown_root_enabled; then
+    return 1
+  fi
+  if skip_privileged_setup_enabled; then
+    return 1
+  fi
+
+  case "$os_family" in
+    ol8|ol9)
+      init_config_file="/etc/my.cnf.d/dbconsole-local-init.cnf"
+      init_sql_file="/var/lib/mysql/dbconsole-local-init.sql"
+      ;;
+    ubuntu)
+      init_config_file="/etc/mysql/conf.d/dbconsole-local-init.cnf"
+      init_sql_file="/var/lib/mysql/dbconsole-local-init.sql"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  generated_root_password="$(generate_unknown_mysql_root_password)" || return 1
+  root_reset_sql_file="$(mktemp)"
+  write_local_admin_sql "$root_reset_sql_file" "yes" "$generated_root_password"
+  service_name="$(local_mysql_service_name "$os_family")"
+
+  echo "Attempting one-time local MySQL root recovery to create '$LOCAL_MYSQL_ADMIN_USER_INPUT'."
+  if ! run_as_root cp "$root_reset_sql_file" "$init_sql_file"; then
+    rm -f "$root_reset_sql_file"
+    return 1
+  fi
+  run_as_root chown "$mysql_user:$mysql_user" "$init_sql_file" 2>/dev/null || true
+  run_as_root chmod 600 "$init_sql_file" || true
+
+  {
+    echo "[mysqld]"
+    echo "init-file=$init_sql_file"
+  } | write_root_file "$init_config_file"
+  run_as_root chmod 600 "$init_config_file" || true
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root systemctl restart "$service_name" || true
+  else
+    run_as_root service "$service_name" restart || true
+  fi
+
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
+      run_as_root rm -f "$init_config_file" "$init_sql_file" >/dev/null 2>&1 || true
+      if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl restart "$service_name" || true
+      else
+        run_as_root service "$service_name" restart || true
+      fi
+      rm -f "$root_reset_sql_file"
+      echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured after one-time root recovery."
+      return 0
+    fi
+    sleep 1
+  done
+
+  run_as_root rm -f "$init_config_file" "$init_sql_file" >/dev/null 2>&1 || true
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root systemctl restart "$service_name" || true
+  else
+    run_as_root service "$service_name" restart || true
+  fi
+  rm -f "$root_reset_sql_file"
+  return 1
+}
+
 configure_local_mysql_admin_account() {
+  local os_family="$1"
   local mysql_bin
   local admin_defaults
   local root_defaults
@@ -2403,8 +2513,13 @@ configure_local_mysql_admin_account() {
     fi
   fi
 
+  if reset_unknown_local_mysql_root_with_init_file "$os_family" "$mysql_bin" "$admin_defaults" "$sql_file"; then
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
+    return 0
+  fi
+
   rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$root_sql_file" "$existing_root_sql_file"
-  echo "Unable to configure the local MySQL admin account automatically. If MySQL already has a root password, rerun setup with LOCAL_MYSQL_ROOT_PASSWORD plus LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD, or create '$LOCAL_MYSQL_ADMIN_USER_INPUT' manually." >&2
+  echo "Unable to configure the local MySQL admin account automatically. If this is not a DBConsole-managed local MySQL instance, rerun setup with LOCAL_MYSQL_ROOT_PASSWORD plus LOCAL_MYSQL_ADMIN_USER and LOCAL_MYSQL_ADMIN_PASSWORD, or create '$LOCAL_MYSQL_ADMIN_USER_INPUT' manually." >&2
   return 1
 }
 
@@ -2576,7 +2691,7 @@ main() {
   if local_mysql_bootstrap_requested; then
     restart_local_mysql_service "$os_family"
   fi
-  configure_local_mysql_admin_account
+  configure_local_mysql_admin_account "$os_family"
   write_local_admin_profile
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family" "$deploy_mode"
   harden_local_file_permissions

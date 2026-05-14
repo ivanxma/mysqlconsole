@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3c`
+Current version: `1.0.3d`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -239,7 +239,7 @@ For HTTP only, set `DEPLOY_MODE=http`, `HTTP_PORT=80`, `HTTPS_PORT=`, and `SERVI
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
-The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` to be set to a real password value in the pasted initialization script. It refuses to generate or log a password automatically, and first boot fails if the variable is empty or omitted. Setup uses `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` to install/start the local MySQL Innovation server where supported, configure the local MySQL daemon for socket-only access, create or refresh the `user@localhost` local admin account, and write the first non-secret login profile named `local-admin-profile` into `profiles.json`. If the host already has an initialized MySQL `root@localhost` password that setup cannot access through socket-root authentication, provide `LOCAL_MYSQL_ROOT_PASSWORD` for that setup or Auto-Update run only. Do not enable shell xtrace (`set -x`) in wrappers that pass these passwords, because cloud-init and console logs can retain command traces.
+The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` to be set to a real password value in the pasted initialization script. It refuses to generate or log a password automatically, and first boot fails if the variable is empty or omitted. Setup uses `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` to install/start the local MySQL Innovation server where supported, configure the local MySQL daemon for socket-only access, create or refresh the `user@localhost` local admin account, and write the first non-secret login profile named `local-admin-profile` into `profiles.json`. If the host already has an initialized MySQL `root@localhost` password that setup cannot access through socket-root authentication, provide `LOCAL_MYSQL_ROOT_PASSWORD` for that setup or Auto-Update run only. When no root password is known on a DBConsole-managed local MySQL instance, setup can perform a one-time local root recovery with sudo, set root to an unrecorded random password, create `localadmin`, remove the recovery files, and restart MySQL normally; set `LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0` to disable that recovery path. Do not enable shell xtrace (`set -x`) in wrappers that pass these passwords, because cloud-init and console logs can retain command traces.
 
 OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use the platform MySQL Server service for local socket-only MySQL; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute.
 
@@ -259,7 +259,7 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
   - if the platform package manager leaves no usable `mysqlsh` at the required version, setup installs an app-local embedded MySQL Shell under `.embedded/mysql-shell` and writes `DBCONSOLE_MYSQLSH` to `.runtime.env`
   - Linux installers try the configured vendor package repository first; if the repository has not published the required MySQL Shell version yet, setup computes a MySQL vendor package URL from the discovered or pinned version, platform, and CPU architecture and installs that package
 - save default HTTP and HTTPS ports in `.runtime.env`
-- when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install/start a local MySQL Innovation server, write a socket-only MySQL configuration (`skip-networking` and disabled MySQL X Plugin), create or refresh only the `user@localhost` local admin account, and create the first `local-admin-profile` entry in `profiles.json`; if MySQL already has an inaccessible root password, set `LOCAL_MYSQL_ROOT_PASSWORD` for that run only so setup can create or repair the local admin account; setup does not create application tables or default schemas on connected databases
+- when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install/start a local MySQL Innovation server, write a socket-only MySQL configuration (`skip-networking` and disabled MySQL X Plugin), create or refresh only the `user@localhost` local admin account, and create the first `local-admin-profile` entry in `profiles.json`; if MySQL already has an inaccessible root password, set `LOCAL_MYSQL_ROOT_PASSWORD` for that run only so setup can create or repair the local admin account; when no root password is known, setup uses a one-time local init-file recovery by default and can be disabled with `LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0`; setup does not create application tables or default schemas on connected databases
 - mark the generated `local-admin-profile` for first-login password rotation; DBConsole requires the password change before profile management and logs out after the change
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
@@ -360,6 +360,7 @@ For `setup.sh`:
 - `LOCAL_MYSQL_ADMIN_USER`
 - `LOCAL_MYSQL_ADMIN_PASSWORD`
 - `LOCAL_MYSQL_ROOT_PASSWORD`
+- `LOCAL_MYSQL_RESET_UNKNOWN_ROOT`
 - `LOCAL_MYSQL_SOCKET`
 - `LOCAL_MYSQL_DATABASE`
 

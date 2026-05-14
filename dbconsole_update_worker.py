@@ -433,6 +433,7 @@ class UpdateWorker:
             "LOCAL_MYSQL_ADMIN_USER",
             "LOCAL_MYSQL_ADMIN_PASSWORD",
             "LOCAL_MYSQL_ROOT_PASSWORD",
+            "LOCAL_MYSQL_RESET_UNKNOWN_ROOT",
             "EMBEDDED_MYSQL_SHELL_DIR",
             "EMBEDDED_MYSQL_SERVER_DIR",
             "MYSQL_SERVER_VERSION",

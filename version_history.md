@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3c`.
+Version summary from `1.0.2a` to `1.0.3d`.
+
+## 1.0.3d Summary
+
+Version `1.0.3d` removes the need to know MySQL's generated `root@localhost` password during DBConsole-managed local MySQL bootstrap.
+
+- Added a one-time local MySQL root recovery path for OL and Ubuntu deployments when socket-root, supplied root credentials, and temporary-root log recovery are unavailable.
+- The recovery path uses sudo, a temporary MySQL init file, and the existing socket-only local MySQL configuration to create or repair `localadmin`.
+- Root is reset to an unrecorded random password during recovery; DBConsole uses the socket-only `localadmin` account after bootstrap.
+- Added `LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0` to disable the unknown-root recovery path for hosts that should never reset local MySQL root.
+- Auto-Update now passes `LOCAL_MYSQL_RESET_UNKNOWN_ROOT` through to setup when it is set.
 
 ## 1.0.3c Summary
 

@@ -128,10 +128,25 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3c</span>
+      <span class="badge">Release 1.0.3d</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3c</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3d</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3d Summary</h2>
+      <p>
+        Version <code>1.0.3d</code> removes the need to know MySQL's generated
+        <code>root@localhost</code> password during DBConsole-managed local MySQL bootstrap.
+      </p>
+      <ul>
+        <li>Added a one-time local MySQL root recovery path for OL and Ubuntu deployments when socket-root, supplied root credentials, and temporary-root log recovery are unavailable.</li>
+        <li>The recovery path uses sudo, a temporary MySQL init file, and the existing socket-only local MySQL configuration to create or repair <code>localadmin</code>.</li>
+        <li>Root is reset to an unrecorded random password during recovery; DBConsole uses the socket-only <code>localadmin</code> account after bootstrap.</li>
+        <li>Added <code>LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0</code> to disable the unknown-root recovery path for hosts that should never reset local MySQL root.</li>
+        <li>Auto-Update now passes <code>LOCAL_MYSQL_RESET_UNKNOWN_ROOT</code> through to setup when it is set.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3c Summary</h2>
