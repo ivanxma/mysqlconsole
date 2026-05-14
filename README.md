@@ -291,7 +291,7 @@ The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` to be set to a real pa
 
 OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use the platform MySQL Server service for local socket-only MySQL; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute.
 
-On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` values supplied to setup. DBConsole sends that session directly to the local-admin password-change screen. After the password is changed, DBConsole logs the user out so the old setup password is no longer active in the browser session. Sign in again with `local-admin-profile` and the new password to manage profiles.
+On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` values supplied to setup. DBConsole sends that session directly to the local-admin password-change screen. After the password is changed, DBConsole logs the user out so the old setup password is no longer active in the browser session. Sign in again with `local-admin-profile` and the new password to manage profiles. For OCI Compute instances that already have `local-admin-profile`, change the existing `localadmin` password from the local-admin password change page; Auto-Update does not collect localadmin password fields after bootstrap is complete.
 
 ### What `setup.sh` Does
 

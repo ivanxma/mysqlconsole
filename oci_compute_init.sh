@@ -143,7 +143,7 @@ run_as_app_user git clone "$APP_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
 if [ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]; then
-  echo "LOCAL_MYSQL_ADMIN_PASSWORD must be provided to bootstrap the local-admin-profile. Refusing to generate or log a password automatically." >&2
+  echo "LOCAL_MYSQL_ADMIN_PASSWORD must be provided for first-boot local-admin-profile bootstrap. Refusing to generate or log a password automatically." >&2
   exit 1
 fi
 
