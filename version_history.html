@@ -128,10 +128,23 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3d</span>
+      <span class="badge">Release 1.0.3e</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3d</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3e</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3e Summary</h2>
+      <p>
+        Version <code>1.0.3e</code> fixes the local MySQL recovery path on MySQL packages that do not read
+        <code>/etc/my.cnf.d</code> unless <code>/etc/my.cnf</code> explicitly includes it.
+      </p>
+      <ul>
+        <li>Setup now ensures the DBConsole MySQL config include directory is loaded before writing socket-only and temporary init-file recovery configs.</li>
+        <li>Recovery config files are written with readable root-owned permissions and SELinux contexts are restored when <code>restorecon</code> is available.</li>
+        <li>The one-time unknown-root recovery path can now apply on Oracle Linux MySQL packages that only read <code>/etc/my.cnf</code> by default.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3d Summary</h2>

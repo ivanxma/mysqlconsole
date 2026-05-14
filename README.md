@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3d`
+Current version: `1.0.3e`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -304,7 +304,7 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
   - if the platform package manager leaves no usable `mysqlsh` at the required version, setup installs an app-local embedded MySQL Shell under `.embedded/mysql-shell` and writes `DBCONSOLE_MYSQLSH` to `.runtime.env`
   - Linux installers try the configured vendor package repository first; if the repository has not published the required MySQL Shell version yet, setup computes a MySQL vendor package URL from the discovered or pinned version, platform, and CPU architecture and installs that package
 - save default HTTP and HTTPS ports in `.runtime.env`
-- when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install/start a local MySQL Innovation server, write a socket-only MySQL configuration (`skip-networking` and disabled MySQL X Plugin), create or refresh only the `user@localhost` local admin account, and create the first `local-admin-profile` entry in `profiles.json`; if MySQL already has an inaccessible root password, set `LOCAL_MYSQL_ROOT_PASSWORD` for that run only so setup can create or repair the local admin account; when no root password is known, setup uses a one-time local init-file recovery by default and can be disabled with `LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0`; setup does not create application tables or default schemas on connected databases
+- when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install/start a local MySQL Innovation server, ensure MySQL reads the DBConsole config include directory, write a socket-only MySQL configuration (`skip-networking` and disabled MySQL X Plugin), create or refresh only the `user@localhost` local admin account, and create the first `local-admin-profile` entry in `profiles.json`; if MySQL already has an inaccessible root password, set `LOCAL_MYSQL_ROOT_PASSWORD` for that run only so setup can create or repair the local admin account; when no root password is known, setup uses a one-time local init-file recovery by default and can be disabled with `LOCAL_MYSQL_RESET_UNKNOWN_ROOT=0`; setup does not create application tables or default schemas on connected databases
 - mark the generated `local-admin-profile` for first-login password rotation; DBConsole requires the password change before profile management and logs out after the change
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`

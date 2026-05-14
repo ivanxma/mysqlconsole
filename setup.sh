@@ -282,6 +282,41 @@ write_root_file() {
   fi
 }
 
+append_root_file_once() {
+  local target_path="$1"
+  local line_value="$2"
+
+  if [[ -f "$target_path" ]] && grep -Fxq "$line_value" "$target_path" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    if [[ -f "$target_path" ]] && grep -Fxq "$line_value" "$target_path" 2>/dev/null; then
+      return 0
+    fi
+    printf '\n%s\n' "$line_value" >>"$target_path"
+    return 0
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "This step requires root privileges. Re-run setup.sh from a shell with sudo access." >&2
+    return 1
+  fi
+
+  if is_interactive_terminal; then
+    sudo /bin/sh -c 'target_path="$1"; line_value="$2"; grep -Fxq "$line_value" "$target_path" 2>/dev/null || printf "\n%s\n" "$line_value" >>"$target_path"' sh "$target_path" "$line_value"
+  else
+    sudo -n /bin/sh -c 'target_path="$1"; line_value="$2"; grep -Fxq "$line_value" "$target_path" 2>/dev/null || printf "\n%s\n" "$line_value" >>"$target_path"' sh "$target_path" "$line_value"
+  fi
+}
+
+restore_selinux_context() {
+  local target_path="$1"
+  if command -v restorecon >/dev/null 2>&1; then
+    run_as_root restorecon "$target_path" >/dev/null 2>&1 || true
+  fi
+}
+
 log_skipped_privileged_step() {
   local step_description="$1"
   echo "Skipping ${step_description} because SKIP_PRIVILEGED_SETUP=1. Re-run ./setup.sh from a shell with sudo access to apply privileged changes." >&2
@@ -530,6 +565,32 @@ dependency_audit_strict_enabled() {
 
 local_mysql_reset_unknown_root_enabled() {
   truthy_value "$LOCAL_MYSQL_RESET_UNKNOWN_ROOT"
+}
+
+ensure_mysql_config_include_dir() {
+  local os_family="$1"
+  local main_config=""
+  local include_dir=""
+
+  case "$os_family" in
+    ol8|ol9)
+      main_config="/etc/my.cnf"
+      include_dir="/etc/my.cnf.d"
+      ;;
+    ubuntu)
+      main_config="/etc/mysql/my.cnf"
+      include_dir="/etc/mysql/conf.d"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  if [[ ! -f "$main_config" ]]; then
+    return 0
+  fi
+  run_as_root mkdir -p "$include_dir"
+  append_root_file_once "$main_config" "!includedir $include_dir"
 }
 
 current_update_remote_url() {
@@ -2143,6 +2204,7 @@ write_local_mysql_socket_only_config() {
   esac
 
   if [[ "$os_family" != "macos" ]]; then
+    ensure_mysql_config_include_dir "$os_family"
     run_as_root mkdir -p "$(dirname "$config_path")" "$socket_dir"
     run_as_root chown mysql:mysql "$socket_dir" 2>/dev/null || true
   else
@@ -2158,6 +2220,8 @@ write_local_mysql_socket_only_config() {
     echo "[client]"
     echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
   } | write_root_file "$config_path"
+  run_as_root chmod 644 "$config_path" 2>/dev/null || true
+  restore_selinux_context "$config_path"
 }
 
 install_local_mysql_server() {
@@ -2369,10 +2433,12 @@ reset_unknown_local_mysql_root_with_init_file() {
 
   case "$os_family" in
     ol8|ol9)
+      ensure_mysql_config_include_dir "$os_family"
       init_config_file="/etc/my.cnf.d/dbconsole-local-init.cnf"
       init_sql_file="/var/lib/mysql/dbconsole-local-init.sql"
       ;;
     ubuntu)
+      ensure_mysql_config_include_dir "$os_family"
       init_config_file="/etc/mysql/conf.d/dbconsole-local-init.cnf"
       init_sql_file="/var/lib/mysql/dbconsole-local-init.sql"
       ;;
@@ -2393,12 +2459,14 @@ reset_unknown_local_mysql_root_with_init_file() {
   fi
   run_as_root chown "$mysql_user:$mysql_user" "$init_sql_file" 2>/dev/null || true
   run_as_root chmod 600 "$init_sql_file" || true
+  restore_selinux_context "$init_sql_file"
 
   {
     echo "[mysqld]"
     echo "init-file=$init_sql_file"
   } | write_root_file "$init_config_file"
-  run_as_root chmod 600 "$init_config_file" || true
+  run_as_root chmod 644 "$init_config_file" || true
+  restore_selinux_context "$init_config_file"
 
   if command -v systemctl >/dev/null 2>&1; then
     run_as_root systemctl restart "$service_name" || true

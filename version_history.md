@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3d`.
+Version summary from `1.0.2a` to `1.0.3e`.
+
+## 1.0.3e Summary
+
+Version `1.0.3e` fixes the local MySQL recovery path on MySQL packages that do not read `/etc/my.cnf.d` unless `/etc/my.cnf` explicitly includes it.
+
+- Setup now ensures the DBConsole MySQL config include directory is loaded before writing socket-only and temporary init-file recovery configs.
+- Recovery config files are written with readable root-owned permissions and SELinux contexts are restored when `restorecon` is available.
+- The one-time unknown-root recovery path can now apply on Oracle Linux MySQL packages that only read `/etc/my.cnf` by default.
 
 ## 1.0.3d Summary
 
