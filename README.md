@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3`
+Current version: `1.0.3a`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -51,11 +51,11 @@ Current feature modules:
 
 ## Requirements
 
-- Python 3
+- Python 3.12 or newer for setup-created deployments
 - MySQL access credentials
 - optional SSH access if tunneling is enabled in a profile
 
-Python dependencies are defined in `requirements.txt`:
+Python dependencies are installed from `requirements.txt`. `pyproject.toml` also declares `requires-python = ">=3.12"` for tooling that reads Python project metadata.
 
 - `Flask`
 - `PyMySQL`
@@ -66,16 +66,16 @@ Python dependencies are defined in `requirements.txt`:
 For a simple local dev run:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-python3 app.py
+.venv/bin/python app.py
 ```
 
 That starts the app on `127.0.0.1:5001` in debug mode.
 
 ## Deployment Scripts
 
-`setup.sh` is the only deployment entry point. It creates the Python virtual environment, installs requirements, installs MySQL Shell Innovation for the target platform, writes `.runtime.env`, and optionally configures Linux systemd services and firewall ports.
+`setup.sh` is the only deployment entry point. It selects or installs Python 3.12 or newer, creates the Python virtual environment from that interpreter, installs requirements, installs MySQL Shell Innovation for the target platform, writes `.runtime.env`, and optionally configures Linux systemd services and firewall ports.
 
 Supported OS families:
 
@@ -249,7 +249,7 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
 
 `setup.sh` will:
 
-- create `.venv`
+- select or install Python 3.12 or newer, then create `.venv` from that interpreter
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
   - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and ask DNF for the best available vendor `mysql-shell` package
@@ -292,19 +292,25 @@ On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` a
 The `Admin > Auto-Update` page works best when the DBConsole service user can run `sudo` non-interactively for the privileged steps in `setup.sh` and for service restarts. When passwordless `sudo` is unavailable from the running service, the updater falls back to:
 
 - `git fetch` and `git pull`
-- reinstalling Python packages inside `.venv`
+- selecting or installing Python 3.12 or newer and reinstalling Python packages inside `.venv`
 - refreshing `.runtime.env`
 - restarting the current DBConsole systemd service by letting systemd recover after the running service process exits
 
 In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
 
-When passwordless `sudo` is available, auto-update reruns the full `setup.sh` path and upgrades MySQL Shell Innovation to the latest package available for the platform before restarting DBConsole.
+When passwordless `sudo` is available, auto-update reruns the full `setup.sh` path, upgrades the app virtual environment to Python 3.12 or newer when needed, and upgrades MySQL Shell Innovation to the latest package available for the platform before restarting DBConsole.
+
+Auto-update can only be started by a session logged in through `local-admin-profile`, except for the one-time bootstrap path used when `local-admin-profile` is missing or not socket-only. In that bootstrap case, an authenticated session can start Auto-Update only with the temporary local admin bootstrap fields filled in. Authenticated non-local-admin sessions can retrieve repository version information and view update status, but the normal start action is rejected. The update worker also verifies the configured git `origin` and branch before it fetches or pulls. By default it expects `https://github.com/ivanxma/mysqlconsole.git` on `main`; set `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL` and `DBCONSOLE_UPDATE_ALLOWED_BRANCH` only after verifying the intended deployment source.
+
+Before repository validation, after any preserved local files are restored, and after rerunning setup, Auto-Update repairs local deployment permissions for `.runtime.env`, `.flask_secret_key`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/`. It also treats generated security/vulnerability reports and `pip-audit` reports as local deployment artifacts during the worktree check so existing hardening outputs do not block an update.
 
 If an existing deployment does not yet have the socket-only local MySQL admin server or `local-admin-profile`, the `Admin > Auto-Update` page prompts for a one-time local admin bootstrap username and temporary password. Leave the username as `localadmin` unless you intentionally use another local account name. The password is passed only to the update worker environment for that run; it is not written to `profiles.json`, `.runtime.env`, the update status file, or the update log. After the update completes, choose `local-admin-profile` on the login screen, sign in as `localadmin` with the temporary password, and DBConsole will require an immediate password change. After the password is changed, DBConsole logs out; sign in again with the new password to manage profiles.
 
 For deployments that are already running an older DBConsole Auto-Update page, the first update cannot prompt for the local admin username/password because the old page does not have those fields. Let that update finish and restart DBConsole. Then open the refreshed `Admin > Auto-Update` page, enter `localadmin` and a temporary password, and run Auto-Update again to install the socket-only local MySQL admin server and create `local-admin-profile`.
 
 DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs from the local version. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch. HTTPS version checks use `certifi` by default; set `DBCONSOLE_VERSION_CA_BUNDLE` to a specific CA bundle path if your environment requires one.
+
+`setup.sh` runs a dependency vulnerability audit with `pip-audit` after installing Python dependencies. The default mode is warn-only so setup can continue if the advisory service is unavailable or an issue is reported. Set `DBCONSOLE_DEPENDENCY_AUDIT=off` to skip the audit, or set `DBCONSOLE_DEPENDENCY_AUDIT_STRICT=1` to fail setup on audit setup errors or reported vulnerabilities.
 
 If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
 
@@ -324,6 +330,8 @@ For `setup.sh`:
 - `SERVICE_USER`
 - `SERVICE_GROUP`
 - `VENV_DIR`
+- `DBCONSOLE_PYTHON_BIN`
+- `DBCONSOLE_PYTHON_MIN_VERSION`
 - `MYSQL_SHELL_MIN_VERSION`
 - `MYSQL_SHELL_PACKAGE`
 - `MYSQL_SHELL_DOWNLOAD_PAGE`
@@ -344,6 +352,10 @@ For `setup.sh`:
 - `BOOTSTRAP_PARENT_DIR`
 - `DBCONSOLE_VERSION_URL`
 - `DBCONSOLE_VERSION_CA_BUNDLE`
+- `DBCONSOLE_DEPENDENCY_AUDIT`
+- `DBCONSOLE_DEPENDENCY_AUDIT_STRICT`
+- `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
+- `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
 - `LOCAL_MYSQL_PROFILE_NAME`
 - `LOCAL_MYSQL_ADMIN_USER`
 - `LOCAL_MYSQL_ADMIN_PASSWORD`
@@ -357,6 +369,11 @@ For `start_http.sh` and `start_https.sh`:
 - `RUNTIME_ENV_FILE`
 - `HOST`
 - `DBCONSOLE_MYSQLSH`
+- `DBCONSOLE_PYTHON_BIN`
+- `DBCONSOLE_PYTHON_MIN_VERSION`
+- `DBCONSOLE_SESSION_COOKIE_SECURE`
+- `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
+- `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
 - `LOCAL_MYSQL_AUTOSTART`
 - `LOCAL_MYSQL_SOCKET`
 - `LOCAL_MYSQL_SERVICE`
@@ -376,7 +393,7 @@ For `start_http.sh` and `start_https.sh`:
 - `tls/`: default self-signed TLS assets generated by `setup.sh` when you do not supply your own certificate and key
 - `object_storage.json`: object storage settings used by HeatWave-related screens
 
-`.runtime.env`, `.flask_secret_key`, `.embedded/`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/` are git-ignored local state. The auto-update worker allows local changes to these files during the repository clean-check.
+`.runtime.env`, `.flask_secret_key`, `.embedded/`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/` are git-ignored local state. `setup.sh` repairs local sensitive file permissions on every run: runtime config, Flask secret key, profiles, and object storage config are written as owner-readable files, uploaded SSH-key directories are owner-only, and TLS private key material is owner-readable only. The auto-update worker allows local changes to these files during the repository clean-check.
 
 `profiles.json` must not contain database passwords. The generated `local-admin-profile` stores only the local socket path, default database, default username, and first-login password-change marker. SSH private keys are also not stored in `profiles.json`; uploaded key files are kept under `profile_ssh_keys/` with restrictive permissions and only the server-side path is retained.
 

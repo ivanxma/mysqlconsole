@@ -16,18 +16,38 @@ from pathlib import Path
 
 HTTP_SERVICE = "dbconsole-http.service"
 HTTPS_SERVICE = "dbconsole-https.service"
+DEFAULT_ALLOWED_UPDATE_REMOTE_URL = "https://github.com/ivanxma/mysqlconsole.git"
+DEFAULT_ALLOWED_UPDATE_BRANCH = "main"
 ALLOWED_LOCAL_STATE_PATHS = {
     ".flask_secret_key",
     ".runtime.env",
     "object_storage.json",
     "profiles.json",
+    "security_vulnerability_report.html",
     "security_vulnerability_review.html",
 }
+ALLOWED_LOCAL_STATE_SUFFIXES = (
+    "_security_report.html",
+    "_vulnerability_report.html",
+)
 ALLOWED_LOCAL_STATE_PREFIXES = (
     ".embedded/",
+    "pip-audit-report.",
     "profile_ssh_keys/",
+    "security_review",
+    "security_vulnerability_report",
+    "vulnerability_review",
     "tls/",
 )
+
+
+def normalize_git_remote_url(remote_url):
+    remote = str(remote_url or "").strip()
+    if remote.startswith("git@github.com:"):
+        remote = "https://github.com/" + remote[len("git@github.com:"):]
+    if remote.endswith(".git"):
+        remote = remote[:-4]
+    return remote.rstrip("/")
 
 
 def utc_now_iso():
@@ -65,7 +85,9 @@ class UpdateWorker:
         self.status_file.parent.mkdir(parents=True, exist_ok=True)
         temp_file = self.status_file.with_suffix(".tmp")
         temp_file.write_text(json.dumps(self.status, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.chmod_path(temp_file, 0o600)
         temp_file.replace(self.status_file)
+        self.chmod_path(self.status_file, 0o600)
         return self.status
 
     def append_log(self, message):
@@ -74,6 +96,14 @@ class UpdateWorker:
             handle.write(str(message or ""))
             if not str(message or "").endswith("\n"):
                 handle.write("\n")
+        self.chmod_path(self.log_file, 0o600)
+
+    @staticmethod
+    def chmod_path(path, mode):
+        try:
+            Path(path).chmod(mode)
+        except OSError:
+            pass
 
     def log_step(self, step, message):
         self.write_status(state="running", step=step, message=message)
@@ -111,6 +141,28 @@ class UpdateWorker:
             error_output = (result.stderr or result.stdout or "").strip()
             raise RuntimeError(error_output or f"Command failed: {shlex.join(command)}")
         return result.stdout
+
+    def verify_update_source(self, branch_name):
+        allowed_remote = os.environ.get("DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL", DEFAULT_ALLOWED_UPDATE_REMOTE_URL).strip()
+        allowed_branch = os.environ.get("DBCONSOLE_UPDATE_ALLOWED_BRANCH", DEFAULT_ALLOWED_UPDATE_BRANCH).strip()
+        origin_url = self.run_capture(["git", "remote", "get-url", "origin"], cwd=self.repo_dir).strip()
+
+        normalized_origin = normalize_git_remote_url(origin_url)
+        normalized_allowed = normalize_git_remote_url(allowed_remote)
+        if normalized_allowed and normalized_origin != normalized_allowed:
+            raise RuntimeError(
+                "Update source mismatch. "
+                f"origin is {normalized_origin or origin_url!r}, expected {normalized_allowed!r}. "
+                "Set DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL only after verifying the repository source."
+            )
+
+        if allowed_branch and branch_name != allowed_branch:
+            raise RuntimeError(
+                f"Update branch mismatch. Current branch is {branch_name!r}, expected {allowed_branch!r}. "
+                "Set DBCONSOLE_UPDATE_ALLOWED_BRANCH only after verifying the deployment branch."
+            )
+
+        self.append_log(f"Verified update source: {normalized_origin or origin_url} on branch {branch_name}.")
 
     def detect_os_family(self):
         if platform.system() == "Darwin":
@@ -235,7 +287,7 @@ class UpdateWorker:
         paths = []
         for line in status_lines:
             path = self.status_line_path(line)
-            if path in ALLOWED_LOCAL_STATE_PATHS and self.path_is_tracked(path):
+            if self.is_allowed_local_state_path(path) and self.path_is_tracked(path):
                 paths.append(path)
 
         if not paths:
@@ -300,9 +352,46 @@ class UpdateWorker:
         normalized = str(path or "").strip()
         if normalized.startswith("./"):
             normalized = normalized[2:]
-        return normalized in ALLOWED_LOCAL_STATE_PATHS or any(
-            normalized.startswith(prefix) for prefix in ALLOWED_LOCAL_STATE_PREFIXES
+        return (
+            normalized in ALLOWED_LOCAL_STATE_PATHS
+            or any(normalized.startswith(prefix) for prefix in ALLOWED_LOCAL_STATE_PREFIXES)
+            or any(normalized.endswith(suffix) for suffix in ALLOWED_LOCAL_STATE_SUFFIXES)
         )
+
+    def harden_local_deployment_state(self):
+        file_modes = {
+            ".flask_secret_key": 0o600,
+            ".runtime.env": 0o600,
+            "object_storage.json": 0o600,
+            "profiles.json": 0o600,
+        }
+        for relative_path, mode in file_modes.items():
+            path = self.repo_dir / relative_path
+            if path.is_file():
+                self.chmod_path(path, mode)
+                self.append_log(f"Hardened local file permissions: {relative_path} -> {oct(mode)}")
+
+        profile_key_dir = self.repo_dir / "profile_ssh_keys"
+        if profile_key_dir.is_dir():
+            self.chmod_path(profile_key_dir, 0o700)
+            for path in profile_key_dir.rglob("*"):
+                if path.is_dir():
+                    self.chmod_path(path, 0o700)
+                elif path.is_file():
+                    self.chmod_path(path, 0o600)
+            self.append_log("Hardened uploaded SSH private key storage permissions.")
+
+        tls_dir = self.repo_dir / "tls"
+        if tls_dir.is_dir():
+            self.chmod_path(tls_dir, 0o700)
+            private_suffixes = {".key", ".pem", ".p12", ".pfx", ".jks", ".keystore"}
+            for path in tls_dir.rglob("*"):
+                if path.is_dir():
+                    self.chmod_path(path, 0o700)
+                elif path.is_file():
+                    mode = 0o600 if path.suffix.lower() in private_suffixes else 0o644
+                    self.chmod_path(path, mode)
+            self.append_log("Hardened TLS directory permissions.")
 
     def current_user_group(self):
         try:
@@ -333,6 +422,8 @@ class UpdateWorker:
         ssl_key_file = runtime_env.get("SSL_KEY_FILE", "")
         passthrough_env_keys = (
             "DBCONSOLE_MYSQLSH",
+            "DBCONSOLE_PYTHON_BIN",
+            "DBCONSOLE_PYTHON_MIN_VERSION",
             "LOCAL_MYSQL_AUTOSTART",
             "LOCAL_MYSQL_SOCKET",
             "LOCAL_MYSQL_SERVICE",
@@ -349,6 +440,10 @@ class UpdateWorker:
             "MYSQL_SERVER_EMBEDDED_URL",
             "MYSQL_SERVER_EMBEDDED_PACKAGE",
             "MYSQL_SERVER_MACOS_PACKAGE_TAG",
+            "DBCONSOLE_DEPENDENCY_AUDIT",
+            "DBCONSOLE_DEPENDENCY_AUDIT_STRICT",
+            "DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL",
+            "DBCONSOLE_UPDATE_ALLOWED_BRANCH",
         )
 
         if host_value:
@@ -486,10 +581,14 @@ class UpdateWorker:
         self.write_status(service_names=service_names)
         self.log_step("Inspecting", f"Detected OS family `{os_family}` with deploy mode `{deploy_mode}`.")
 
+        self.log_step("Hardening deployment", "Repairing local deployment file permissions before repository validation.")
+        self.harden_local_deployment_state()
+
         self.log_step("Checking repository", "Validating the git worktree.")
         self.ensure_clean_worktree()
 
         branch_name = self.run_capture(["git", "branch", "--show-current"], cwd=self.repo_dir).strip() or "detached"
+        self.verify_update_source(branch_name)
         self.append_log(f"Updating branch {branch_name}.")
 
         self.log_step("Pulling repository", "Fetching the latest repository changes.")
@@ -499,8 +598,10 @@ class UpdateWorker:
             self.run_command(["git", "pull", "--ff-only"], cwd=self.repo_dir)
         except Exception:
             self.restore_allowed_local_state_after_pull(preserved_state)
+            self.harden_local_deployment_state()
             raise
         self.restore_allowed_local_state_after_pull(preserved_state)
+        self.harden_local_deployment_state()
 
         full_completion_message = "Repository refresh, setup, and service restart completed."
         limited_completion_message = (
@@ -530,6 +631,7 @@ class UpdateWorker:
                 "Re-run ./setup.sh from an SSH shell if you need the MySQL Shell Innovation package upgrade, firewall changes, or refreshed systemd units."
             )
             self.run_setup(os_family, deploy_mode, runtime_env, skip_privileged_setup=True)
+        self.harden_local_deployment_state()
 
         if service_names:
             if sudo_ready:

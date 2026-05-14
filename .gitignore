@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
 .coverage
 htmlcov/
 
@@ -48,6 +49,7 @@ security_review*.html
 vulnerability_review*.html
 *_security_report.*
 *_vulnerability_report.*
+pip-audit-report.*
 
 # Logs, temp files, local databases, and generated archives
 *.log

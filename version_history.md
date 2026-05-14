@@ -1,6 +1,29 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3`.
+Version summary from `1.0.2a` to `1.0.3a`.
+
+## 1.0.3a Summary
+
+Version `1.0.3a` extends the deployment and Auto-Update hardening work with Python 3.12+ runtime policy, dependency audit automation, stricter update trust checks, and local file permission repair for existing installations.
+
+- Raised setup-created deployments to Python 3.12 or newer, with platform-specific package installation and `pyproject.toml` metadata.
+- Added pinned Python dependency ranges for Flask, PyMySQL, SSH tunneling, Paramiko, and certificate handling.
+- Added dependency audit automation through `pip-audit`, with warn-by-default behavior and an optional strict mode for deployments that should fail on unresolved vulnerabilities.
+- Updated Auto-Update to pass Python, audit, and trust-boundary settings through to setup so existing deployments can rebuild the virtual environment during patching.
+- Added git remote and branch trust checks before Auto-Update fetches or pulls source changes.
+- Hardened runtime file permissions before and after setup and Auto-Update, including profile stores, object storage settings, Flask secret material, update state, logs, and TLS secrets.
+- Persisted secure cookie defaults for HTTPS deployments.
+- Tightened git ignore coverage for embedded downloads, runtime caches, security reports, secrets, TLS material, and generated local deployment artifacts.
+
+## 1.0.3a Upgrade Behavior
+
+| Area | Behavior in 1.0.3a |
+| --- | --- |
+| Python runtime | Setup selects Python 3.12 or newer and can install the required interpreter packages on supported platforms. |
+| Existing Auto-Update deployments | Auto-Update forwards the Python runtime policy to setup, then repairs permissions after git state restoration, dependency installation, and setup completion. |
+| Update trust boundary | The update worker verifies the configured git remote and branch before fetching or pulling. |
+| Dependency audit | Setup installs and runs `pip-audit` by default in warn mode, with strict mode available through deployment environment settings. |
+| Local runtime files | Generated local files remain ignored by git, are preserved during safe update flows, and are permission-hardened after patching. |
 
 ## 1.0.3 Summary
 

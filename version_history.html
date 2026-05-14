@@ -128,10 +128,63 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3</span>
+      <span class="badge">Release 1.0.3a</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3a</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3a Summary</h2>
+      <p>
+        Version <code>1.0.3a</code> extends the deployment and Auto-Update hardening work with Python 3.12+
+        runtime policy, dependency audit automation, stricter update trust checks, and local file permission
+        repair for existing installations.
+      </p>
+      <ul>
+        <li>Raised setup-created deployments to Python 3.12 or newer, with platform-specific package installation and <code>pyproject.toml</code> metadata.</li>
+        <li>Added pinned Python dependency ranges for Flask, PyMySQL, SSH tunneling, Paramiko, and certificate handling.</li>
+        <li>Added dependency audit automation through <code>pip-audit</code>, with warn-by-default behavior and an optional strict mode for deployments that should fail on unresolved vulnerabilities.</li>
+        <li>Updated Auto-Update to pass Python, audit, and trust-boundary settings through to setup so existing deployments can rebuild the virtual environment during patching.</li>
+        <li>Added git remote and branch trust checks before Auto-Update fetches or pulls source changes.</li>
+        <li>Hardened runtime file permissions before and after setup and Auto-Update, including profile stores, object storage settings, Flask secret material, update state, logs, and TLS secrets.</li>
+        <li>Persisted secure cookie defaults for HTTPS deployments.</li>
+        <li>Tightened git ignore coverage for embedded downloads, runtime caches, security reports, secrets, TLS material, and generated local deployment artifacts.</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>1.0.3a Upgrade Behavior</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th>Behavior in 1.0.3a</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Python runtime</td>
+            <td>Setup selects Python 3.12 or newer and can install the required interpreter packages on supported platforms.</td>
+          </tr>
+          <tr>
+            <td>Existing Auto-Update deployments</td>
+            <td>Auto-Update forwards the Python runtime policy to setup, then repairs permissions after git state restoration, dependency installation, and setup completion.</td>
+          </tr>
+          <tr>
+            <td>Update trust boundary</td>
+            <td>The update worker verifies the configured git remote and branch before fetching or pulling.</td>
+          </tr>
+          <tr>
+            <td>Dependency audit</td>
+            <td>Setup installs and runs <code>pip-audit</code> by default in warn mode, with strict mode available through deployment environment settings.</td>
+          </tr>
+          <tr>
+            <td>Local runtime files</td>
+            <td>Generated local files remain ignored by git, are preserved during safe update flows, and are permission-hardened after patching.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
 
     <section class="panel">
       <h2>1.0.3 Summary</h2>

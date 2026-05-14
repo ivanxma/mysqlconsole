@@ -120,12 +120,8 @@ except (TypeError, ValueError):
 DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
-DBCONSOLE_SESSION_COOKIE_SECURE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+DBCONSOLE_SESSION_COOKIE_SECURE_VALUE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower()
+DBCONSOLE_SESSION_COOKIE_SECURE = DBCONSOLE_SESSION_COOKIE_SECURE_VALUE in {"1", "true", "yes", "on"}
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 ERROR_LOG_PERIOD_OPTIONS = (
@@ -372,18 +368,29 @@ def add_authenticated_no_store_headers(response):
 
 def ensure_profile_store():
     if PROFILE_STORE.exists():
+        chmod_private_file(PROFILE_STORE)
         return
     PROFILE_STORE.write_text(json.dumps({"profiles": []}, indent=2), encoding="utf-8")
+    chmod_private_file(PROFILE_STORE)
 
 
 def ensure_object_storage_store():
     if OBJECT_STORAGE_STORE.exists():
+        chmod_private_file(OBJECT_STORAGE_STORE)
         return
     OBJECT_STORAGE_STORE.write_text(json.dumps(DEFAULT_OBJECT_STORAGE, indent=2), encoding="utf-8")
+    chmod_private_file(OBJECT_STORAGE_STORE)
 
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def chmod_private_file(path):
+    try:
+        Path(path).chmod(0o600)
+    except OSError:
+        pass
 
 
 def _parse_iso_datetime(value):
@@ -402,6 +409,7 @@ def _append_dbconsole_update_log(message):
         handle.write(str(message or ""))
         if not str(message or "").endswith("\n"):
             handle.write("\n")
+    chmod_private_file(DBCONSOLE_UPDATE_LOG_FILE)
 
 
 def _write_dbconsole_update_status(payload):
@@ -410,7 +418,9 @@ def _write_dbconsole_update_status(payload):
     data["updated_at"] = _utc_now_iso()
     temp_path = DBCONSOLE_UPDATE_STATUS_FILE.with_suffix(".tmp")
     temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    chmod_private_file(temp_path)
     temp_path.replace(DBCONSOLE_UPDATE_STATUS_FILE)
+    chmod_private_file(DBCONSOLE_UPDATE_STATUS_FILE)
     return data
 
 
@@ -878,6 +888,7 @@ def save_profiles(profiles):
         seen.add(key)
         normalized_profiles.append(profile)
     PROFILE_STORE.write_text(json.dumps({"profiles": normalized_profiles}, indent=2), encoding="utf-8")
+    chmod_private_file(PROFILE_STORE)
 
 
 def get_profile_by_name(profile_name):
@@ -1004,6 +1015,7 @@ def load_object_storage_config():
 
 def save_object_storage_config(payload):
     OBJECT_STORAGE_STORE.write_text(json.dumps(normalize_object_storage(payload), indent=2), encoding="utf-8")
+    chmod_private_file(OBJECT_STORAGE_STORE)
 
 
 def fetch_setup_status():
@@ -7398,9 +7410,12 @@ def admin_status_variables_page():
 @app.route("/admin/update-dbconsole", methods=["GET", "POST"])
 @session_login_required
 def update_dbconsole_page():
+    update_start_allowed = is_local_admin_profile_session() or local_admin_profile_needs_bootstrap()
     if request.method == "POST":
         action = str(request.form.get("update_action", "")).strip().lower()
         if action == "start":
+            if not update_start_allowed:
+                abort(403)
             try:
                 local_admin_bootstrap = normalize_update_local_admin_bootstrap(request.form)
                 start_dbconsole_update_job(local_admin_bootstrap=local_admin_bootstrap)
@@ -7427,6 +7442,7 @@ def update_dbconsole_page():
         update_poll_token=_ensure_dbconsole_update_poll_token(),
         local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
         local_admin_bootstrap_required=local_admin_profile_needs_bootstrap(),
+        update_start_allowed=update_start_allowed,
         default_local_admin_user="localadmin",
         app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
         or {

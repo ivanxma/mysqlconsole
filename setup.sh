@@ -157,6 +157,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
 RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-$SCRIPT_DIR/.runtime.env}"
+DBCONSOLE_PYTHON_MIN_VERSION="${DBCONSOLE_PYTHON_MIN_VERSION:-3.12}"
+DBCONSOLE_PYTHON_BIN="${DBCONSOLE_PYTHON_BIN:-${PYTHON_BIN:-}}"
 OS_FAMILY_INPUT="${OS_FAMILY:-}"
 DEPLOY_MODE_INPUT="${DEPLOY_MODE:-}"
 HTTP_PORT_INPUT="${HTTP_PORT:-}"
@@ -185,6 +187,10 @@ LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
 LOCAL_MYSQL_PORT_INPUT="${LOCAL_MYSQL_PORT:-3306}"
 LOCAL_MYSQL_SOCKET_INPUT="${LOCAL_MYSQL_SOCKET:-}"
 LOCAL_MYSQL_DATABASE_INPUT="${LOCAL_MYSQL_DATABASE:-mysql}"
+DBCONSOLE_DEPENDENCY_AUDIT="${DBCONSOLE_DEPENDENCY_AUDIT:-warn}"
+DBCONSOLE_DEPENDENCY_AUDIT_STRICT="${DBCONSOLE_DEPENDENCY_AUDIT_STRICT:-0}"
+DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL="${DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL:-}"
+DBCONSOLE_UPDATE_ALLOWED_BRANCH="${DBCONSOLE_UPDATE_ALLOWED_BRANCH:-main}"
 EXISTING_DEFAULT_HTTP_PORT=""
 EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
@@ -196,7 +202,7 @@ print_usage() {
 Usage:
   ./setup.sh [os_family] [deploy_mode] [http_port] [https_port]
   ./setup.sh [os_family] [deploy_mode] [--http-port PORT] [--https-port PORT]
-  ./setup.sh [os_family] [deploy_mode] --local-mysql-admin-user USER --local-mysql-admin-password PASSWORD
+  LOCAL_MYSQL_ADMIN_USER=USER LOCAL_MYSQL_ADMIN_PASSWORD=PASSWORD ./setup.sh [os_family] [deploy_mode]
   curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- [args]
 
 Arguments:
@@ -206,13 +212,16 @@ Arguments:
 Environment overrides:
   OS_FAMILY, DEPLOY_MODE, HOST, HTTP_PORT, HTTPS_PORT, SSL_CERT_FILE,
   SSL_KEY_FILE, SERVICE_USER, SERVICE_GROUP, VENV_DIR, RUNTIME_ENV_FILE,
+  DBCONSOLE_PYTHON_BIN, DBCONSOLE_PYTHON_MIN_VERSION,
   EMBEDDED_MYSQL_SHELL_DIR, EMBEDDED_MYSQL_SERVER_DIR,
   MYSQL_SHELL_EMBEDDED_URL,
   MYSQL_SHELL_EMBEDDED_PACKAGE, MYSQL_SHELL_MACOS_PACKAGE_TAG,
   MYSQL_SERVER_VERSION, MYSQL_SERVER_EMBEDDED_URL,
   MYSQL_SERVER_EMBEDDED_PACKAGE, MYSQL_SERVER_MACOS_PACKAGE_TAG,
   LOCAL_MYSQL_ADMIN_USER, LOCAL_MYSQL_ADMIN_PASSWORD, LOCAL_MYSQL_PROFILE_NAME,
-  LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE
+  LOCAL_MYSQL_SOCKET, LOCAL_MYSQL_DATABASE, DBCONSOLE_DEPENDENCY_AUDIT,
+  DBCONSOLE_DEPENDENCY_AUDIT_STRICT, DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL,
+  DBCONSOLE_UPDATE_ALLOWED_BRANCH
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -313,6 +322,7 @@ parse_args() {
           echo "--local-mysql-admin-password requires a password value." >&2
           return 1
         fi
+        echo "Warning: --local-mysql-admin-password can expose the password in shell history and process listings. Prefer LOCAL_MYSQL_ADMIN_PASSWORD or the interactive prompt." >&2
         LOCAL_MYSQL_ADMIN_PASSWORD_INPUT="$2"
         shift 2
         ;;
@@ -460,6 +470,171 @@ port_requires_privileged_bind() {
   local port_value="$1"
 
   (( port_value > 0 && port_value < 1024 ))
+}
+
+truthy_value() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+version_major_minor_ge() {
+  local installed="$1"
+  local required="$2"
+  local installed_major installed_minor required_major required_minor
+
+  installed_major="${installed%%.*}"
+  installed_minor="${installed#*.}"
+  installed_minor="${installed_minor%%.*}"
+  required_major="${required%%.*}"
+  required_minor="${required#*.}"
+  required_minor="${required_minor%%.*}"
+
+  [[ "$installed_major" =~ ^[0-9]+$ && "$installed_minor" =~ ^[0-9]+$ && "$required_major" =~ ^[0-9]+$ && "$required_minor" =~ ^[0-9]+$ ]] || return 1
+  if (( installed_major > required_major )); then
+    return 0
+  fi
+  if (( installed_major < required_major )); then
+    return 1
+  fi
+  (( installed_minor >= required_minor ))
+}
+
+dependency_audit_enabled() {
+  case "$(printf '%s' "$DBCONSOLE_DEPENDENCY_AUDIT" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off|skip|none)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+dependency_audit_strict_enabled() {
+  truthy_value "$DBCONSOLE_DEPENDENCY_AUDIT_STRICT"
+}
+
+current_update_remote_url() {
+  if [[ -n "$DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL" ]]; then
+    printf '%s\n' "$DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL"
+    return 0
+  fi
+  if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true
+    return 0
+  fi
+  printf '%s\n' "https://github.com/ivanxma/mysqlconsole.git"
+}
+
+current_update_branch() {
+  if [[ -n "$DBCONSOLE_UPDATE_ALLOWED_BRANCH" ]]; then
+    printf '%s\n' "$DBCONSOLE_UPDATE_ALLOWED_BRANCH"
+    return 0
+  fi
+  if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || true
+    return 0
+  fi
+  printf '%s\n' "main"
+}
+
+python_version_for_command() {
+  local python_command="$1"
+  "$python_command" - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+}
+
+python_meets_min_version() {
+  local python_command="$1"
+  local python_version
+
+  if [[ -z "$python_command" ]] || ! command -v "$python_command" >/dev/null 2>&1; then
+    return 1
+  fi
+  python_version="$(python_version_for_command "$python_command" 2>/dev/null || true)"
+  [[ -n "$python_version" ]] && version_major_minor_ge "$python_version" "$DBCONSOLE_PYTHON_MIN_VERSION"
+}
+
+install_python_runtime() {
+  local os_family="$1"
+  local package_version="$DBCONSOLE_PYTHON_MIN_VERSION"
+
+  if skip_privileged_setup_enabled; then
+    log_skipped_privileged_step "Python ${package_version} runtime installation"
+    return 1
+  fi
+
+  case "$os_family" in
+    ol8|ol9)
+      if command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" || return 1
+      elif command -v yum >/dev/null 2>&1; then
+        run_as_root yum install -y "python${package_version}" "python${package_version}-pip" "python${package_version}-devel" || return 1
+      else
+        echo "Neither dnf nor yum was found. Install python${package_version} manually and rerun setup." >&2
+        return 1
+      fi
+      ;;
+    ubuntu)
+      if ! command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get was not found. Install python${package_version} manually and rerun setup." >&2
+        return 1
+      fi
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "python${package_version}" "python${package_version}-venv" "python${package_version}-dev" || return 1
+      ;;
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        brew install "python@${package_version}" || return 1
+      else
+        echo "Homebrew was not found. Install Python ${package_version} manually or set DBCONSOLE_PYTHON_BIN." >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "Install Python ${package_version} manually or set DBCONSOLE_PYTHON_BIN." >&2
+      return 1
+      ;;
+  esac
+}
+
+resolve_python_command() {
+  local os_family="$1"
+  local candidate
+  local package_minor="$DBCONSOLE_PYTHON_MIN_VERSION"
+  local candidates=()
+
+  if [[ -n "$DBCONSOLE_PYTHON_BIN" ]]; then
+    candidates+=("$DBCONSOLE_PYTHON_BIN")
+  fi
+  candidates+=("python${package_minor}" "python3.13" "python3.12" "python3")
+
+  for candidate in "${candidates[@]}"; do
+    if python_meets_min_version "$candidate"; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ was not found. Attempting platform installation." >&2
+  install_python_runtime "$os_family" || {
+    echo "Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ is required. Install it manually or set DBCONSOLE_PYTHON_BIN=/path/to/python." >&2
+    return 1
+  }
+
+  for candidate in "${candidates[@]}"; do
+    if python_meets_min_version "$candidate"; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ installation completed, but no suitable interpreter was found in PATH." >&2
+  return 1
 }
 
 load_existing_runtime_env() {
@@ -815,13 +990,37 @@ write_runtime_env() {
   local ssl_cert_file="$4"
   local ssl_key_file="$5"
   local os_family="$6"
+  local deploy_mode="$7"
   local embedded_mysqlsh="${DBCONSOLE_MYSQLSH:-}"
+  local update_remote_url
+  local update_branch
+  local session_cookie_secure
+  local python_bin_value="${DBCONSOLE_PYTHON_BIN:-}"
+
+  update_remote_url="$(current_update_remote_url)"
+  update_branch="$(current_update_branch)"
+  case "$deploy_mode" in
+    https|both) session_cookie_secure=1 ;;
+    *) session_cookie_secure=0 ;;
+  esac
 
   {
     echo "# Generated by setup.sh"
     echo "HOST=$host_value"
+    echo "DEPLOY_MODE=$deploy_mode"
     echo "DEFAULT_HTTP_PORT=$http_port"
     echo "DEFAULT_HTTPS_PORT=$https_port"
+    echo "DBCONSOLE_PYTHON_MIN_VERSION=$DBCONSOLE_PYTHON_MIN_VERSION"
+    if [[ -n "$python_bin_value" ]]; then
+      echo "DBCONSOLE_PYTHON_BIN=$python_bin_value"
+    fi
+    echo "DBCONSOLE_SESSION_COOKIE_SECURE=$session_cookie_secure"
+    if [[ -n "$update_remote_url" ]]; then
+      echo "DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL=$update_remote_url"
+    fi
+    if [[ -n "$update_branch" ]]; then
+      echo "DBCONSOLE_UPDATE_ALLOWED_BRANCH=$update_branch"
+    fi
     if local_mysql_bootstrap_requested; then
       echo "LOCAL_MYSQL_AUTOSTART=1"
       echo "LOCAL_MYSQL_SOCKET=$LOCAL_MYSQL_SOCKET_INPUT"
@@ -854,6 +1053,7 @@ write_runtime_env() {
       echo "DBCONSOLE_MYSQLSH=$embedded_mysqlsh"
     fi
   } >"$RUNTIME_ENV_FILE"
+  chmod 600 "$RUNTIME_ENV_FILE"
 }
 
 fix_tls_permissions() {
@@ -871,6 +1071,78 @@ fix_tls_permissions() {
       return 0
     fi
     run_as_root chown "$service_user:$service_group" "$ssl_cert_file" "$ssl_key_file"
+  fi
+}
+
+run_dependency_audit() {
+  local audit_cache_dir="$SCRIPT_DIR/.cache/pip-audit"
+
+  if ! dependency_audit_enabled; then
+    echo "Dependency audit skipped because DBCONSOLE_DEPENDENCY_AUDIT=$DBCONSOLE_DEPENDENCY_AUDIT."
+    return 0
+  fi
+
+  echo "Running dependency vulnerability audit with pip-audit."
+  mkdir -p "$audit_cache_dir"
+  if ! "$VENV_DIR/bin/python" -m pip install --upgrade pip-audit; then
+    if dependency_audit_strict_enabled; then
+      echo "Dependency audit setup failed and DBCONSOLE_DEPENDENCY_AUDIT_STRICT=1." >&2
+      return 1
+    fi
+    echo "Dependency audit setup failed; continuing because audit is warn-only. Set DBCONSOLE_DEPENDENCY_AUDIT_STRICT=1 to fail setup." >&2
+    return 0
+  fi
+
+  if "$VENV_DIR/bin/python" -m pip_audit -r "$SCRIPT_DIR/requirements.txt" --cache-dir "$audit_cache_dir"; then
+    echo "Dependency vulnerability audit completed without reported vulnerabilities."
+    return 0
+  fi
+
+  if dependency_audit_strict_enabled; then
+    echo "Dependency vulnerability audit failed and strict mode is enabled." >&2
+    return 1
+  fi
+
+  echo "Dependency vulnerability audit reported issues or could not complete; continuing because audit is warn-only." >&2
+  return 0
+}
+
+harden_local_file_permissions() {
+  local file_path
+  local dir_path
+
+  for file_path in \
+    "$RUNTIME_ENV_FILE" \
+    "$SCRIPT_DIR/.flask_secret_key" \
+    "$SCRIPT_DIR/profiles.json" \
+    "$SCRIPT_DIR/object_storage.json"; do
+    if [[ -f "$file_path" ]]; then
+      chmod 600 "$file_path" 2>/dev/null || true
+    fi
+  done
+
+  if [[ -d "$SCRIPT_DIR/profile_ssh_keys" ]]; then
+    chmod 700 "$SCRIPT_DIR/profile_ssh_keys" 2>/dev/null || true
+    while IFS= read -r -d '' dir_path; do
+      chmod 700 "$dir_path" 2>/dev/null || true
+    done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type d -print0 2>/dev/null)
+    while IFS= read -r -d '' file_path; do
+      chmod 600 "$file_path" 2>/dev/null || true
+    done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
+  fi
+
+  if [[ -d "$SCRIPT_DIR/tls" ]]; then
+    chmod 700 "$SCRIPT_DIR/tls" 2>/dev/null || true
+    while IFS= read -r -d '' file_path; do
+      case "$file_path" in
+        *.key|*.pem|*.p12|*.pfx|*.jks|*.keystore)
+          chmod 600 "$file_path" 2>/dev/null || true
+          ;;
+        *)
+          chmod 644 "$file_path" 2>/dev/null || true
+          ;;
+      esac
+    done < <(find "$SCRIPT_DIR/tls" -type f -print0 2>/dev/null)
   fi
 }
 
@@ -2136,13 +2408,6 @@ resolve_platform_dir() {
   return 1
 }
 
-ensure_python() {
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "python3 is required but was not found in PATH." >&2
-    return 1
-  fi
-}
-
 main() {
   local original_arg_count="$#"
   local os_family="$OS_FAMILY_INPUT"
@@ -2156,11 +2421,11 @@ main() {
   local service_group
   local prompted_ports
   local tls_assets
+  local python_command
 
   load_existing_runtime_env
   parse_args "$@"
   os_family="$OS_FAMILY_INPUT"
-  ensure_python
 
   if [[ -z "$os_family" ]]; then
     os_family="$(detect_os_family)"
@@ -2230,9 +2495,12 @@ main() {
   ssl_cert_file="$(printf '%s\n' "$tls_assets" | sed -n '1p')"
   ssl_key_file="$(printf '%s\n' "$tls_assets" | sed -n '2p')"
 
-  python3 -m venv "$VENV_DIR"
+  python_command="$(resolve_python_command "$os_family")"
+  DBCONSOLE_PYTHON_BIN="$python_command"
+  "$python_command" -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
   "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+  run_dependency_audit
 
   run_mysqlsh_installer "$os_family"
   install_local_mysql_server "$os_family"
@@ -2242,7 +2510,8 @@ main() {
   fi
   configure_local_mysql_admin_account
   write_local_admin_profile
-  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family"
+  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family" "$deploy_mode"
+  harden_local_file_permissions
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 
   sync_firewall_ports "$deploy_mode" "$http_port" "$https_port" "$EXISTING_DEFAULT_HTTP_PORT" "$EXISTING_DEFAULT_HTTPS_PORT"

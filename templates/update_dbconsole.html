@@ -61,11 +61,15 @@
       {% if local_admin_bootstrap_required %}
       <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Auto-update requires a one-time temporary password to install the local MySQL admin account and create the socket-only profile. After update, sign in with this profile and DBConsole will require a password change, then log out.
       {% else %}
+      {% if update_start_allowed %}
       Leave the password fields blank unless you want setup to repair or refresh <code>{{ local_admin_profile_name }}</code>. Supplied passwords are passed only to this update worker and are not saved.
+      {% else %}
+      Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update after the local admin profile has been created. Version retrieval and status viewing remain available for authenticated sessions.
+      {% endif %}
       {% endif %}
     </p>
     <div class="form-actions">
-      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
+      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start or not update_start_allowed %}disabled{% endif %}>Auto-Update</button>
     </div>
   </form>
 
