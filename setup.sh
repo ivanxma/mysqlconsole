@@ -647,6 +647,30 @@ resolve_python_command() {
   return 1
 }
 
+prepare_virtualenv() {
+  local python_command="$1"
+  local existing_version=""
+
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    existing_version="$(python_version_for_command "$VENV_DIR/bin/python" 2>/dev/null || true)"
+    if [[ -z "$existing_version" ]] || ! version_major_minor_ge "$existing_version" "$DBCONSOLE_PYTHON_MIN_VERSION"; then
+      echo "Existing virtual environment uses Python ${existing_version:-unknown}; rebuilding with Python ${DBCONSOLE_PYTHON_MIN_VERSION}+."
+      rm -rf "$VENV_DIR"
+    fi
+  fi
+
+  "$python_command" -m venv "$VENV_DIR"
+  if ! python_meets_min_version "$VENV_DIR/bin/python"; then
+    existing_version="$(python_version_for_command "$VENV_DIR/bin/python" 2>/dev/null || true)"
+    echo "Virtual environment at $VENV_DIR uses Python ${existing_version:-unknown}, but Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ is required." >&2
+    echo "Remove $VENV_DIR and rerun setup, or set DBCONSOLE_PYTHON_BIN to a Python ${DBCONSOLE_PYTHON_MIN_VERSION}+ interpreter." >&2
+    return 1
+  fi
+
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
+  "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+}
+
 load_existing_runtime_env() {
   if [[ ! -f "$RUNTIME_ENV_FILE" ]]; then
     return 0
@@ -2543,9 +2567,7 @@ main() {
 
   python_command="$(resolve_python_command "$os_family")"
   DBCONSOLE_PYTHON_BIN="$python_command"
-  "$python_command" -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
-  "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+  prepare_virtualenv "$python_command"
   run_dependency_audit
 
   run_mysqlsh_installer "$os_family"

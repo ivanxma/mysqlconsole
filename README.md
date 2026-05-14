@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3b`
+Current version: `1.0.3c`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -249,7 +249,7 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
 
 `setup.sh` will:
 
-- select or install Python 3.12 or newer, then create `.venv` from that interpreter
+- select or install Python 3.12 or newer, then create `.venv` from that interpreter; if an existing `.venv` was created with an older Python, setup rebuilds it before installing dependencies
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
   - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and ask DNF for the best available vendor `mysql-shell` package

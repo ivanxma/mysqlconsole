@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3b`.
+Version summary from `1.0.2a` to `1.0.3c`.
+
+## 1.0.3c Summary
+
+Version `1.0.3c` repairs Python runtime migration for deployments that already had a `.venv` created by Python 3.9 before the Python 3.12 policy was introduced.
+
+- Rebuilds an existing `.venv` when its interpreter is older than the configured `DBCONSOLE_PYTHON_MIN_VERSION`.
+- Installs dependencies through `.venv/bin/python -m pip` so pip, packages, and the service interpreter stay aligned.
+- Fails setup with a clear message if the rebuilt virtual environment still does not satisfy the Python 3.12+ policy.
 
 ## 1.0.3b Summary
 

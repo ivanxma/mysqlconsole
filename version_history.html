@@ -128,10 +128,23 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3b</span>
+      <span class="badge">Release 1.0.3c</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3b</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3c</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3c Summary</h2>
+      <p>
+        Version <code>1.0.3c</code> repairs Python runtime migration for deployments that already had a
+        <code>.venv</code> created by Python 3.9 before the Python 3.12 policy was introduced.
+      </p>
+      <ul>
+        <li>Rebuilds an existing <code>.venv</code> when its interpreter is older than the configured <code>DBCONSOLE_PYTHON_MIN_VERSION</code>.</li>
+        <li>Installs dependencies through <code>.venv/bin/python -m pip</code> so pip, packages, and the service interpreter stay aligned.</li>
+        <li>Fails setup with a clear message if the rebuilt virtual environment still does not satisfy the Python 3.12+ policy.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3b Summary</h2>
