@@ -75,20 +75,25 @@ if [ -r "\$SERVICE_FILE" ]; then
   SERVICE_NAME="\$(head -n 1 "\$SERVICE_FILE")"
 fi
 
+show_service_status() {
+  [ -n "\$SERVICE_NAME" ] || return 0
+  if systemctl list-unit-files "\$SERVICE_NAME" --no-legend 2>/dev/null | grep -Fq "\$SERVICE_NAME"; then
+    systemctl --no-pager --full --lines=12 status "\$SERVICE_NAME" || true
+  else
+    printf '%s\\n' "DBConsole service unit has not been created yet."
+  fi
+}
+
 printf '\\n'
 if [ -f "\$INSTALLING_FLAG" ]; then
   printf '%s\\n' "Please wait until installation to be completed."
 elif [ -f "\$INSTALLED_FLAG" ]; then
   printf '%s\\n' "$APP_TITLE setup has been completed"
-  if [ -n "\$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "\$SERVICE_NAME" || true
-  fi
+  show_service_status
 elif [ -f "\$FAILED_FLAG" ]; then
   printf '%s\\n' "The installation finished with errors. Recent setup log:"
   tail -n 30 "\$LOG_FILE" 2>/dev/null || true
-  if [ -n "\$SERVICE_NAME" ]; then
-    systemctl --no-pager --full --lines=12 status "\$SERVICE_NAME" || true
-  fi
+  show_service_status
 fi
 printf '\\n'
 BANNER

@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3i</span>
+      <span class="badge">Release 1.0.3j</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3i</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3j</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3j Summary</h2>
+      <p>
+        Version <code>1.0.3j</code> fixes OL9 OCI Compute first-boot provisioning when MySQL 9.7 installs with an unknown package-generated root password and the init-file path does not create <code>localadmin</code>.
+      </p>
+      <ul>
+        <li>Added a one-time local MySQL grant-table bypass fallback that runs with <code>skip-networking</code>, creates or resets only <code>localadmin@localhost</code>, removes the temporary config, restarts MySQL normally, and verifies the supplied localadmin password.</li>
+        <li>Kept the recovery path root-safe: setup still does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>.</li>
+        <li>Updated OCI first-boot guidance so the fallback behavior is documented for DBConsole-managed local MySQL installs.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3i Summary</h2>

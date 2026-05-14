@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3i`
+Current version: `1.0.3j`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -114,6 +114,8 @@ Examples:
 Interactive runs prompt for omitted values. Non-interactive runs should pass the OS family, deploy mode, and listener ports explicitly or set the matching environment variables.
 
 When `./setup.sh` is run interactively without parameters, it also prompts for the default local MySQL admin username and password. Providing those values makes setup install/start the local MySQL Innovation server where supported, write the socket-only startup config, create or refresh only the local `user@localhost` admin account, and generate the first `local-admin-profile`.
+
+On DBConsole-managed local MySQL installs where the package-generated `root@localhost` password is unknown, setup first tries socket-root access, then one-time init-file provisioning, then a one-time local grant-table bypass with `skip-networking`. The grant-table bypass creates or resets only `localadmin@localhost`, removes its temporary MySQL config, restarts MySQL normally, and verifies the supplied localadmin password before continuing. It does not create or reset a MySQL root account.
 
 Interactive setup also checks whether `local-admin-profile` is missing or not configured as the expected socket-only profile. If it needs repair and admin credentials were not supplied, setup prompts for the local MySQL admin username and password, then patches `profiles.json` after provisioning the socket-only local MySQL account.
 

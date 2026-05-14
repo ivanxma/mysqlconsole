@@ -2455,6 +2455,97 @@ provision_local_mysql_admin_with_init_file() {
   return 1
 }
 
+provision_local_mysql_admin_with_grant_table_bypass() {
+  local os_family="$1"
+  local mysql_bin="$2"
+  local admin_defaults="$3"
+  local sql_file="$4"
+  local service_name
+  local bypass_config_file
+  local bypass_sql_file
+  local attempt
+  local verify_attempt
+
+  if ! local_mysql_init_file_provisioning_enabled; then
+    return 1
+  fi
+  if skip_privileged_setup_enabled; then
+    return 1
+  fi
+
+  case "$os_family" in
+    ol8|ol9)
+      ensure_mysql_config_include_dir "$os_family"
+      bypass_config_file="/etc/my.cnf.d/dbconsole-local-grant-bypass.cnf"
+      ;;
+    ubuntu)
+      ensure_mysql_config_include_dir "$os_family"
+      bypass_config_file="/etc/mysql/conf.d/dbconsole-local-grant-bypass.cnf"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  bypass_sql_file="$(mktemp)"
+  {
+    echo "FLUSH PRIVILEGES;"
+    cat "$sql_file"
+  } >"$bypass_sql_file"
+  chmod 600 "$bypass_sql_file"
+
+  service_name="$(local_mysql_service_name "$os_family")"
+  echo "Attempting one-time local MySQL grant-table bypass provisioning for '$LOCAL_MYSQL_ADMIN_USER_INPUT'."
+  echo "This temporary recovery path uses skip-grant-tables with skip-networking and creates or resets only '$LOCAL_MYSQL_ADMIN_USER_INPUT'@'localhost'."
+
+  {
+    echo "[mysqld]"
+    echo "skip-grant-tables"
+    echo "skip-networking"
+    echo "mysqlx=0"
+    echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
+  } | write_root_file "$bypass_config_file"
+  run_as_root chmod 644 "$bypass_config_file" || true
+  restore_selinux_context "$bypass_config_file"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root systemctl restart "$service_name" || true
+  else
+    run_as_root service "$service_name" restart || true
+  fi
+
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if run_mysql_socket_root_file "$mysql_bin" "$bypass_sql_file" >/dev/null 2>&1; then
+      run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
+      if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl restart "$service_name" || true
+      else
+        run_as_root service "$service_name" restart || true
+      fi
+      for verify_attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        if run_mysql_file "$mysql_bin" "$admin_defaults" "$sql_file" >/dev/null 2>&1; then
+          rm -f "$bypass_sql_file"
+          echo "Local MySQL admin account '$LOCAL_MYSQL_ADMIN_USER_INPUT' configured after one-time grant-table bypass provisioning."
+          return 0
+        fi
+        sleep 1
+      done
+      rm -f "$bypass_sql_file"
+      return 1
+    fi
+    sleep 1
+  done
+
+  run_as_root rm -f "$bypass_config_file" >/dev/null 2>&1 || true
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root systemctl restart "$service_name" || true
+  else
+    run_as_root service "$service_name" restart || true
+  fi
+  rm -f "$bypass_sql_file"
+  return 1
+}
+
 configure_local_mysql_admin_account() {
   local os_family="$1"
   local mysql_bin
@@ -2508,6 +2599,11 @@ configure_local_mysql_admin_account() {
   fi
 
   if provision_local_mysql_admin_with_init_file "$os_family" "$mysql_bin" "$admin_defaults" "$sql_file"; then
+    rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$existing_root_sql_file"
+    return 0
+  fi
+
+  if provision_local_mysql_admin_with_grant_table_bypass "$os_family" "$mysql_bin" "$admin_defaults" "$sql_file"; then
     rm -f "$admin_defaults" "$root_defaults" "$sql_file" "$existing_root_sql_file"
     return 0
   fi
