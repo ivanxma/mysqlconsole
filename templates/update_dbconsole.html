@@ -29,17 +29,14 @@
       {% if bootstrap_required %}
       First-time bootstrap is available because <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Enter and confirm a temporary <code>{{ local_admin_mysql_user }}</code> password to create or reset only that local MySQL account during setup.
       {% elif update_start_allowed %}
-      Auto-Update runs from an authenticated <code>{{ local_admin_profile_name }}</code> session.
+      Auto-Update runs from an authenticated <code>{{ local_admin_profile_name }}</code> session. Use the local-admin password change page for password changes.
       {% else %}
       Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update. Version retrieval and status viewing remain available for authenticated sessions.
       {% endif %}
     </p>
+    {% if bootstrap_required %}
     <div class="flash error">
-      {% if bootstrap_required %}
       Required first-time bootstrap: this reset creates or repairs <code>{{ local_admin_mysql_user }}@localhost</code> only. DBConsole does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>. After the update, sign in with <code>{{ local_admin_profile_name }}</code>, username <code>{{ local_admin_mysql_user }}</code>, and this temporary password; DBConsole will require an immediate password change.
-      {% else %}
-      Optional localadmin reset: entering a new password below resets the MySQL account <code>{{ local_admin_mysql_user }}</code> during setup. Leave both password fields blank to keep the current localadmin password. No MySQL <code>root</code> user is created or reset.
-      {% endif %}
     </div>
     <div class="form-grid update-bootstrap-grid">
       <label>
@@ -73,10 +70,14 @@
       </label>
       <label class="checkbox-field">
         <input type="checkbox" name="confirm_local_mysql_admin_reset" value="yes" {% if bootstrap_required %}required{% endif %}>
-        Confirm reset of the localadmin MySQL password
+        Confirm setup of the localadmin MySQL password
       </label>
     </div>
+    {% endif %}
     <div class="form-actions">
+      {% if not bootstrap_required and update_start_allowed %}
+      <a class="button secondary" href="{{ url_for('local_admin_password_page') }}">Change Localadmin Password</a>
+      {% endif %}
       <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start or not update_start_allowed %}disabled{% endif %}>Auto-Update</button>
     </div>
   </form>

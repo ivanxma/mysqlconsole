@@ -566,7 +566,7 @@ UPDATE_LOCAL_ADMIN_RESET_FIELDS = {
 }
 
 
-def normalize_update_local_admin_password_reset(form_payload, require_password=False):
+def normalize_update_local_admin_bootstrap_credentials(form_payload, require_password=False):
     form_has_reset_fields = any(field_name in form_payload for field_name in UPDATE_LOCAL_ADMIN_RESET_FIELDS)
     if require_password and not form_has_reset_fields:
         return {}
@@ -584,7 +584,7 @@ def normalize_update_local_admin_password_reset(form_payload, require_password=F
     if password != confirm_password:
         raise ValueError("Localadmin password confirmation does not match.")
     if not acknowledged:
-        raise ValueError("Confirm that Auto-Update should reset the localadmin MySQL password.")
+        raise ValueError("Confirm that Auto-Update should set up the localadmin MySQL password.")
 
     profile = get_session_profile() if is_local_admin_profile_session() else {}
     username = str(profile.get("username") or "localadmin").strip() or "localadmin"
@@ -633,7 +633,7 @@ def start_dbconsole_update_job(local_admin_password_reset=None):
             worker_env[key] = value
     if local_admin_password_reset:
         _append_dbconsole_update_log(
-            "Localadmin password reset was requested for this update. The password is not logged or saved."
+            "Localadmin first-time bootstrap credentials were supplied for this update. The password is not logged or saved."
         )
     worker = subprocess.Popen(
         [
@@ -7457,10 +7457,17 @@ def update_dbconsole_page():
             if not update_start_allowed:
                 abort(403)
             try:
-                local_admin_password_reset = normalize_update_local_admin_password_reset(
-                    request.form,
-                    require_password=bootstrap_required,
-                )
+                if bootstrap_required:
+                    local_admin_password_reset = normalize_update_local_admin_bootstrap_credentials(
+                        request.form,
+                        require_password=True,
+                    )
+                elif any(field_name in request.form for field_name in UPDATE_LOCAL_ADMIN_RESET_FIELDS):
+                    raise ValueError(
+                        "Use the local-admin password change page to change an existing localadmin password."
+                    )
+                else:
+                    local_admin_password_reset = {}
                 start_dbconsole_update_job(local_admin_password_reset=local_admin_password_reset)
                 flash("Auto-update started.", "success")
             except Exception as error:

@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3f</span>
+      <span class="badge">Release 1.0.3g</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3f</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3g</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3g Summary</h2>
+      <p>
+        Version <code>1.0.3g</code> tightens Auto-Update credential handling after local admin bootstrap.
+      </p>
+      <ul>
+        <li>Auto-Update collects a temporary <code>localadmin</code> password only when <code>local-admin-profile</code> is missing or not socket-only.</li>
+        <li>Existing <code>local-admin-profile</code> sessions no longer see or submit localadmin password setup fields on Auto-Update.</li>
+        <li>Existing localadmin password changes remain available only through the local-admin password change flow.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3f Summary</h2>

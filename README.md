@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3f`
+Current version: `1.0.3g`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -348,7 +348,7 @@ In that fallback mode, privileged changes such as MySQL Shell package installati
 
 When passwordless `sudo` is available, auto-update reruns the full `setup.sh` path, upgrades the app virtual environment to Python 3.12 or newer when needed, and upgrades MySQL Shell Innovation to the latest package available for the platform before restarting DBConsole.
 
-Auto-update is available from a session logged in through `local-admin-profile`. A first-time bootstrap exception is also available for older DBConsole deployments where `local-admin-profile` is missing or not socket-only: an authenticated session can open `Admin > Auto-Update`, but the start action requires a new localadmin password, password confirmation, and an explicit reset confirmation. That bootstrap path creates or resets only `localadmin@localhost`; it does not create a MySQL `root` user and does not reset `root@localhost`. The update worker also verifies the configured git `origin` and branch before it fetches or pulls. By default it expects `https://github.com/ivanxma/mysqlconsole.git` on `main`; set `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL` and `DBCONSOLE_UPDATE_ALLOWED_BRANCH` only after verifying the intended deployment source.
+Auto-update is available from a session logged in through `local-admin-profile`. A first-time bootstrap exception is also available for older DBConsole deployments where `local-admin-profile` is missing or not socket-only: an authenticated session can open `Admin > Auto-Update`, but the start action requires a new localadmin password, password confirmation, and an explicit setup confirmation. That bootstrap path creates or resets only `localadmin@localhost`; it does not create a MySQL `root` user and does not reset `root@localhost`. Once `local-admin-profile` exists and is in use, Auto-Update no longer displays or accepts localadmin password setup fields; use the local-admin password change page to change the existing password. The update worker also verifies the configured git `origin` and branch before it fetches or pulls. By default it expects `https://github.com/ivanxma/mysqlconsole.git` on `main`; set `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL` and `DBCONSOLE_UPDATE_ALLOWED_BRANCH` only after verifying the intended deployment source.
 
 Before repository validation, after any preserved local files are restored, and after rerunning setup, Auto-Update repairs local deployment permissions for `.runtime.env`, `.flask_secret_key`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/`. It also treats generated security/vulnerability reports and `pip-audit` reports as local deployment artifacts during the worktree check so existing hardening outputs do not block an update.
 

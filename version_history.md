@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3f`.
+Version summary from `1.0.2a` to `1.0.3g`.
+
+## 1.0.3g Summary
+
+Version `1.0.3g` tightens Auto-Update credential handling after local admin bootstrap.
+
+- Auto-Update collects a temporary `localadmin` password only when `local-admin-profile` is missing or not socket-only.
+- Existing `local-admin-profile` sessions no longer see or submit localadmin password setup fields on Auto-Update.
+- Existing localadmin password changes remain available only through the local-admin password change flow.
 
 ## 1.0.3f Summary
 
