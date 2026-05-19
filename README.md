@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3o`
+Current version: `1.0.3p`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -161,20 +161,20 @@ OCI Compute platform choices:
 | --- | --- | --- | --- | --- |
 | Oracle Linux 8 | Oracle Linux 8 | `opc` | `ol8` | `/home/opc/mysqlconsole/.data/run/mysql.sock` |
 | Oracle Linux 9 | Oracle Linux 9 | `opc` | `ol9` | `/home/opc/mysqlconsole/.data/run/mysql.sock` |
-| Ubuntu | Ubuntu 22.04 or 24.04 | `ubuntu` | `ubuntu` | `/home/ubuntu/mysqlconsole/.data/run/mysql.sock` |
+| Ubuntu | Ubuntu 24.04 | `ubuntu` | `ubuntu` | `/home/ubuntu/mysqlconsole/.data/run/mysql.sock` |
 | macOS | Not an OCI Compute Linux target | n/a | `macos` | n/a |
 
 Instance values to choose in OCI:
 
 - Compartment: `<compartment>`
-- Image: Oracle Linux 8, Oracle Linux 9, or Ubuntu
+- Image: Oracle Linux 8, Oracle Linux 9, or Ubuntu 24.04
 - Shape: `<shape>`
 - VCN/Subnet: `<vcn>` / `<subnet>`
 - Public IPv4: enabled when you want direct browser/SSH access
 - SSH public key: your SSH public key
 - Deploy mode: `https`, `http`, or `both`
 
-Open ingress only for the selected deploy mode:
+Open OCI subnet security-list or NSG ingress only for the selected deploy mode. `setup.sh` also updates the instance-local host firewall, but OCI network ingress must allow the same port before external browser checks can pass:
 
 - SSH: TCP `22` from your admin CIDR
 - HTTPS: TCP `443` when deploy mode is `https` or `both`
@@ -266,6 +266,8 @@ ssh opc@"$PUBLIC_IP"
 sudo tail -n 120 /var/log/dbconsole-init.log
 sudo ls -l /var/lib/dbconsole-init
 systemctl --no-pager status dbconsole-https.service
+sudo firewall-cmd --zone=public --list-ports 2>/dev/null || true
+sudo nft list ruleset 2>/dev/null | grep -n 'dport 443' || true
 curl -kI "https://$PUBLIC_IP/"
 ```
 
@@ -277,6 +279,10 @@ ssh ubuntu@"$PUBLIC_IP"
 sudo tail -n 120 /var/log/dbconsole-init.log
 sudo ls -l /var/lib/dbconsole-init
 systemctl --no-pager status dbconsole-https.service
+sudo iptables -S INPUT
+sudo aa-status 2>/dev/null || true
+sudo cat /etc/apparmor.d/local/usr.sbin.mysqld 2>/dev/null || true
+sudo apparmor_parser -T -r /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
 curl -kI "https://$PUBLIC_IP/"
 ```
 
@@ -286,16 +292,16 @@ Platform validation for this deployment path:
 
 | Platform | Validation status |
 | --- | --- |
-| Oracle Linux 9 OCI Compute | Live first-boot repair and setup validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. |
-| Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
-| Ubuntu | Live OCI Compute validation completed with Python 3.12 venv repair, refreshed MySQL APT repository signing key, DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, and HTTPS `200` response. Setup writes a local AppArmor allowance for DBConsole's app-local MySQL config and `.data/` paths before initializing the socket-only local MySQL instance. |
+| Oracle Linux 9 OCI Compute | Live first-boot validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld runtime port opening, and external HTTPS `200` response. |
+| Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld/nft runtime fallback when `firewall-cmd` stalls, and external HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
+| Ubuntu 24.04 | Live OCI Compute validation completed with Python 3.12 venv repair, refreshed MySQL APT repository signing key, DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, host `iptables` 443 rule before the terminal reject rule, and external HTTPS `200` response. Setup writes a local AppArmor allowance for DBConsole's app-local MySQL config, `.embedded/mysql-server/`, and `.data/` paths before initializing the socket-only local MySQL instance. |
 | macOS | Static validation covers `setup.sh macos`, start/stop scripts, and the macOS MySQL Shell installer. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 
 The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` to be set to a real password value in the pasted initialization script. It refuses to generate or log a password automatically, and first boot fails if the variable is empty or omitted. Setup uses `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` to install MySQL Server binaries where supported, write DBConsole's app-local socket-only MySQL config, initialize `.data/mysql`, rename the initialized `root@localhost` account to the submitted local admin account, set the submitted password, and write the first non-secret login profile named `local-admin-profile` into `profiles.json`. `localadmin` is the DBConsole-managed local administrator account; the DBConsole-managed local instance does not keep a usable `root@localhost` account after initialization. Do not enable shell xtrace (`set -x`) in wrappers that pass these passwords, because cloud-init and console logs can retain command traces.
 
-OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use platform packages for MySQL Server binaries but run a DBConsole-managed socket-only MySQL instance from `etc/my.cnf` and `.data/`; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute.
+OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use platform packages for MySQL Server binaries but run a DBConsole-managed socket-only MySQL instance from `etc/my.cnf` and `.data/`; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute. The HTTP and HTTPS start scripts run Flask with threaded request handling so repeated health checks do not fill a single-threaded listener backlog.
 
 On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` values supplied to setup. DBConsole sends that session directly to the local-admin password-change screen. After the password is changed, DBConsole logs the user out so the old setup password is no longer active in the browser session. Sign in again with `local-admin-profile` and the new password to manage profiles. For OCI Compute instances that already have `local-admin-profile`, change the existing `localadmin` password from the local-admin password change page; Auto-Update does not collect localadmin password fields after bootstrap is complete.
 
@@ -315,12 +321,12 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
   - Linux installers try the configured vendor package repository first; if the repository has not published the required MySQL Shell version yet, setup computes a MySQL vendor package URL from the discovered or pinned version, platform, and CPU architecture and installs that package
 - save default HTTP and HTTPS ports in `.runtime.env`
 - when `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` are provided, install MySQL Server binaries, write app-local `etc/my.cnf`, initialize `.data/mysql` with `mysqld --initialize`, rename the initialized `root@localhost` account to the submitted `user@localhost`, set the submitted password, and create the first `local-admin-profile` entry in `profiles.json`; setup does not create application tables or default schemas on connected databases
-- on Ubuntu, add a local AppArmor allowance for the generated `etc/my.cnf` file and `.data/` tree before running the app-managed `mysqld --initialize`
+- on Ubuntu, add a local AppArmor allowance for the generated `etc/my.cnf` file, `.embedded/mysql-server/`, and `.data/` tree before running the app-managed `mysqld --initialize`; AppArmor does not control HTTPS port `443` ingress, so external HTTPS failures should also check OCI ingress and host firewall rules
 - on OL8, disable the platform MySQL module before installing Oracle MySQL community server and client packages
 - mark the generated `local-admin-profile` for first-login password rotation; DBConsole requires the password change before profile management and logs out after the change
 - when run interactively, prompt for omitted setup values and offer current/default values for OS family, deploy mode, host, the listener port for the selected deploy mode, TLS paths, and service user/group when applicable
 - when deploy mode is `https` or `both` and no TLS paths are supplied, generate a default self-signed certificate and key under `tls/`
-- synchronize the selected HTTP/HTTPS TCP ports with the host firewall when `firewall-cmd` or `ufw` is available, including removing stale DBConsole ports that are no longer selected
+- synchronize the selected HTTP/HTTPS TCP ports with the host firewall, including removing stale DBConsole ports that are no longer selected; on OL8/OL9 setup opens the firewalld runtime zone port before attempting permanent persistence and can fall back to an `nft` firewalld input allow rule when `firewall-cmd` stalls, while Ubuntu uses `ufw` when present or an `iptables` rule inserted before any terminal reject/drop rule
 - it does not stop or disable the firewall service globally; it only updates the DBConsole listener ports
 - on `ol8`, `ol9`, and `ubuntu`, install `dbconsole-http.service` and `dbconsole-https.service`
 - when a Linux systemd service is configured to use a port below `1024`, grant `CAP_NET_BIND_SERVICE` so `80` and `443` do not require running the service as `root`, without clamping the rest of the service capability set

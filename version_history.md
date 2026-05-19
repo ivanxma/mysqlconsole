@@ -1,6 +1,15 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3o`.
+Version summary from `1.0.2a` to `1.0.3p`.
+
+## 1.0.3p Summary
+
+Version `1.0.3p` updates OCI Compute deployment documentation to match the validated OL8, OL9, and Ubuntu 24.04 first-boot behavior.
+
+- Corrected the README OCI init-script platform matrix to document Ubuntu 24.04, `opc` for Oracle Linux, and `ubuntu` for Ubuntu.
+- Clarified that OCI subnet security-list or NSG ingress must allow the selected listener port in addition to the instance-local firewall updates done by `setup.sh`.
+- Added OL8/OL9 verification checks for firewalld/nft listener rules and Ubuntu verification checks for iptables ordering and AppArmor mysqld profile state.
+- Recorded the validated firewalld runtime/nft fallback, Ubuntu iptables-before-reject rule, AppArmor allowances for `etc/my.cnf`, `.embedded/mysql-server/`, and `.data/`, threaded Flask listeners, and external HTTPS `200` checks.
 
 ## 1.0.3o Summary
 

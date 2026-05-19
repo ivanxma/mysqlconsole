@@ -128,10 +128,23 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3o</span>
+      <span class="badge">Release 1.0.3p</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3o</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3p</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3p Summary</h2>
+      <p>
+        Version <code>1.0.3p</code> updates OCI Compute deployment documentation to match the validated OL8, OL9, and Ubuntu 24.04 first-boot behavior.
+      </p>
+      <ul>
+        <li>Corrected the README OCI init-script platform matrix to document Ubuntu 24.04, <code>opc</code> for Oracle Linux, and <code>ubuntu</code> for Ubuntu.</li>
+        <li>Clarified that OCI subnet security-list or NSG ingress must allow the selected listener port in addition to the instance-local firewall updates done by <code>setup.sh</code>.</li>
+        <li>Added OL8/OL9 verification checks for firewalld/nft listener rules and Ubuntu verification checks for iptables ordering and AppArmor mysqld profile state.</li>
+        <li>Recorded the validated firewalld runtime/nft fallback, Ubuntu iptables-before-reject rule, AppArmor allowances for <code>etc/my.cnf</code>, <code>.embedded/mysql-server/</code>, and <code>.data/</code>, threaded Flask listeners, and external HTTPS <code>200</code> checks.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3o Summary</h2>
