@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3q</span>
+      <span class="badge">Release 1.0.3r</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3q</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3r</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3r Summary</h2>
+      <p>
+        Version <code>1.0.3r</code> syncs the validated modular DBConsole refactor and deployment fixes from the test environment into the main source.
+      </p>
+      <ul>
+        <li>Extracted dashboard, DB Admin, monitoring, and session logic into focused modules so <code>app.py</code> is limited to app setup, dependency wiring, and route registration.</li>
+        <li>Fixed post-login dashboard regressions caused by missing extracted helpers and missing session-profile dependency injection.</li>
+        <li>Injected MySQL connection access into extracted DB Admin and monitoring query modules instead of relying on removed <code>app.py</code> globals.</li>
+        <li>Moved Monitoring Locks request parsing into the route layer and made monitoring report downloads return an error CSV row when optional HeatWave <code>performance_schema.rpd_*</code> tables are unavailable.</li>
+        <li>Fixed macOS embedded MySQL Server archive detection and completed validation on macOS plus fresh OCI Compute OL8, OL9, and Ubuntu 24.04 deployments with authenticated page/download sweeps and cleanup.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3q Summary</h2>

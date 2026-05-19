@@ -2457,7 +2457,7 @@ install_macos_embedded_mysql_server() {
   staging_dir="$(mktemp -d)"
   download_macos_mysql_server_tar "$package_file"
   tar -xzf "$package_file" -C "$staging_dir"
-  mysql_root="$(find "$staging_dir" -maxdepth 2 -type f -path '*/bin/mysqld' -print -quit)"
+  mysql_root="$(find "$staging_dir" -maxdepth 4 -type f -path '*/bin/mysqld' -print -quit)"
   if [[ -z "$mysql_root" ]]; then
     rm -rf "$package_file" "$staging_dir"
     echo "Unable to locate mysqld inside the downloaded MySQL Server tar package." >&2

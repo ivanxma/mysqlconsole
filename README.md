@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3q`
+Current version: `1.0.3r`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -295,7 +295,9 @@ Platform validation for this deployment path:
 | Oracle Linux 9 OCI Compute | Live first-boot validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld runtime port opening, MySQL RPM lock/GPG-key hardening, and external HTTPS `200` response. |
 | Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld/nft runtime fallback when `firewall-cmd` stalls, MySQL RPM lock/GPG-key hardening, and external HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
 | Ubuntu 24.04 | Live OCI Compute validation completed with Python 3.12 venv repair, refreshed MySQL APT repository signing key, DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, host `iptables` 443 rule before the terminal reject rule, and external HTTPS `200` response. Setup writes a local AppArmor allowance for DBConsole's app-local MySQL config, `.embedded/mysql-server/`, and `.data/` paths before initializing the socket-only local MySQL instance. |
-| macOS | Static validation covers `setup.sh macos`, start/stop scripts, and the macOS MySQL Shell installer. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
+| macOS | Live local setup validation completed with `setup.sh macos none`, Connector/Python install, MySQL Shell validation, embedded MySQL Server archive detection, Python compile, Flask route smoke, and CSRF failure-path smoke. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
+
+Release `1.0.3r` also validated authenticated first-login behavior and main page/download sweeps on fresh OL8, OL9, and Ubuntu OCI Compute instances. The sweep covers dashboard tabs, monitoring pages and downloads, HeatWave pages, DB Admin, SQL Workspace, Import, profile management, status variables, object-storage setup, and Auto-Update.
 
 The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. During first boot, a new SSH login shows `Please wait until installation to be completed.` If setup fails, it shows the recent setup log and service status. After success, it shows `MySQL DBConsole setup has been completed` and the current `systemctl status` for the configured service.
 

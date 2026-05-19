@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3q`.
+Version summary from `1.0.2a` to `1.0.3r`.
+
+## 1.0.3r Summary
+
+Version `1.0.3r` syncs the validated modular DBConsole refactor and deployment fixes from the test environment into the main source.
+
+- Extracted dashboard, DB Admin, monitoring, and session logic into focused modules so `app.py` is limited to app setup, dependency wiring, and route registration.
+- Fixed post-login dashboard regressions caused by missing extracted helpers and missing session-profile dependency injection.
+- Injected MySQL connection access into extracted DB Admin and monitoring query modules instead of relying on removed `app.py` globals.
+- Moved Monitoring Locks request parsing into the route layer and made monitoring report downloads return an error CSV row when optional HeatWave `performance_schema.rpd_*` tables are unavailable.
+- Fixed macOS embedded MySQL Server archive detection and completed validation on macOS plus fresh OCI Compute OL8, OL9, and Ubuntu 24.04 deployments with authenticated page/download sweeps and cleanup.
 
 ## 1.0.3q Summary
 

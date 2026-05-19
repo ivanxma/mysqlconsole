@@ -59,6 +59,16 @@ def register_monitoring_routes(app, deps):
             page_title="Locks",
             **build_monitoring_locks_page_context(
                 build_monitoring_locks_context=deps["build_monitoring_locks_context"],
+                filters={
+                    "row_lock_schema": request.args.get("row_lock_schema", ""),
+                    "row_lock_table": request.args.get("row_lock_table", ""),
+                    "row_blocking_connection_id": request.args.get("row_blocking_connection_id", ""),
+                    "row_waiting_connection_id": request.args.get("row_waiting_connection_id", ""),
+                    "mdl_schema": request.args.get("mdl_schema", ""),
+                    "mdl_name": request.args.get("mdl_name", ""),
+                    "mdl_owner_connection_id": request.args.get("mdl_owner_connection_id", ""),
+                    "lock_focus": request.args.get("lock_focus", "row"),
+                },
             ),
         )
 

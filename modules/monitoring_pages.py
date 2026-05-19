@@ -13,8 +13,8 @@ def build_monitoring_charts_data(*, build_monitoring_chart_snapshot):
     return build_monitoring_chart_snapshot()
 
 
-def build_monitoring_locks_page_context(*, build_monitoring_locks_context):
-    return build_monitoring_locks_context()
+def build_monitoring_locks_page_context(*, build_monitoring_locks_context, filters=None):
+    return build_monitoring_locks_context(**(filters or {}))
 
 
 def build_monitoring_report_page(
@@ -47,7 +47,13 @@ def build_monitoring_report_page(
 
 
 def build_monitoring_report_download(fetcher, filename, *, fetch_kwargs=None):
-    report = fetcher(**(fetch_kwargs or {}))
+    try:
+        report = fetcher(**(fetch_kwargs or {}))
+    except Exception as error:
+        report = {
+            "columns": ["error"],
+            "rows": [{"error": str(error)}],
+        }
     return {
         "filename": filename,
         "columns": report["columns"],
