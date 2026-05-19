@@ -795,6 +795,40 @@ dialog.management-dialog::backdrop {
   margin-top: 0;
 }
 
+.db-admin-event-table-wrap {
+  max-width: 100%;
+}
+
+.table-wrap .db-admin-event-table,
+.table-wrap .db-admin-event-table[data-enhanced-table] {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.db-admin-event-table th,
+.db-admin-event-table td {
+  min-width: 132px;
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-admin-event-table th:first-child,
+.db-admin-event-table td:first-child {
+  min-width: 72px;
+  max-width: 84px;
+}
+
+.db-admin-event-table th:nth-child(5),
+.db-admin-event-table td:nth-child(5),
+.db-admin-event-table th:last-child,
+.db-admin-event-table td:last-child {
+  min-width: 220px;
+  max-width: 640px;
+}
+
 .db-admin-charset-preview {
   display: grid;
   gap: 12px;
@@ -1203,8 +1237,10 @@ dialog.management-dialog::backdrop {
 .sql-workspace-result-table td {
   min-width: 144px;
   max-width: 560px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
   word-break: normal;
 }
 
@@ -1214,6 +1250,32 @@ dialog.management-dialog::backdrop {
 
 .sql-workspace-result-table td {
   line-height: 1.4;
+}
+
+.data-grid-constant-rows tbody tr {
+  height: 48px;
+}
+
+.data-grid-constant-rows td {
+  height: 48px;
+  max-height: 48px;
+  vertical-align: middle;
+}
+
+.table-cell-dialog-trigger {
+  cursor: zoom-in;
+}
+
+.table-cell-dialog-value {
+  max-height: min(62vh, 620px);
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 252, 248, 0.94);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .workspace-download-dialog-copy {

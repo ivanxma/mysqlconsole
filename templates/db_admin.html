@@ -181,7 +181,12 @@
   <form method="post" class="db-admin-event-list-form" data-event-selection-form>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="event">
-    <div class="table-wrap">
+    <div
+      class="table-wrap db-admin-event-table-wrap"
+      data-table-layout-id="db-admin-events"
+      data-table-reorder="true"
+      data-table-cell-dialog="true"
+    >
       <div class="table-layout-toolbar db-admin-event-toolbar">
         <label class="checkbox-field db-admin-event-select-all">
           <input type="checkbox" data-event-select-all {% if not event_rows %}disabled{% endif %}>
@@ -236,7 +241,7 @@
         </button>
         <span class="helper-text db-admin-event-selection-text" data-event-selection-count>0 selected</span>
       </div>
-      <table class="db-admin-event-table">
+      <table class="db-admin-event-table data-grid-constant-rows">
         <thead>
           <tr>
             <th>Select</th>

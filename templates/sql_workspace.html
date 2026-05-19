@@ -4,10 +4,12 @@
 <div
   class="table-wrap sql-workspace-result-wrap"
   data-table-download="false"
+  data-table-result-download="{{ layout_id }}"
   data-table-layout-id="sql-workspace-{{ layout_id }}"
   data-table-reorder="true"
+  data-table-cell-dialog="true"
 >
-  <table class="sql-workspace-result-table">
+  <table class="sql-workspace-result-table data-grid-constant-rows">
     <thead>
       <tr>
         {% for column in columns %}
@@ -203,19 +205,6 @@
           <span class="helper-text">Download this result set as CSV, XLS, or HTML.</span>
         </div>
       </div>
-      <button
-        class="panel-icon-button"
-        type="button"
-        title="Download result set"
-        aria-label="Download result set"
-        data-open-result-download="{{ tab.key }}"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 4.5v10"></path>
-          <path d="M8.5 11.5 12 15l3.5-3.5"></path>
-          <path d="M5.5 18.5h13"></path>
-        </svg>
-      </button>
     </div>
     {{ render_result_export_payload(tab) }}
     {{ render_result_table(tab.columns, tab.rows, tab.empty_text, tab.key) }}

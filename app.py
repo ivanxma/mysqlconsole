@@ -15,19 +15,19 @@ import urllib.request
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from time import perf_counter
 from uuid import uuid4
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from modules import object_storage_util, profile_store, update_util
+from modules.admin_routes import register_admin_routes
+from modules.auth_routes import register_auth_routes
 from modules.core_util import chmod_private_file, parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
+from modules.dashboard_routes import register_dashboard_routes
+from modules.db_admin_routes import register_db_admin_routes
 from modules.heatwave_pages import (
     build_dashboard_heatwave_summary as module_build_dashboard_heatwave_summary,
-    build_heatwave_management_context as module_build_heatwave_management_context,
-    build_heatwave_tables_context as module_build_heatwave_tables_context,
-    build_heatwave_tables_export as module_build_heatwave_tables_export,
-    handle_heatwave_management_action as module_handle_heatwave_management_action,
 )
+from modules.heatwave_routes import register_heatwave_routes
 from modules.mysql_import import (
     build_mysql_import_page_state as module_build_mysql_import_page_state,
     build_mysql_import_plan as module_build_mysql_import_plan,
@@ -37,6 +37,7 @@ from modules.mysql_import import (
     save_mysql_import_plan as module_save_mysql_import_plan,
     validate_mysql_import_request as module_validate_mysql_import_request,
 )
+from modules.mysql_import_routes import register_mysql_import_routes
 from modules.mysql_util import (
     DEFAULT_PROFILE,
     InterfaceError as MySQLInterfaceError,
@@ -48,28 +49,21 @@ from modules.mysql_util import (
     public_profiles,
 )
 from modules.mysql_pages import (
-    append_sql_workspace_history as module_append_sql_workspace_history,
     build_db_admin_context as module_build_db_admin_context,
     build_db_admin_export as module_build_db_admin_export,
-    build_mysql_dashboard_context as module_build_mysql_dashboard_context,
-    build_sql_workspace_context as module_build_sql_workspace_context,
-    build_sql_workspace_explain_result as module_build_sql_workspace_explain_result,
-    build_sql_workspace_history_entry as module_build_sql_workspace_history_entry,
-    build_sql_workspace_result as module_build_sql_workspace_result,
     handle_db_admin_action as module_handle_db_admin_action,
 )
-from modules.monitoring_pages import (
-    build_monitoring_charts_data as module_build_monitoring_charts_data,
-    build_monitoring_charts_page_context as module_build_monitoring_charts_page_context,
-    build_monitoring_dashboard_page_context as module_build_monitoring_dashboard_page_context,
-    build_monitoring_locks_page_context as module_build_monitoring_locks_page_context,
-    build_monitoring_report_download as module_build_monitoring_report_download,
-    build_monitoring_report_page as module_build_monitoring_report_page,
-)
+from modules.monitoring_routes import register_monitoring_routes
 from modules.status_variables import (
     build_empty_status_variable_page as module_build_empty_status_variable_page,
     fetch_grouped_status_variables as module_fetch_grouped_status_variables,
 )
+from modules.sql_workspace import (
+    apply_query_session_options as _apply_query_session_options,
+    normalize_sql_workspace_secondary_engine,
+    register_sql_workspace_routes,
+)
+from modules.update_routes import register_update_routes
 
 APP_TITLE = "MySQL DBConsole"
 ROOT_DIR = Path(__file__).resolve().parent
@@ -110,7 +104,6 @@ DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", 
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
 DBCONSOLE_SESSION_COOKIE_SECURE_VALUE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower()
 DBCONSOLE_SESSION_COOKIE_SECURE = DBCONSOLE_SESSION_COOKIE_SECURE_VALUE in {"1", "true", "yes", "on"}
-SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
 ERROR_LOG_PERIOD_OPTIONS = (
     {"value": "1h", "label": "1 hour", "hours": 1},
@@ -118,7 +111,6 @@ ERROR_LOG_PERIOD_OPTIONS = (
     {"value": "1d", "label": "1 day", "hours": 24},
     {"value": "all", "label": "ALL", "hours": None},
 )
-SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "charset-collation"}
 DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_TABLE_INFO_TABS = {"columns", "ddl", "indexes", "partitions", "preview", "modify-columns"}
@@ -819,13 +811,6 @@ def get_event_schedule_option(value):
     )
 
 
-def normalize_sql_workspace_secondary_engine(value):
-    normalized = str(value or "").strip().upper()
-    if normalized not in SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS:
-        return "ON"
-    return normalized
-
-
 def mysql_connection(database_override=None, connect_timeout=5, autocommit=True):
     return borrow_connection(
         profile=get_session_profile(),
@@ -849,12 +834,6 @@ def handle_mysql_interface_error(error):
     if not session.get("logged_in"):
         return f"MySQL interface error: {error}", 500
     return _redirect_to_login_for_mysql_unavailable(error)
-
-
-def _apply_query_session_options(cursor, *, use_secondary_engine=""):
-    normalized_secondary_engine = normalize_sql_workspace_secondary_engine(use_secondary_engine) if use_secondary_engine else ""
-    if normalized_secondary_engine:
-        cursor.execute(f"SET SESSION use_secondary_engine = {normalized_secondary_engine}")
 
 
 def execute_query(sql, params=None, *, database=None, use_secondary_engine=""):
@@ -896,62 +875,6 @@ def execute_multi_result_query(sql, params=None, *, database=None, use_secondary
     return result_sets
 
 
-def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
-    result_sets = []
-    result_index = 1
-    while True:
-        columns = [item[0] for item in cursor.description] if cursor.description else []
-        if columns:
-            rows = cursor.fetchall()
-            label = f"Statement {statement_index}"
-            if result_index > 1:
-                label = f"Statement {statement_index}.{result_index}"
-            result_sets.append(
-                {
-                    "label": label,
-                    "columns": columns,
-                    "rows": rows,
-                    "statement": sql,
-                }
-            )
-            result_index += 1
-        else:
-            rowcount = cursor.rowcount
-            if rowcount is not None and rowcount >= 0:
-                result_sets.append(
-                    {
-                        "label": f"Statement {statement_index}",
-                        "kind": "message",
-                        "message": f"Statement completed. Rows affected: {rowcount}.",
-                        "statement": sql,
-                    }
-                )
-        if not cursor.nextset():
-            break
-
-    if not result_sets:
-        result_sets.append(
-            {
-                "label": f"Statement {statement_index}",
-                "kind": "message",
-                "message": "Statement completed without a result set.",
-                "statement": sql,
-            }
-        )
-    return result_sets
-
-
-def execute_sql_workspace_statements(statements, *, database=None, use_secondary_engine=""):
-    result_sets = []
-    with mysql_connection(database_override=database) as connection:
-        with connection.cursor() as cursor:
-            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
-            for statement_index, statement in enumerate(statements, start=1):
-                cursor.execute(statement)
-                result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
-    return result_sets
-
-
 def execute_statement(sql, params=None, *, database=None):
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
@@ -963,141 +886,6 @@ def execute_statement(sql, params=None, *, database=None):
             while cursor.nextset():
                 pass
             return rowcount
-
-
-def _normalize_sql_workspace_statement(sql_text):
-    statement = str(sql_text or "").strip()
-    if not statement:
-        raise ValueError("Enter a SQL statement.")
-    return statement
-
-
-def split_sql_workspace_statements(sql_text, *, require_terminator=False):
-    text = str(sql_text or "")
-    statements = []
-    current = []
-    quote_char = ""
-    in_backtick = False
-    in_line_comment = False
-    in_block_comment = False
-    escaped = False
-    last_statement_terminated = False
-    index = 0
-    length = len(text)
-
-    while index < length:
-        char = text[index]
-        next_char = text[index + 1] if index + 1 < length else ""
-
-        if in_line_comment:
-            current.append(char)
-            if char in "\r\n":
-                in_line_comment = False
-            index += 1
-            continue
-
-        if in_block_comment:
-            current.append(char)
-            if char == "*" and next_char == "/":
-                current.append(next_char)
-                in_block_comment = False
-                index += 2
-                continue
-            index += 1
-            continue
-
-        if quote_char:
-            current.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote_char:
-                if next_char == quote_char:
-                    current.append(next_char)
-                    index += 2
-                    continue
-                quote_char = ""
-            index += 1
-            continue
-
-        if in_backtick:
-            current.append(char)
-            if char == "`":
-                if next_char == "`":
-                    current.append(next_char)
-                    index += 2
-                    continue
-                in_backtick = False
-            index += 1
-            continue
-
-        if char == "-" and next_char == "-" and (index + 2 >= length or text[index + 2].isspace()):
-            current.append(char)
-            current.append(next_char)
-            in_line_comment = True
-            index += 2
-            continue
-        if char == "#":
-            current.append(char)
-            in_line_comment = True
-            index += 1
-            continue
-        if char == "/" and next_char == "*":
-            current.append(char)
-            current.append(next_char)
-            in_block_comment = True
-            index += 2
-            continue
-        if char in {"'", '"'}:
-            current.append(char)
-            quote_char = char
-            escaped = False
-            index += 1
-            continue
-        if char == "`":
-            current.append(char)
-            in_backtick = True
-            index += 1
-            continue
-        if char == ";":
-            statement = "".join(current).strip()
-            if statement:
-                statements.append(statement)
-            current = []
-            last_statement_terminated = True
-            index += 1
-            continue
-
-        if not char.isspace():
-            last_statement_terminated = False
-        current.append(char)
-        index += 1
-
-    if quote_char or in_backtick or in_block_comment:
-        raise ValueError("SQL text contains an unterminated quote, identifier, or block comment.")
-
-    trailing_statement = "".join(current).strip()
-    if trailing_statement:
-        if require_terminator and not last_statement_terminated:
-            raise ValueError("Every SQL statement must be terminated by ';'.")
-        statements.append(trailing_statement)
-
-    if not statements:
-        raise ValueError("Enter a SQL statement.")
-    return statements
-
-
-def _normalize_sql_workspace_explain_statement(sql_text):
-    statements = split_sql_workspace_statements(sql_text)
-    if len(statements) != 1:
-        raise ValueError("Explain supports one statement at a time.")
-    statement = statements[0].rstrip().rstrip(";").strip()
-    if not statement:
-        raise ValueError("Enter a SQL statement.")
-    if statement.lower().startswith("explain"):
-        raise ValueError("Enter the SQL statement itself. Explain adds EXPLAIN automatically.")
-    return statement
 
 
 def fetch_scalar(sql, params=None, *, database=None, default=None):
@@ -6747,1091 +6535,223 @@ def render_dashboard(template_name, **context):
     )
 
 
-@app.route("/", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        picked_profile = get_profile_by_name(request.form.get("profile_picker", ""))
-        if picked_profile:
-            profile_payload = dict(picked_profile)
-        else:
-            profile_payload = normalize_profile(DEFAULT_PROFILE)
-        profile = normalize_profile(profile_payload)
-        username = str(request.form.get("username", "")).strip()
-        if username:
-            profile["username"] = username
-        password = request.form.get("password", "")
-        if not profile.get("socket_enabled") and not profile["host"]:
-            flash("Choose a saved profile.", "error")
-        elif not username:
-            flash("MySQL username is required.", "error")
-        else:
-            try:
-                clear_login_state(keep_profile=False)
-                session["connection_profile"] = profile
-                session["profile_name"] = profile["name"]
-                set_session_credentials(username, password)
-                with mysql_connection(connect_timeout=5):
-                    pass
-                session["logged_in"] = True
-                flash("Connected to MySQL.", "success")
-                if local_admin_password_change_required():
-                    return redirect(url_for("local_admin_password_page"))
-                version_check = refresh_repo_version_check()
-                if version_check.get("update_available"):
-                    if is_local_admin_profile_session():
-                        flash(
-                            f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
-                            "success",
-                        )
-                    elif local_admin_profile_needs_bootstrap():
-                        flash(
-                            "DBConsole update available. Use Auto-Update to complete first-time local-admin-profile bootstrap with a temporary localadmin password.",
-                            "success",
-                        )
-                    else:
-                        flash(
-                            "DBConsole update available. Sign in with local-admin-profile to run Auto-Update.",
-                            "success",
-                        )
-                elif version_check.get("error"):
-                    if is_local_admin_profile_session():
-                        flash(
-                            "Repository version check could not complete. Review the Auto-Update page for details.",
-                            "error",
-                        )
-                    else:
-                        flash("Repository version check could not complete.", "error")
-                if should_show_update_page_after_login(version_check):
-                    return redirect(url_for("update_dbconsole_page"))
-                return redirect(url_for("mysql_dashboard_page"))
-            except Exception as error:
-                clear_login_state(keep_profile=True)
-                flash(f"Unable to connect: {error}", "error")
-
-    selected_name = str(request.args.get("profile", "")).strip()
-    selected_profile = get_profile_by_name(selected_name) or get_session_profile()
-    visible_profiles = public_profiles(load_profiles())
-    return render_template(
-        "login.html",
-        app_title=APP_TITLE,
-        page_title="Login",
-        logged_in=False,
-        profiles=visible_profiles,
-        selected_profile=public_profile(selected_profile),
-        selected_profile_name=selected_name or selected_profile.get("name", ""),
-    )
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    clear_login_state(keep_profile=False)
-    flash("Logged out.", "success")
-    return redirect(url_for("login"))
-
-
-@app.route("/admin/local-admin-password", methods=["GET", "POST"])
-@session_login_required
-def local_admin_password_page():
-    if not is_local_admin_profile_session():
-        abort(403)
-    if request.method == "POST":
-        new_password = request.form.get("new_local_admin_password", "")
-        confirm_password = request.form.get("confirm_local_admin_password", "")
-        if new_password != confirm_password:
-            flash("Local admin profile password confirmation does not match.", "error")
-        else:
-            try:
-                change_local_admin_profile_password(new_password)
-                clear_local_admin_password_change_required()
-                clear_login_state(keep_profile=False)
-                flash("Password changed. Sign in again.", "success")
-                return redirect(url_for("login"))
-            except Exception as error:
-                flash(str(error), "error")
-    return render_template(
-        "local_admin_password.html",
-        app_title=APP_TITLE,
-        page_title="Change Local Admin Password",
-        logged_in=False,
-        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-    )
-
-
-@app.route("/admin/profile", methods=["GET", "POST"])
-@session_login_required
-def profile_page():
-    if not is_local_admin_profile_session():
-        abort(403)
-    profiles = load_profiles()
-    selected_name = str(request.values.get("selected_profile", "")).strip()
-    editing_profile = get_profile_by_name(selected_name) or get_session_profile()
-
-    if request.method == "POST":
-        action = str(request.form.get("profile_action", "")).strip()
-        profile_payload = normalize_profile(request.form)
-        profile_name = profile_payload["name"]
-        if action == "change_local_admin_password":
-            new_password = request.form.get("new_local_admin_password", "")
-            confirm_password = request.form.get("confirm_local_admin_password", "")
-            if new_password != confirm_password:
-                flash("Local admin profile password confirmation does not match.", "error")
-            else:
-                try:
-                    change_local_admin_profile_password(new_password)
-                    clear_local_admin_password_change_required()
-                    clear_login_state(keep_profile=False)
-                    flash("Password changed. Sign in again.", "success")
-                    return redirect(url_for("login"))
-                except Exception as error:
-                    flash(str(error), "error")
-        elif action == "save":
-            if not profile_name:
-                flash("Profile name is required.", "error")
-            elif not profile_payload["socket_enabled"] and not profile_payload["host"]:
-                flash("Profile host is required unless Unix socket is enabled.", "error")
-            elif profile_payload["socket_enabled"] and not profile_payload["socket_path"]:
-                flash("Unix socket path is required when Unix socket is enabled.", "error")
-            elif profile_payload["socket_enabled"] and profile_payload["ssh_enabled"]:
-                flash("Unix socket profiles cannot use SSH tunneling.", "error")
-            else:
-                existing_profile = get_profile_by_name(profile_name)
-                if existing_profile and not request.files.get("ssh_key_file"):
-                    profile_payload["ssh_key_path"] = existing_profile.get("ssh_key_path", "")
-                try:
-                    uploaded_ssh_key_path = save_uploaded_profile_ssh_key(profile_name, request.files.get("ssh_key_file"))
-                except Exception as error:
-                    flash(str(error), "error")
-                    editing_profile = profile_payload
-                    profiles = load_profiles()
-                    return render_dashboard(
-                        "profile.html",
-                        page_title="Profile",
-                        profiles=profiles,
-                        selected_profile_name=selected_name,
-                        editing_profile=public_profile(editing_profile),
-                        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-                        can_change_local_admin_password=is_local_admin_profile_session(),
-                    )
-                if uploaded_ssh_key_path:
-                    profile_payload["ssh_key_path"] = uploaded_ssh_key_path
-                if profile_payload["ssh_enabled"] and (
-                    not profile_payload["ssh_host"] or not profile_payload["ssh_user"] or not profile_payload["ssh_key_path"]
-                ):
-                    flash("SSH profiles require jump host, SSH user, and an uploaded private key.", "error")
-                    editing_profile = profile_payload
-                    profiles = load_profiles()
-                    return render_dashboard(
-                        "profile.html",
-                        page_title="Profile",
-                        profiles=profiles,
-                        selected_profile_name=selected_name,
-                        editing_profile=public_profile(editing_profile),
-                        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-                        can_change_local_admin_password=is_local_admin_profile_session(),
-                    )
-                remaining = [row for row in profiles if row["name"].lower() != profile_name.lower()]
-                remaining.append(profile_payload)
-                save_profiles(remaining)
-                if get_session_profile()["name"].lower() == profile_name.lower():
-                    set_session_profile(profile_payload)
-                flash(f"Profile `{profile_name}` saved.", "success")
-                return redirect(url_for("profile_page", selected_profile=profile_name))
-        elif action == "delete":
-            if not profile_name:
-                flash("Choose a profile to delete.", "error")
-            else:
-                remaining = [row for row in profiles if row["name"].lower() != profile_name.lower()]
-                if len(remaining) == len(profiles):
-                    flash("Profile not found.", "error")
-                else:
-                    save_profiles(remaining)
-                    if get_session_profile()["name"].lower() == profile_name.lower():
-                        session["connection_profile"] = normalize_profile(DEFAULT_PROFILE)
-                        session["profile_name"] = ""
-                    flash(f"Profile `{profile_name}` deleted.", "success")
-                    return redirect(url_for("profile_page"))
-        editing_profile = profile_payload
-        profiles = load_profiles()
-
-    return render_dashboard(
-        "profile.html",
-        page_title="Profile",
-        profiles=profiles,
-        selected_profile_name=selected_name,
-        editing_profile=public_profile(editing_profile),
-        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-        can_change_local_admin_password=is_local_admin_profile_session(),
-    )
-
-
-@app.route("/admin/setup-object-storage", methods=["GET", "POST"])
-@login_required
-def setup_object_storage_page():
-    config = load_object_storage_config()
-    if request.method == "POST":
-        config = normalize_object_storage(request.form)
-        save_object_storage_config(config)
-        flash("Object Storage configuration saved.", "success")
-        return redirect(url_for("setup_object_storage_page"))
-    return render_dashboard(
-        "setup_object_storage.html",
-        page_title="Setup Object Storage",
-        object_storage_config=config,
-    )
-
-
-@app.route("/admin/status-variables")
-@login_required
-def admin_status_variables_page():
-    active_tab = "variables" if str(request.args.get("tab", "")).strip().lower() == "variables" else "status"
-    status_variable_page = module_build_empty_status_variable_page(active_tab)
-    error_message = ""
-    try:
-        status_variable_page = module_fetch_grouped_status_variables(active_tab, execute_query=execute_query)
-    except Exception as error:
-        error_message = str(error)
-    return render_dashboard(
-        "status_variables.html",
-        page_title="Status and Variables",
-        active_tab=active_tab,
-        status_variable_page=status_variable_page,
-        error_message=error_message,
-    )
-
-
-@app.route("/admin/update-dbconsole", methods=["GET", "POST"])
-@session_login_required
-def update_dbconsole_page():
-    bootstrap_required = local_admin_profile_needs_bootstrap()
-    update_start_allowed = is_local_admin_profile_session() or bootstrap_required
-    if not update_start_allowed:
-        abort(403)
-    if request.method == "POST":
-        action = str(request.form.get("update_action", "")).strip().lower()
-        if action == "start":
-            if not update_start_allowed:
-                abort(403)
-            try:
-                if bootstrap_required:
-                    local_admin_password_reset = normalize_update_local_admin_bootstrap_credentials(
-                        request.form,
-                        require_password=True,
-                    )
-                elif any(field_name in request.form for field_name in UPDATE_LOCAL_ADMIN_RESET_FIELDS):
-                    raise ValueError(
-                        "Use the local-admin password change page to change an existing localadmin password."
-                    )
-                else:
-                    local_admin_password_reset = {}
-                start_dbconsole_update_job(local_admin_password_reset=local_admin_password_reset)
-                flash("Auto-update started.", "success")
-            except Exception as error:
-                flash(str(error), "error")
-        elif action == "retrieve-version":
-            version_check = refresh_repo_version_check()
-            if version_check.get("error"):
-                flash(f"Repository version check failed: {version_check['error']}", "error")
-            elif version_check.get("update_available"):
-                flash(
-                    f"Repository version {version_check.get('repo_version')} differs from local version {version_check.get('local_version')}.",
-                    "success",
-                )
-            else:
-                flash("Repository version matches the local app version.", "success")
-        return redirect(url_for("update_dbconsole_page"))
-
-    return render_dashboard(
-        "update_dbconsole.html",
-        page_title="Auto-Update",
-        update_status=_public_dbconsole_update_status(get_dbconsole_update_status()),
-        update_poll_token=_ensure_dbconsole_update_poll_token(),
-        local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-        local_admin_mysql_user=str(
-            (get_session_profile().get("username") if is_local_admin_profile_session() else "") or "localadmin"
-        ),
-        bootstrap_required=bootstrap_required,
-        update_start_allowed=update_start_allowed,
-        app_version_info=session.get(DBCONSOLE_VERSION_CHECK_SESSION_KEY)
-        or {
-            "local_version": get_local_app_version(),
-            "repo_version": "-",
-            "update_available": False,
-            "checked_at": "",
-            "error": "",
-            "version_url": infer_app_version_url(),
-        },
-    )
-
-
-@app.route("/admin/update-dbconsole/status")
-def update_dbconsole_status():
-    update_status = get_dbconsole_update_status()
-    if not session.get("logged_in") and not _update_status_poll_token_is_valid(update_status):
-        return jsonify({"error": "Log in to continue."}), 401
-    return jsonify(_public_dbconsole_update_status(update_status))
-
-
-@app.route("/mysql/dashboard")
-@login_required
-def mysql_dashboard_page():
-    dashboard_tab = str(request.args.get("dashboard_tab", "server-database")).strip().lower()
-    if dashboard_tab == "error-log":
-        dashboard_tab = "logs"
-    if dashboard_tab not in {"server-database", "logs", "security", "heatwave", "replication"}:
-        dashboard_tab = "server-database"
-    selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
-    selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
-    selected_error_log_code = normalize_error_log_code(request.args.get("error_code"))
-    selected_error_log_message_like = normalize_error_log_message_like(request.args.get("message_like"))
-    dashboard_context = build_mysql_dashboard_snapshot_context(
-        selected_error_log_priorities,
-        selected_error_log_period,
-        selected_error_log_code,
-        selected_error_log_message_like,
-        sections={dashboard_tab},
-    )
-    return render_dashboard(
-        "mysql_dashboard.html",
-        page_title="Admin Dashboard",
-        dashboard_tab=dashboard_tab,
-        **dashboard_context,
-    )
-
-
-def build_mysql_dashboard_snapshot_context(
-    selected_error_log_priorities,
-    selected_error_log_period,
-    selected_error_log_code,
-    selected_error_log_message_like,
-    *,
-    sections=None,
-):
-    return module_build_mysql_dashboard_context(
-        fetch_server_overview=lambda: fetch_server_overview(
-            recent_error_log_priorities=selected_error_log_priorities,
-            recent_error_log_period=selected_error_log_period["value"],
-            recent_error_log_code=selected_error_log_code,
-            recent_error_log_message_like=selected_error_log_message_like,
-            sections=sections,
-        ),
-        fetch_database_inventory=fetch_database_inventory,
-        fetch_dashboard_heatwave_summary=fetch_dashboard_heatwave_summary,
-        include_inventory=sections is None or "server-database" in sections or "heatwave" in sections,
-        include_heatwave=sections is None or "heatwave" in sections,
-    )
-
-
-@app.route("/mysql/dashboard/download")
-@login_required
-def mysql_dashboard_download_page():
-    selected_error_log_priorities = _normalize_error_log_priorities(request.args.getlist("error_prio"))
-    selected_error_log_period = normalize_error_log_period(request.args.get("error_period"))
-    selected_error_log_code = normalize_error_log_code(request.args.get("error_code"))
-    selected_error_log_message_like = normalize_error_log_message_like(request.args.get("message_like"))
-    dashboard_context = build_mysql_dashboard_snapshot_context(
-        selected_error_log_priorities,
-        selected_error_log_period,
-        selected_error_log_code,
-        selected_error_log_message_like,
-        sections={"server-database", "logs", "security", "heatwave", "replication"},
-    )
-    generated_at = datetime.now(timezone.utc)
-    profile = get_session_profile()
-    global_variables = []
-    global_variables_error = ""
-    global_status = []
-    global_status_error = ""
-    try:
-        global_variables = fetch_all_show_variable_rows("VARIABLES")
-    except Exception as error:  # pragma: no cover - depends on server privileges
-        global_variables_error = str(error)
-    try:
-        global_status = fetch_all_show_variable_rows("STATUS")
-    except Exception as error:  # pragma: no cover - depends on server privileges
-        global_status_error = str(error)
-    html = render_template(
-        "mysql_dashboard_export.html",
-        app_title=APP_TITLE,
-        generated_at=generated_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
-        app_version=get_local_app_version(),
-        current_user=get_session_username(),
-        current_profile_name=session.get("profile_name", ""),
-        connection_summary=f"{profile['host'] or '-'}:{profile['port']}" if profile else "-",
-        setup_status=fetch_setup_status(),
-        global_variables=global_variables,
-        global_variables_error=global_variables_error,
-        global_status=global_status,
-        global_status_error=global_status_error,
-        **dashboard_context,
-    )
-    filename = f"admin-dashboard-{generated_at.strftime('%Y%m%d-%H%M%S')}.html"
-    return Response(
-        html,
-        mimetype="text/html; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.route("/mysql/sql-workspace", methods=["GET", "POST"])
-@login_required
-def sql_workspace_page():
-    workspace_output_tab = str(request.values.get("output_tab", "execution-result")).strip().lower()
-    if workspace_output_tab not in {"execution-result", "history"}:
-        workspace_output_tab = "execution-result"
-    use_secondary_engine = normalize_sql_workspace_secondary_engine(
-        request.values.get("use_secondary_engine", "ON")
-    )
-    default_database = str(get_session_profile().get("database", "") or "").strip()
-    if is_system_schema_name(default_database):
-        default_database = ""
-
-    selected_database = str(
-        request.values.get("database", default_database if request.method == "GET" else "")
-    ).strip()
-    sql_text = str(request.values.get("sql_text", ""))
-    history_rows = session.get(SQL_WORKSPACE_HISTORY_SESSION_KEY, [])
-    if not isinstance(history_rows, list):
-        history_rows = []
-
-    last_result = None
-    if request.method == "POST":
-        action = str(request.form.get("workspace_action", "execute")).strip().lower()
-        selected_database = str(request.form.get("database", "")).strip()
-        sql_text = str(request.form.get("sql_text", ""))
-        use_secondary_engine = normalize_sql_workspace_secondary_engine(
-            request.form.get("use_secondary_engine", "ON")
-        )
-        if action == "clear_history":
-            session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = []
-            flash("SQL workspace history cleared.", "success")
-            redirect_values = {"output_tab": "history", "use_secondary_engine": use_secondary_engine}
-            if selected_database:
-                redirect_values["database"] = selected_database
-            if sql_text:
-                redirect_values["sql_text"] = sql_text
-            return redirect(url_for("sql_workspace_page", **redirect_values))
-
-        started_at = perf_counter()
-        workspace_output_tab = "execution-result"
-
-        if action == "explain":
-            normalized_statement = sql_text
-            try:
-                normalized_statement = _normalize_sql_workspace_explain_statement(sql_text)
-                text_rows = execute_query(
-                    f"EXPLAIN {normalized_statement}",
-                    database=selected_database or None,
-                    use_secondary_engine=use_secondary_engine,
-                )
-                json_rows = []
-                json_error = ""
-                try:
-                    json_rows = execute_query(
-                        f"EXPLAIN FORMAT=JSON {normalized_statement}",
-                        database=selected_database or None,
-                        use_secondary_engine=use_secondary_engine,
-                    )
-                except Exception as error:  # pragma: no cover - depends on server features
-                    json_error = str(error)
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_explain_result(
-                    normalized_statement,
-                    selected_database,
-                    text_rows,
-                    json_rows,
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                    json_error=json_error,
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Explain",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="success" if not json_error else "partial",
-                        error_message=json_error,
-                    ),
-                )
-            except Exception as error:
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_result(
-                    "Explain",
-                    normalized_statement,
-                    selected_database,
-                    [],
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                    error_message=str(error),
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Explain",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="error",
-                        error_message=str(error),
-                    ),
-                )
-                flash(str(error), "error")
-        else:
-            normalized_statement = sql_text
-            result_sets = []
-            try:
-                normalized_statement = _normalize_sql_workspace_statement(sql_text)
-                statements = split_sql_workspace_statements(normalized_statement)
-                result_sets = execute_sql_workspace_statements(
-                    statements,
-                    database=selected_database or None,
-                    use_secondary_engine=use_secondary_engine,
-                )
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_result(
-                    "Execute",
-                    normalized_statement,
-                    selected_database,
-                    result_sets,
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Execute",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="success",
-                    ),
-                )
-            except Exception as error:
-                duration_ms = (perf_counter() - started_at) * 1000
-                last_result = module_build_sql_workspace_result(
-                    "Execute",
-                    normalized_statement,
-                    selected_database,
-                    result_sets,
-                    duration_ms,
-                    use_secondary_engine=use_secondary_engine,
-                    error_message=str(error),
-                )
-                history_rows = module_append_sql_workspace_history(
-                    history_rows,
-                    module_build_sql_workspace_history_entry(
-                        "Execute",
-                        selected_database,
-                        normalized_statement,
-                        duration_ms,
-                        use_secondary_engine=use_secondary_engine,
-                        status="error",
-                        error_message=str(error),
-                    ),
-                )
-                flash(str(error), "error")
-
-        session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = history_rows
-
-    page_context = module_build_sql_workspace_context(
-        selected_database,
-        sql_text,
-        last_result,
-        history_rows,
-        fetch_database_inventory=fetch_database_inventory,
-    )
-    return render_dashboard(
-        "sql_workspace.html",
-        page_title="SQL Workspace",
-        workspace_output_tab=workspace_output_tab,
-        use_secondary_engine=use_secondary_engine,
-        secondary_engine_modes=SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS,
-        **page_context,
-    )
-
-
-@app.route("/mysql/imprt", methods=["GET", "POST"])
-@login_required
-def mysql_import_page():
-    database_inventory = [row for row in fetch_database_inventory() if not row["is_system"]]
-    existing_plan_id = str(session.get("mysql_import_plan_id", "")).strip()
-    plan = module_load_mysql_import_plan(existing_plan_id) if existing_plan_id else None
-    if existing_plan_id and plan is None:
-        session.pop("mysql_import_plan_id", None)
-
-    page_state = module_build_mysql_import_page_state(
-        plan,
-        database_inventory,
-        fetch_table_exists=fetch_table_exists,
-    )
-
-    if request.method == "POST":
-        action = str(request.form.get("import_action", "")).strip()
-
-        if action == "clear":
-            if existing_plan_id:
-                module_delete_mysql_import_plan(existing_plan_id)
-            session.pop("mysql_import_plan_id", None)
-            flash("Import draft cleared.", "success")
-            return redirect(url_for("mysql_import_page"))
-
-        if action == "preview":
-            upload_storage = request.files.get("import_file")
-            try:
-                plan = module_save_mysql_import_plan(
-                    module_build_mysql_import_plan(
-                        upload_storage,
-                        request.form,
-                        database_inventory,
-                        quote_identifier=quote_identifier,
-                    )
-                )
-                session["mysql_import_plan_id"] = plan["plan_id"]
-                if existing_plan_id and existing_plan_id != plan["plan_id"]:
-                    module_delete_mysql_import_plan(existing_plan_id)
-                flash(f"Loaded {plan['row_count']} rows from `{plan['source_filename']}`.", "success")
-                return redirect(url_for("mysql_import_page"))
-            except Exception as error:
-                page_state = module_build_mysql_import_page_state(
-                    plan,
-                    database_inventory,
-                    fetch_table_exists=fetch_table_exists,
-                    payload=request.form,
-                )
-                flash(str(error), "error")
-
-        elif action == "import":
-            if plan is None:
-                flash("Upload a CSV or JSON file to preview before importing.", "error")
-                return redirect(url_for("mysql_import_page"))
-            try:
-                import_request = module_validate_mysql_import_request(
-                    request.form,
-                    plan,
-                    database_inventory,
-                    quote_identifier=quote_identifier,
-                    fetch_table_exists=fetch_table_exists,
-                    fetch_database_exists=fetch_database_exists,
-                )
-                module_run_mysql_import(
-                    plan,
-                    import_request,
-                    quote_identifier=quote_identifier,
-                    execute_statement=execute_statement,
-                    mysql_connection=mysql_connection,
-                )
-                if existing_plan_id:
-                    module_delete_mysql_import_plan(existing_plan_id)
-                session.pop("mysql_import_plan_id", None)
-                flash(
-                    f"Imported {plan.get('row_count', 0)} rows into "
-                    f"`{import_request['effective_database_name']}.{import_request['table_name']}`.",
-                    "success",
-                )
-                return redirect(
-                    url_for(
-                        "db_admin_page",
-                        database=import_request["effective_database_name"],
-                        table=import_request["table_name"],
-                        )
-                )
-            except Exception as error:
-                page_state = module_build_mysql_import_page_state(
-                    plan,
-                    database_inventory,
-                    fetch_table_exists=fetch_table_exists,
-                    payload=request.form,
-                )
-                flash(str(error), "error")
-        else:
-            flash("Unsupported import action.", "error")
-
-    return render_dashboard(
-        "mysql_import.html",
-        page_title="Import",
-        import_page=page_state,
-    )
-
-
-@app.route("/mysql/db-admin", methods=["GET", "POST"])
-@login_required
-def db_admin_page():
-    db_admin_tab = normalize_db_admin_tab(request.values.get("db_admin_tab", DB_ADMIN_DEFAULT_TAB))
-    selected_database = str(request.values.get("database", "")).strip()
-    selected_table = str(request.values.get("table", "")).strip()
-    focus_event_database = str(request.args.get("focus_event_database", "")).strip()
-    focus_event_name = str(request.args.get("focus_event_name", "")).strip()
-    preview_page = normalize_page_number(request.args.get("page", "1"))
-    table_info_tab = normalize_db_admin_table_info_tab(request.values.get("table_info_tab", DB_ADMIN_TABLE_INFO_DEFAULT_TAB))
-    if str(request.args.get("dialog", "")).strip() == "modify-columns":
-        table_info_tab = "modify-columns"
-    db_admin_edit_payload = None
-    db_admin_event_form_payload = None
-    db_admin_charset_collation_payload = None
-    charset_collation_preview = None
-    event_action_output = session.pop(DB_ADMIN_EVENT_OUTPUT_SESSION_KEY, None)
-
-    if request.method == "POST":
-        action = str(request.form.get("db_action", "")).strip()
-        db_admin_tab = normalize_db_admin_tab(request.form.get("db_admin_tab", db_admin_tab))
-        selected_database = str(request.form.get("database_name", selected_database)).strip()
-        selected_table = str(request.form.get("table_name", selected_table)).strip()
-        if action == "create_event":
-            selected_database = str(request.form.get("event_database_name", selected_database)).strip()
-        if action == "download_charset_collation_script":
-            try:
-                plan = preview_db_admin_charset_collation(selected_database, request.form)
-                script_text = build_db_admin_charset_collation_script(plan)
-                filename_database = re.sub(r"[^A-Za-z0-9_.-]+", "_", plan["database_name"]).strip("._") or "database"
-                response = Response(script_text, mimetype="application/sql")
-                response.headers["Content-Disposition"] = (
-                    f"attachment; filename={filename_database}-charset-collation-plan.sql"
-                )
-                return response
-            except Exception as error:
-                flash(str(error), "error")
-                db_admin_charset_collation_payload = request.form
-                return redirect(
-                    url_for(
-                        "db_admin_page",
-                        db_admin_tab="charset-collation",
-                        database=selected_database,
-                    )
-                )
-        try:
-            action_result = module_handle_db_admin_action(
-                action,
-                request.form.get("database_name", ""),
-                table_name=request.form.get("table_name", ""),
-                payload=request.form,
-                quote_identifier=quote_identifier,
-                execute_statement=execute_statement,
-                system_schemas=SYSTEM_SCHEMAS,
-                fetch_create_table_statement=fetch_create_table_statement,
-                fetch_table_columns=fetch_table_columns,
-                fetch_tables_for_database=fetch_tables_for_database,
-                fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
-                fix_missing_primary_key_table=fix_table_without_primary_key,
-                create_db_event=create_db_admin_event,
-                set_db_events_enabled=set_db_admin_events_enabled,
-                delete_db_events=delete_db_admin_events,
-                modify_charset_collation=modify_db_admin_charset_collation,
-                preview_charset_collation=preview_db_admin_charset_collation,
-            )
-            if action_result.get("charset_collation_preview"):
-                db_admin_charset_collation_payload = request.form
-                charset_collation_preview = action_result["charset_collation_preview"]
-                flash(action_result["flash_message"], action_result["flash_category"])
-            else:
-                if action_result.get("event_action_output"):
-                    session[DB_ADMIN_EVENT_OUTPUT_SESSION_KEY] = action_result["event_action_output"]
-                flash(action_result["flash_message"], action_result["flash_category"])
-                redirect_values = dict(action_result["redirect_values"])
-                redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
-                return redirect(url_for(action_result["redirect_endpoint"], **redirect_values))
-        except Exception as error:
-            flash(str(error), "error")
-            if action == "modify_table_columns":
-                table_info_tab = "modify-columns"
-                db_admin_edit_payload = request.form
-            elif action == "create_event":
-                db_admin_event_form_payload = request.form
-                event_action_output = {
-                    "title": "Create Event",
-                    "category": "error",
-                    "message": str(error),
-                }
-            elif action in {"enable_events", "disable_events", "delete_events"}:
-                event_action_output = {
-                    "title": "Delete Event" if action == "delete_events" else "Event Status",
-                    "category": "error",
-                    "message": str(error),
-                }
-            elif action in {"modify_charset_collation", "preview_charset_collation"}:
-                db_admin_charset_collation_payload = request.form
-
-    page_context = module_build_db_admin_context(
-        selected_database,
-        selected_table,
-        preview_page,
-        db_admin_tab=db_admin_tab,
-        table_info_tab=table_info_tab,
-        fetch_database_inventory=fetch_database_inventory,
-        fetch_tables_for_database=fetch_tables_for_database,
-        empty_table_preview=empty_table_preview,
-        fetch_table_preview=fetch_table_preview,
-        fetch_create_table_statement=fetch_create_table_statement,
-        fetch_table_columns=fetch_table_columns,
-        fetch_table_indexes=fetch_table_indexes,
-        fetch_table_partitions=fetch_table_partitions,
-        fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
-        column_edit_payload=db_admin_edit_payload,
-        fetch_event_rows=fetch_db_admin_event_rows,
-        event_form_payload=db_admin_event_form_payload,
-        event_schedule_options=EVENT_SCHEDULE_OPTIONS,
-        focused_event_database=focus_event_database,
-        focused_event_name=focus_event_name,
-        fetch_charset_collation_report=fetch_db_admin_charset_collation_report,
-        fetch_charset_collation_options=fetch_charset_collation_options,
-        charset_collation_payload=db_admin_charset_collation_payload,
-    )
-    if page_context.get("redirect_endpoint"):
-        flash(page_context["flash_message"], page_context["flash_category"])
-        redirect_values = dict(page_context["redirect_values"])
-        redirect_values.setdefault("db_admin_tab", DB_ADMIN_DEFAULT_TAB)
-        return redirect(url_for(page_context["redirect_endpoint"], **redirect_values))
-
-    return render_dashboard(
-        "db_admin.html",
-        page_title="DB Admin",
-        db_admin_tab=db_admin_tab,
-        table_info_tab=table_info_tab,
-        event_schedule_options=EVENT_SCHEDULE_OPTIONS,
-        event_action_output=event_action_output,
-        charset_collation_preview=charset_collation_preview,
-        **page_context,
-    )
-
-
-@app.route("/mysql/db-admin/download")
-@login_required
-def db_admin_download():
-    selected_database = str(request.args.get("database", "")).strip()
-    db_admin_tab = normalize_db_admin_tab(request.args.get("db_admin_tab", DB_ADMIN_DEFAULT_TAB))
-    export_payload = module_build_db_admin_export(
-        selected_database,
-        db_admin_tab=db_admin_tab,
-        fetch_tables_for_database=fetch_tables_for_database,
-        fetch_missing_primary_key_rows=fetch_tables_without_primary_key,
-    )
-    return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
-
-
-@app.route("/heatwave/hw-table")
-@login_required
-def hw_table_page():
-    active_tab = "lakehouse" if str(request.args.get("tab", "")).strip().lower() == "lakehouse" else "heatwave"
-    report = module_build_heatwave_tables_context(
-        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
-        fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
-        fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
-        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
-        fetch_lakehouse_engine_tables=fetch_lakehouse_engine_tables,
-    )
-    return render_dashboard(
-        "hw_table.html",
-        page_title="HW Table",
-        active_tab=active_tab,
-        **report,
-    )
-
-
-@app.route("/heatwave/hw-table/download")
-@login_required
-def hw_table_download():
-    report = module_build_heatwave_tables_context(
-        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
-        fetch_heatwave_status_variable_report=fetch_heatwave_status_variable_report,
-        fetch_heatwave_nodes_report=fetch_heatwave_nodes_report,
-        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
-        fetch_lakehouse_engine_tables=fetch_lakehouse_engine_tables,
-    )
-    export_payload = module_build_heatwave_tables_export(report)
-    return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
-
-
-@app.route("/heatwave/management", methods=["GET", "POST"])
-@login_required
-def heatwave_management_page():
-    active_tab = "table" if str(request.values.get("tab", "")).strip().lower() == "table" else "db"
-    selected_database = str(request.values.get("database", "")).strip()
-    selected_table = str(request.values.get("table", "")).strip()
-    management_open_dialog = ""
-    management_popup_result = None
-
-    if request.method == "POST":
-        active_tab = "table" if str(request.form.get("tab", "")).strip().lower() == "table" else "db"
-        action = str(request.form.get("management_action", "")).strip()
-        selected_database = str(request.form.get("database", "")).strip()
-        selected_table = str(request.form.get("table", "")).strip()
-        try:
-            action_result = module_handle_heatwave_management_action(
-                action,
-                selected_database,
-                selected_table,
-                excluded_columns=request.form.getlist("excluded_columns"),
-                quote_identifier=quote_identifier,
-                execute_statement=execute_statement,
-                execute_multi_result_query=execute_multi_result_query,
-                fetch_table_columns=fetch_table_columns,
-                fetch_create_table_statement=fetch_create_table_statement,
-            )
-            flash(action_result["flash_message"], action_result["flash_category"])
-            selected_database = str(action_result["redirect_values"].get("database", selected_database)).strip()
-            selected_table = str(action_result["redirect_values"].get("table", selected_table)).strip()
-            active_tab = "table" if str(action_result["redirect_values"].get("tab", active_tab)).strip().lower() == "table" else "db"
-            if action_result.get("render_popup"):
-                management_open_dialog = str(action_result.get("open_dialog", "")).strip()
-                management_popup_result = action_result.get("popup_result")
-            else:
-                return redirect(url_for("heatwave_management_page", **action_result["redirect_values"]))
-        except Exception as error:
-            flash(str(error), "error")
-            if action == "exclude_columns_update":
-                management_open_dialog = "exclude-columns-dialog"
-
-    page_context = module_build_heatwave_management_context(
-        selected_database,
-        selected_table,
-        active_tab,
-        fetch_database_inventory=fetch_database_inventory,
-        fetch_tables_for_database=fetch_tables_for_database,
-        fetch_table_columns=fetch_table_columns,
-        fetch_create_table_statement=fetch_create_table_statement,
-        fetch_heatwave_inventory_report=fetch_heatwave_inventory_report,
-        fetch_heatwave_defined_secondary_engine_tables=fetch_heatwave_defined_secondary_engine_tables,
-        execute_query=execute_query,
-    )
-    return render_dashboard(
-        "heatwave_management.html",
-        page_title="HW Admin",
-        management_open_dialog=management_open_dialog,
-        management_popup_result=management_popup_result,
-        **page_context,
-    )
-
-
-@app.route("/monitoring/dashboard")
-@login_required
-def monitoring_dashboard_page():
-    return render_dashboard(
-        "monitoring_dashboard.html",
-        page_title="Monitoring Dashboard",
-        **module_build_monitoring_dashboard_page_context(
-            build_monitoring_dashboard_context=build_monitoring_dashboard_context,
-        ),
-    )
-
-
-@app.route("/monitoring/charts")
-@login_required
-def monitoring_charts_page():
-    monitoring_chart_tab = str(request.args.get("chart_tab", "general")).strip().lower()
-    allowed_chart_tabs = {option[0] for option in MONITORING_CHART_TAB_OPTIONS}
-    if monitoring_chart_tab not in allowed_chart_tabs:
-        monitoring_chart_tab = "general"
-    return render_dashboard(
-        "monitoring_charts.html",
-        page_title="Monitoring Charts",
-        monitoring_chart_tab=monitoring_chart_tab,
-        monitoring_chart_tabs=[{"key": key, "label": label} for key, label in MONITORING_CHART_TAB_OPTIONS],
-        **module_build_monitoring_charts_page_context(
-            build_monitoring_chart_snapshot=build_monitoring_chart_snapshot,
-            charts_data_url=url_for("monitoring_charts_data"),
-        ),
-    )
-
-
-@app.route("/monitoring/charts/data")
-@login_required
-def monitoring_charts_data():
-    return jsonify(module_build_monitoring_charts_data(build_monitoring_chart_snapshot=build_monitoring_chart_snapshot))
-
-
-@app.route("/monitoring/locks")
-@login_required
-def monitoring_locks_page():
-    return render_dashboard(
-        "monitoring_locks.html",
-        page_title="Locks",
-        **module_build_monitoring_locks_page_context(
-            build_monitoring_locks_context=build_monitoring_locks_context,
-        ),
-    )
-
-
-@app.route("/monitoring/performance-query")
-@login_required
-def monitoring_performance_page():
-    return render_dashboard(
-        "monitoring_report.html",
-        **module_build_monitoring_report_page(
-            fetch_monitoring_performance_queries,
-            page_title="Performance Query",
-            report_title="HeatWave Performance Query",
-            report_description="Direct monitoring view for HeatWave query activity from performance_schema.",
-            download_endpoint="monitoring_performance_download",
-        ),
-    )
-
-
-@app.route("/monitoring/performance-query/download")
-@login_required
-def monitoring_performance_download():
-    export_payload = module_build_monitoring_report_download(
-        fetch_monitoring_performance_queries,
-        "monitoring-performance-query.csv",
-    )
-    return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
-
-
-@app.route("/monitoring/ml-query")
-@login_required
-def monitoring_ml_page():
-    current_ml_connection_only = _normalize_checkbox(request.args.get("current_ml_connection_only", ""))
-    return render_dashboard(
-        "monitoring_report.html",
-        **module_build_monitoring_report_page(
-            fetch_monitoring_ml_queries,
-            page_title="ML Query",
-            report_title="HeatWave ML Query",
-            report_description="Direct monitoring view for HeatWave ML jobs from performance_schema.",
-            download_endpoint="monitoring_ml_download",
-            fetch_kwargs={"current_ml_connection_only": current_ml_connection_only},
-            extra_context={"current_ml_connection_only": current_ml_connection_only},
-        ),
-    )
-
-
-@app.route("/monitoring/ml-query/download")
-@login_required
-def monitoring_ml_download():
-    current_ml_connection_only = _normalize_checkbox(request.args.get("current_ml_connection_only", ""))
-    export_payload = module_build_monitoring_report_download(
-        fetch_monitoring_ml_queries,
-        "monitoring-ml-query.csv",
-        fetch_kwargs={"current_ml_connection_only": current_ml_connection_only},
-    )
-    return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
-
-
-@app.route("/monitoring/table-load-recovery")
-@login_required
-def monitoring_load_recovery_page():
-    return render_dashboard(
-        "monitoring_report.html",
-        **module_build_monitoring_report_page(
-            fetch_monitoring_load_recovery,
-            page_title="Table Load Recovery",
-            report_title="HeatWave Table Load Recovery",
-            report_description="Direct monitoring view for HeatWave table load and recovery state.",
-            download_endpoint="monitoring_load_recovery_download",
-        ),
-    )
-
-
-@app.route("/monitoring/table-load-recovery/download")
-@login_required
-def monitoring_load_recovery_download():
-    export_payload = module_build_monitoring_report_download(
-        fetch_monitoring_load_recovery,
-        "monitoring-table-load-recovery.csv",
-    )
-    return build_csv_response(export_payload["filename"], export_payload["columns"], export_payload["rows"])
+register_auth_routes(
+    app,
+    {
+        "app_title": APP_TITLE,
+        "default_profile": DEFAULT_PROFILE,
+        "local_admin_profile_name": LOCAL_ADMIN_PROFILE_NAME,
+        "session_login_required": session_login_required,
+        "normalize_profile": normalize_profile,
+        "public_profile": public_profile,
+        "public_profiles": public_profiles,
+        "load_profiles": load_profiles,
+        "get_profile_by_name": get_profile_by_name,
+        "get_session_profile": get_session_profile,
+        "set_session_profile": set_session_profile,
+        "set_logged_in": lambda value: session.__setitem__("logged_in", bool(value)),
+        "set_session_credentials": set_session_credentials,
+        "clear_login_state": clear_login_state,
+        "mysql_connection": mysql_connection,
+        "local_admin_password_change_required": local_admin_password_change_required,
+        "is_local_admin_profile_session": is_local_admin_profile_session,
+        "local_admin_profile_needs_bootstrap": local_admin_profile_needs_bootstrap,
+        "refresh_repo_version_check": refresh_repo_version_check,
+        "should_show_update_page_after_login": should_show_update_page_after_login,
+        "change_local_admin_profile_password": change_local_admin_profile_password,
+        "clear_local_admin_password_change_required": clear_local_admin_password_change_required,
+    },
+)
+
+register_admin_routes(
+    app,
+    {
+        "login_required": login_required,
+        "session_login_required": session_login_required,
+        "render_dashboard": render_dashboard,
+        "default_profile": DEFAULT_PROFILE,
+        "local_admin_profile_name": LOCAL_ADMIN_PROFILE_NAME,
+        "normalize_profile": normalize_profile,
+        "public_profile": public_profile,
+        "load_profiles": load_profiles,
+        "save_profiles": save_profiles,
+        "get_profile_by_name": get_profile_by_name,
+        "get_session_profile": get_session_profile,
+        "set_session_profile": set_session_profile,
+        "clear_login_state": clear_login_state,
+        "is_local_admin_profile_session": is_local_admin_profile_session,
+        "change_local_admin_profile_password": change_local_admin_profile_password,
+        "clear_local_admin_password_change_required": clear_local_admin_password_change_required,
+        "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
+        "load_object_storage_config": load_object_storage_config,
+        "normalize_object_storage": normalize_object_storage,
+        "save_object_storage_config": save_object_storage_config,
+        "build_empty_status_variable_page": module_build_empty_status_variable_page,
+        "fetch_grouped_status_variables": module_fetch_grouped_status_variables,
+        "execute_query": execute_query,
+    },
+)
+
+register_update_routes(
+    app,
+    {
+        "session_login_required": session_login_required,
+        "render_dashboard": render_dashboard,
+        "local_admin_profile_name": LOCAL_ADMIN_PROFILE_NAME,
+        "version_check_session_key": DBCONSOLE_VERSION_CHECK_SESSION_KEY,
+        "update_local_admin_reset_fields": UPDATE_LOCAL_ADMIN_RESET_FIELDS,
+        "local_admin_profile_needs_bootstrap": local_admin_profile_needs_bootstrap,
+        "is_local_admin_profile_session": is_local_admin_profile_session,
+        "normalize_update_local_admin_bootstrap_credentials": normalize_update_local_admin_bootstrap_credentials,
+        "start_dbconsole_update_job": start_dbconsole_update_job,
+        "refresh_repo_version_check": refresh_repo_version_check,
+        "public_dbconsole_update_status": _public_dbconsole_update_status,
+        "get_dbconsole_update_status": get_dbconsole_update_status,
+        "ensure_dbconsole_update_poll_token": _ensure_dbconsole_update_poll_token,
+        "get_session_profile": get_session_profile,
+        "get_local_app_version": get_local_app_version,
+        "infer_app_version_url": infer_app_version_url,
+        "update_status_poll_token_is_valid": _update_status_poll_token_is_valid,
+    },
+)
+
+
+register_dashboard_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "app_title": APP_TITLE,
+        "fetch_server_overview": fetch_server_overview,
+        "fetch_database_inventory": fetch_database_inventory,
+        "fetch_dashboard_heatwave_summary": fetch_dashboard_heatwave_summary,
+        "normalize_error_log_priorities": _normalize_error_log_priorities,
+        "normalize_error_log_period": normalize_error_log_period,
+        "normalize_error_log_code": normalize_error_log_code,
+        "normalize_error_log_message_like": normalize_error_log_message_like,
+        "get_session_profile": get_session_profile,
+        "fetch_all_show_variable_rows": fetch_all_show_variable_rows,
+        "get_local_app_version": get_local_app_version,
+        "get_session_username": get_session_username,
+        "fetch_setup_status": fetch_setup_status,
+    },
+)
+
+
+register_sql_workspace_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "get_session_profile": get_session_profile,
+        "is_system_schema_name": is_system_schema_name,
+        "fetch_database_inventory": fetch_database_inventory,
+        "execute_query": execute_query,
+        "mysql_connection": mysql_connection,
+    },
+)
+
+register_mysql_import_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "fetch_database_inventory": fetch_database_inventory,
+        "load_mysql_import_plan": module_load_mysql_import_plan,
+        "build_mysql_import_page_state": module_build_mysql_import_page_state,
+        "fetch_table_exists": fetch_table_exists,
+        "delete_mysql_import_plan": module_delete_mysql_import_plan,
+        "save_mysql_import_plan": module_save_mysql_import_plan,
+        "build_mysql_import_plan": module_build_mysql_import_plan,
+        "quote_identifier": quote_identifier,
+        "validate_mysql_import_request": module_validate_mysql_import_request,
+        "fetch_database_exists": fetch_database_exists,
+        "run_mysql_import": module_run_mysql_import,
+        "execute_statement": execute_statement,
+        "mysql_connection": mysql_connection,
+    },
+)
+
+register_db_admin_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "build_csv_response": build_csv_response,
+        "normalize_page_number": normalize_page_number,
+        "normalize_db_admin_tab": normalize_db_admin_tab,
+        "normalize_db_admin_table_info_tab": normalize_db_admin_table_info_tab,
+        "db_admin_default_tab": DB_ADMIN_DEFAULT_TAB,
+        "db_admin_table_info_default_tab": DB_ADMIN_TABLE_INFO_DEFAULT_TAB,
+        "db_admin_event_output_session_key": DB_ADMIN_EVENT_OUTPUT_SESSION_KEY,
+        "system_schemas": SYSTEM_SCHEMAS,
+        "event_schedule_options": EVENT_SCHEDULE_OPTIONS,
+        "quote_identifier": quote_identifier,
+        "execute_statement": execute_statement,
+        "build_db_admin_context": module_build_db_admin_context,
+        "build_db_admin_export": module_build_db_admin_export,
+        "handle_db_admin_action": module_handle_db_admin_action,
+        "fetch_database_inventory": fetch_database_inventory,
+        "fetch_tables_for_database": fetch_tables_for_database,
+        "empty_table_preview": empty_table_preview,
+        "fetch_table_preview": fetch_table_preview,
+        "fetch_create_table_statement": fetch_create_table_statement,
+        "fetch_table_columns": fetch_table_columns,
+        "fetch_table_indexes": fetch_table_indexes,
+        "fetch_table_partitions": fetch_table_partitions,
+        "fetch_tables_without_primary_key": fetch_tables_without_primary_key,
+        "fix_table_without_primary_key": fix_table_without_primary_key,
+        "fetch_db_admin_event_rows": fetch_db_admin_event_rows,
+        "create_db_admin_event": create_db_admin_event,
+        "set_db_admin_events_enabled": set_db_admin_events_enabled,
+        "delete_db_admin_events": delete_db_admin_events,
+        "fetch_db_admin_charset_collation_report": fetch_db_admin_charset_collation_report,
+        "fetch_charset_collation_options": fetch_charset_collation_options,
+        "preview_charset_collation": preview_db_admin_charset_collation,
+        "build_charset_collation_script": build_db_admin_charset_collation_script,
+        "modify_db_admin_charset_collation": modify_db_admin_charset_collation,
+    },
+)
+
+
+register_heatwave_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "build_csv_response": build_csv_response,
+        "fetch_heatwave_inventory_report": fetch_heatwave_inventory_report,
+        "fetch_heatwave_status_variable_report": fetch_heatwave_status_variable_report,
+        "fetch_heatwave_nodes_report": fetch_heatwave_nodes_report,
+        "fetch_heatwave_defined_secondary_engine_tables": fetch_heatwave_defined_secondary_engine_tables,
+        "fetch_lakehouse_engine_tables": fetch_lakehouse_engine_tables,
+        "quote_identifier": quote_identifier,
+        "execute_statement": execute_statement,
+        "execute_multi_result_query": execute_multi_result_query,
+        "fetch_table_columns": fetch_table_columns,
+        "fetch_create_table_statement": fetch_create_table_statement,
+        "fetch_database_inventory": fetch_database_inventory,
+        "fetch_tables_for_database": fetch_tables_for_database,
+        "execute_query": execute_query,
+    },
+)
+
+register_monitoring_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "build_csv_response": build_csv_response,
+        "normalize_checkbox": _normalize_checkbox,
+        "monitoring_chart_tab_options": MONITORING_CHART_TAB_OPTIONS,
+        "build_monitoring_dashboard_context": build_monitoring_dashboard_context,
+        "build_monitoring_chart_snapshot": build_monitoring_chart_snapshot,
+        "build_monitoring_locks_context": build_monitoring_locks_context,
+        "fetch_monitoring_performance_queries": fetch_monitoring_performance_queries,
+        "fetch_monitoring_ml_queries": fetch_monitoring_ml_queries,
+        "fetch_monitoring_load_recovery": fetch_monitoring_load_recovery,
+    },
+)
 
 
 if __name__ == "__main__":

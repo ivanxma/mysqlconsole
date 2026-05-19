@@ -107,6 +107,19 @@
       </main>
     </div>
 
+    <dialog class="management-dialog table-cell-dialog" id="table-cell-value-dialog">
+      <div class="management-dialog-shell">
+        <div class="panel-header">
+          <div>
+            <h3>Field Value</h3>
+            <span class="helper-text">Full value from the selected table cell.</span>
+          </div>
+          <button class="button secondary" type="button" data-table-cell-dialog-close>Close</button>
+        </div>
+        <pre class="table-cell-dialog-value" data-table-cell-dialog-value></pre>
+      </div>
+    </dialog>
+
     {% if logged_in %}
     <script>
       (() => {
@@ -241,6 +254,44 @@
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
         };
+        const cellDialog = document.getElementById("table-cell-value-dialog");
+        const cellDialogValue = cellDialog?.querySelector("[data-table-cell-dialog-value]");
+        const closeCellDialog = () => {
+          if (!cellDialog) {
+            return;
+          }
+          if (typeof cellDialog.close === "function") {
+            cellDialog.close();
+            return;
+          }
+          cellDialog.removeAttribute("open");
+        };
+        cellDialog?.querySelector("[data-table-cell-dialog-close]")?.addEventListener("click", closeCellDialog);
+        cellDialog?.addEventListener("click", (event) => {
+          if (event.target === cellDialog) {
+            closeCellDialog();
+          }
+        });
+        const openCellDialog = (cell) => {
+          if (!cellDialog || !cellDialogValue) {
+            return;
+          }
+          const value = (cell.innerText || "").trim();
+          if (!value) {
+            return;
+          }
+          cellDialogValue.textContent = value;
+          if (typeof cellDialog.showModal === "function") {
+            if (!cellDialog.open) {
+              cellDialog.showModal();
+            }
+            return;
+          }
+          cellDialog.setAttribute("open", "open");
+        };
+        const cellHasExplicitAction = (cell) => Boolean(
+          cell.querySelector("a, button, input, select, textarea, label, summary, [role='button'], [data-no-cell-dialog]")
+        );
 
         tableWraps.forEach((wrap, tableIndex) => {
           const table = wrap.querySelector("table");
@@ -306,8 +357,19 @@
           const existingToolbar = Array.from(wrap.children).find((child) => child.classList?.contains("table-layout-toolbar"));
           const toolbar = existingToolbar || document.createElement("div");
           toolbar.classList.add("table-layout-toolbar");
+          const resultDownloadKey = String(wrap.dataset.tableResultDownload || "").trim();
+          if (resultDownloadKey) {
+            const resultDownloadButton = document.createElement("button");
+            resultDownloadButton.className = "icon-button";
+            resultDownloadButton.type = "button";
+            resultDownloadButton.title = "Download result set";
+            resultDownloadButton.setAttribute("aria-label", "Download result set");
+            resultDownloadButton.setAttribute("data-open-result-download", resultDownloadKey);
+            resultDownloadButton.innerHTML = downloadIconMarkup;
+            toolbar.appendChild(resultDownloadButton);
+          }
           const allowDownload = wrap.dataset.tableDownload !== "false";
-          if (allowDownload) {
+          if (allowDownload && !resultDownloadKey) {
             const downloadButton = document.createElement("button");
             downloadButton.className = "icon-button";
             downloadButton.type = "button";
@@ -451,6 +513,27 @@
             });
             header.appendChild(handle);
           });
+
+          if (wrap.dataset.tableCellDialog === "true") {
+            Array.from(table.tBodies).forEach((tbody) => {
+              Array.from(tbody.rows).forEach((row) => {
+                Array.from(row.cells).forEach((cell) => {
+                  if (cellHasExplicitAction(cell)) {
+                    cell.dataset.noCellDialog = "true";
+                    return;
+                  }
+                  cell.classList.add("table-cell-dialog-trigger");
+                  cell.title = cell.title || "Click to view full value";
+                  cell.addEventListener("click", (event) => {
+                    if (event.target.closest("a, button, input, select, textarea, label, summary, [role='button'], .table-resize-handle")) {
+                      return;
+                    }
+                    openCellDialog(cell);
+                  });
+                });
+              });
+            });
+          }
         });
       })();
     </script>
