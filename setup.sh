@@ -1064,13 +1064,36 @@ open_firewall_port() {
       log_skipped_privileged_step "firewall update for port ${port_value}/tcp"
       return 0
     fi
-    if run_as_root_with_timeout 20 firewall-cmd --permanent --add-port="${port_value}/tcp"; then
-      if run_as_root_with_timeout 20 firewall-cmd --reload; then
-        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-        return 0
+    local firewalld_zone
+    firewalld_zone="$(run_as_root_with_timeout 10 firewall-cmd --get-default-zone 2>/dev/null || true)"
+    firewalld_zone="${firewalld_zone:-public}"
+
+    if run_as_root_with_timeout 20 firewall-cmd --zone="$firewalld_zone" --add-port="${port_value}/tcp"; then
+      echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd zone ${firewalld_zone}."
+      if run_as_root_with_timeout 20 firewall-cmd --permanent --zone="$firewalld_zone" --add-port="${port_value}/tcp"; then
+        if run_as_root_with_timeout 20 firewall-cmd --reload; then
+          echo "Persisted firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+        else
+          echo "Warning: firewall-cmd reload timed out or failed after persisting ${port_value}/tcp for ${protocol_label}; runtime access is already open." >&2
+        fi
       else
-        echo "Warning: firewall-cmd reload timed out or failed after adding ${port_value}/tcp for ${protocol_label}; verify firewall state manually." >&2
+        echo "Warning: firewall-cmd could not persist ${port_value}/tcp for ${protocol_label} within 20 seconds; runtime access is already open." >&2
       fi
+      return 0
+    fi
+
+    if run_as_root_with_timeout 20 firewall-cmd --permanent --zone="$firewalld_zone" --add-port="${port_value}/tcp"; then
+      if run_as_root_with_timeout 20 firewall-cmd --reload; then
+        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd zone ${firewalld_zone}."
+        return 0
+      fi
+    fi
+
+    if command -v nft >/dev/null 2>&1 &&
+      run_as_root nft list chain inet firewalld "filter_IN_${firewalld_zone}_allow" >/dev/null 2>&1 &&
+      run_as_root nft insert rule inet firewalld "filter_IN_${firewalld_zone}_allow" tcp dport "$port_value" accept; then
+      echo "Opened runtime firewall port ${port_value}/tcp for ${protocol_label} with nftables firewalld chain filter_IN_${firewalld_zone}_allow."
+      return 0
     else
       echo "Warning: firewall-cmd could not add ${port_value}/tcp for ${protocol_label} within 20 seconds. Open it manually if external access is required." >&2
     fi
