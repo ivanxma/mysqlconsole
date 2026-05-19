@@ -972,6 +972,16 @@ prompt_for_ports_if_needed() {
   printf '%s\n%s\n' "$http_port" "$https_port"
 }
 
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  else
+    "$@"
+  fi
+}
+
 open_firewall_port() {
   local protocol_label="$1"
   local port_value="$2"
@@ -985,9 +995,15 @@ open_firewall_port() {
       log_skipped_privileged_step "firewall update for port ${port_value}/tcp"
       return 0
     fi
-    run_as_root firewall-cmd --permanent --add-port="${port_value}/tcp"
-    run_as_root firewall-cmd --reload
-    echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+    if run_with_timeout 20 run_as_root firewall-cmd --permanent --add-port="${port_value}/tcp"; then
+      if run_with_timeout 20 run_as_root firewall-cmd --reload; then
+        echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      else
+        echo "Warning: firewall-cmd reload timed out or failed after adding ${port_value}/tcp for ${protocol_label}; verify firewall state manually." >&2
+      fi
+    else
+      echo "Warning: firewall-cmd could not add ${port_value}/tcp for ${protocol_label} within 20 seconds. Open it manually if external access is required." >&2
+    fi
     return 0
   fi
 
@@ -1018,12 +1034,18 @@ close_firewall_port() {
       log_skipped_privileged_step "firewall cleanup for port ${port_value}/tcp"
       return 0
     fi
-    if run_as_root firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
-      run_as_root firewall-cmd --permanent --remove-port="${port_value}/tcp"
-      run_as_root firewall-cmd --reload
-      echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
-    else
+    if ! run_with_timeout 20 run_as_root firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in firewall-cmd."
+      return 0
+    fi
+    if run_with_timeout 20 run_as_root firewall-cmd --permanent --remove-port="${port_value}/tcp"; then
+      if run_with_timeout 20 run_as_root firewall-cmd --reload; then
+        echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+      else
+        echo "Warning: firewall-cmd reload timed out or failed after removing ${port_value}/tcp for ${protocol_label}; verify firewall state manually." >&2
+      fi
+    else
+      echo "Warning: firewall-cmd could not remove ${port_value}/tcp for ${protocol_label} within 20 seconds. Close it manually if needed." >&2
     fi
     return 0
   fi
