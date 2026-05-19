@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3p`
+Current version: `1.0.3q`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -12,13 +12,13 @@ It provides:
 - `Admin > Status and Variables` with grouped status and variable views
 - `Admin > Dashboard` for server, object, security, diagnostics, and HeatWave summary views
 - `MySQL > DB Admin` for schema/table browsing, event management, DDL preview, indexes, partitions, row preview, and column-definition changes
-- `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, and session history
+- `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, session history, and flexible result tables with sortable, resizable, and reorderable columns
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory and `HW Admin` management actions
 - HW Table reports use horizontally scrollable, flexible-width tables so wide HeatWave metadata such as `rpd_nodes` and table inventory does not collapse into unreadable columns
 - `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
 - authenticated top-right user icon with app version, update status, user, profile, connection summary, and logout
-- shared interactive table styling with sortable headers, resizable columns, saved column widths, reset-layout controls, and compact download/action icons
+- shared interactive table styling with sortable headers, resizable columns, saved column widths and column order where enabled, reset-layout controls, and compact download/action icons
 
 ## Login, Sessions, and Updates
 
@@ -292,8 +292,8 @@ Platform validation for this deployment path:
 
 | Platform | Validation status |
 | --- | --- |
-| Oracle Linux 9 OCI Compute | Live first-boot validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld runtime port opening, and external HTTPS `200` response. |
-| Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld/nft runtime fallback when `firewall-cmd` stalls, and external HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
+| Oracle Linux 9 OCI Compute | Live first-boot validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld runtime port opening, MySQL RPM lock/GPG-key hardening, and external HTTPS `200` response. |
+| Oracle Linux 8 | Live OCI Compute validation completed with DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, firewalld/nft runtime fallback when `firewall-cmd` stalls, MySQL RPM lock/GPG-key hardening, and external HTTPS `200` response. Setup disables the OL8 AppStream MySQL module before installing Oracle MySQL community server/client packages so package filtering does not block first boot. |
 | Ubuntu 24.04 | Live OCI Compute validation completed with Python 3.12 venv repair, refreshed MySQL APT repository signing key, DBConsole-managed `.data/mysql`, app-local `etc/my.cnf`, `localadmin@localhost` socket login, active `dbconsole-https.service`, host `iptables` 443 rule before the terminal reject rule, and external HTTPS `200` response. Setup writes a local AppArmor allowance for DBConsole's app-local MySQL config, `.embedded/mysql-server/`, and `.data/` paths before initializing the socket-only local MySQL instance. |
 | macOS | Static validation covers `setup.sh macos`, start/stop scripts, and the macOS MySQL Shell installer. macOS remains a local-hosting target that uses `.embedded/mysql-server`, not the OCI Linux init script. |
 
@@ -314,6 +314,7 @@ On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_AD
 - install Python dependencies
 - run the platform-specific MySQL Shell Innovation installer
   - `ol8` and `ol9`: configure the MySQL community repositories, disable the `8.4 LTS` repos, enable the innovation repos, refresh package metadata, and ask DNF for the best available vendor `mysql-shell` package
+  - `ol8` and `ol9`: wait for transient RPM database locks and import the current MySQL 2025 RPM GPG key when present before repository refreshes and package installs
   - `ubuntu`: remove a stale MySQL APT source list if present, write the current MySQL signing key and APT source for `mysql-innovation` and `mysql-tools`, refresh package metadata, then install or upgrade the vendor `mysql-shell` package
   - `macos`: refresh Homebrew metadata, install or upgrade `mysql-shell`, and fall back to the formula path if needed
   - all platforms discover the latest MySQL Shell version from the vendor download page and verify that `mysqlsh` meets that version; set `MYSQL_SHELL_MIN_VERSION` only when you intentionally need to pin a specific minimum
@@ -553,6 +554,7 @@ For `start_http.sh` and `start_https.sh`:
 - Execute output rendered in one TabView with `Execution Result`, each result set, and `History`
 - Explain output rendered as `Text`, `JSON`, and `Visual` execution-plan tabs
 - multi-result-set SQL handling in the output area
+- result-set tables use flexible column widths, horizontal scrolling, sortable headers, drag-to-reorder headers, resize handles, and saved layout reset without duplicating the result download action
 - session-local execution history with execution time, status, database, and `use_secondary_engine`
 
 ## HW Admin

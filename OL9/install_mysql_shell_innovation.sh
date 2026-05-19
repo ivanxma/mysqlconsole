@@ -17,6 +17,25 @@ if ! command -v dnf >/dev/null 2>&1; then
   exit 1
 fi
 
+wait_for_rpm_lock() {
+  local deadline=$((SECONDS + ${RPM_LOCK_TIMEOUT_SECONDS:-600}))
+  while [[ -e /var/lib/rpm/.rpm.lock ]] && ! run_root rpm --eval '%{_db_backend}' >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      echo "Timed out waiting for the RPM database lock to clear." >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+import_mysql_gpg_key() {
+  local key_file="/etc/pki/rpm-gpg/RPM-GPG-KEY-mysql-2025"
+  if [[ -r "$key_file" ]]; then
+    wait_for_rpm_lock
+    run_root rpm --import "$key_file" || true
+  fi
+}
+
 mysql_repo_release_installed() {
   rpm -qa | grep -Eq '^mysql[0-9]+-community-release'
 }
@@ -74,8 +93,10 @@ set_mysql_repo_enabled() {
   fi
 }
 
+wait_for_rpm_lock
 run_root dnf install -y dnf-plugins-core ca-certificates curl
 install_mysql_repo_release
+import_mysql_gpg_key
 set_mysql_repo_enabled "no" mysql-8.4-lts-community mysql-tools-8.4-lts-community || true
 set_mysql_repo_enabled "yes" mysql-innovation-community mysql-tools-innovation-community
 
@@ -181,8 +202,10 @@ install_mysql_shell_vendor_package() {
   rm -f "$package_file"
 }
 
+wait_for_rpm_lock
 run_root dnf clean expire-cache
 run_root dnf makecache -y --refresh
+import_mysql_gpg_key
 run_root dnf install -y --refresh --best --allowerasing "$MYSQL_SHELL_PACKAGE"
 
 MYSQL_SHELL_VERSION="$(current_mysqlsh_version)"

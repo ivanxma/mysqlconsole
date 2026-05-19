@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 
-{% macro render_result_table(columns, rows, empty_text="No rows returned.") %}
-<div class="table-wrap">
-  <table>
+{% macro render_result_table(columns, rows, empty_text="No rows returned.", layout_id="sql-result") %}
+<div
+  class="table-wrap sql-workspace-result-wrap"
+  data-table-download="false"
+  data-table-layout-id="sql-workspace-{{ layout_id }}"
+  data-table-reorder="true"
+>
+  <table class="sql-workspace-result-table">
     <thead>
       <tr>
         {% for column in columns %}
@@ -213,7 +218,7 @@
       </button>
     </div>
     {{ render_result_export_payload(tab) }}
-    {{ render_result_table(tab.columns, tab.rows, tab.empty_text) }}
+    {{ render_result_table(tab.columns, tab.rows, tab.empty_text, tab.key) }}
     {% elif tab.kind == "code" %}
     <pre class="sql-block">{{ tab.text_output }}</pre>
     {% elif tab.kind == "plan" %}

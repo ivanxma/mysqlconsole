@@ -1184,6 +1184,38 @@ dialog.management-dialog::backdrop {
   margin-bottom: 14px;
 }
 
+.sql-workspace-result-wrap {
+  max-width: 100%;
+}
+
+.sql-workspace-result-wrap .table-layout-toolbar {
+  padding: 8px 10px;
+}
+
+.table-wrap .sql-workspace-result-table,
+.table-wrap .sql-workspace-result-table[data-enhanced-table] {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.sql-workspace-result-table th,
+.sql-workspace-result-table td {
+  min-width: 144px;
+  max-width: 560px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.sql-workspace-result-table th {
+  vertical-align: middle;
+}
+
+.sql-workspace-result-table td {
+  line-height: 1.4;
+}
+
 .workspace-download-dialog-copy {
   display: grid;
   gap: 14px;
@@ -1690,6 +1722,14 @@ tbody tr:hover td {
   text-transform: inherit;
   letter-spacing: inherit;
   cursor: pointer;
+}
+
+.table-column-dragging {
+  opacity: 0.58;
+}
+
+.table-column-drop-target {
+  box-shadow: inset 3px 0 0 var(--accent-dark);
 }
 
 .table-sort-indicator {

@@ -1,6 +1,15 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3p`.
+Version summary from `1.0.2a` to `1.0.3q`.
+
+## 1.0.3q Summary
+
+Version `1.0.3q` syncs the validated SQL Workspace result-table layout and Oracle Linux first-boot RPM hardening into the main source.
+
+- Updated SQL Workspace result-set tables to use flexible widths, horizontal scrolling, sortable headers, drag-to-reorder columns, resize handles, saved layout reset, and a single result download action.
+- Extended the shared table enhancer with opt-in column reordering, stable per-table layout keys, and per-table suppression of the generic CSV download control.
+- Hardened OL8 and OL9 MySQL Shell and local MySQL package setup by waiting for transient RPM database locks and importing the current MySQL 2025 RPM GPG key when present.
+- Kept the production OCI init script pointed at the production repository; the test-repo-only init default was not synced.
 
 ## 1.0.3p Summary
 

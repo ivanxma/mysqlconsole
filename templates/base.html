@@ -248,8 +248,9 @@
             return;
           }
           const headerRow = table.tHead?.rows[0];
-          const storageKey = `dbconsole-table-layout:${window.location.pathname}:${tableIndex}`;
-          const headers = headerRow ? Array.from(headerRow.cells) : [];
+          const layoutId = wrap.dataset.tableLayoutId || table.dataset.tableLayoutId || String(tableIndex);
+          const storageKey = `dbconsole-table-layout:${window.location.pathname}:${layoutId}`;
+          let headers = headerRow ? Array.from(headerRow.cells) : [];
           const savedLayout = (() => {
             try {
               return JSON.parse(window.localStorage.getItem(storageKey) || "{}");
@@ -257,20 +258,67 @@
               return {};
             }
           })();
+          const reorderEnabled = wrap.dataset.tableReorder === "true" && headers.length > 1;
+          const tableRows = () => [
+            ...Array.from(table.tHead?.rows || []),
+            ...Array.from(table.tBodies).flatMap((tbody) => Array.from(tbody.rows)),
+            ...Array.from(table.tFoot?.rows || []),
+          ];
+          const validOrder = (order) => {
+            if (!Array.isArray(order) || order.length !== headers.length) {
+              return false;
+            }
+            const normalized = order.map((value) => Number(value));
+            return normalized.every((value) => Number.isInteger(value) && value >= 0 && value < headers.length)
+              && new Set(normalized).size === headers.length;
+          };
+          const applyColumnOrder = (order) => {
+            if (!validOrder(order)) {
+              return;
+            }
+            const currentColumnPositions = new Map(
+              headers.map((header, index) => [Number(header.dataset.originalColumnIndex), index])
+            );
+            tableRows().forEach((row) => {
+              const cells = Array.from(row.cells);
+              if (cells.length !== order.length) {
+                return;
+              }
+              order.forEach((originalIndex) => {
+                const currentIndex = currentColumnPositions.get(originalIndex);
+                if (currentIndex !== undefined && cells[currentIndex]) {
+                  row.appendChild(cells[currentIndex]);
+                }
+              });
+            });
+            headers = headerRow ? Array.from(headerRow.cells) : [];
+          };
+          const currentOrder = () => headers.map((header) => Number(header.dataset.originalColumnIndex));
           table.dataset.enhancedTable = "true";
+
+          headers.forEach((header, columnIndex) => {
+            header.dataset.originalColumnIndex = String(columnIndex);
+          });
+          if (reorderEnabled && validOrder(savedLayout.order)) {
+            applyColumnOrder(savedLayout.order.map((value) => Number(value)));
+          }
 
           const existingToolbar = Array.from(wrap.children).find((child) => child.classList?.contains("table-layout-toolbar"));
           const toolbar = existingToolbar || document.createElement("div");
           toolbar.classList.add("table-layout-toolbar");
-          const downloadButton = document.createElement("button");
-          downloadButton.className = "icon-button";
-          downloadButton.type = "button";
-          downloadButton.title = "Download table CSV";
-          downloadButton.setAttribute("aria-label", "Download table CSV");
-          downloadButton.innerHTML = downloadIconMarkup;
-          downloadButton.addEventListener("click", () => {
-            downloadTableCsv(table, tableIndex);
-          });
+          const allowDownload = wrap.dataset.tableDownload !== "false";
+          if (allowDownload) {
+            const downloadButton = document.createElement("button");
+            downloadButton.className = "icon-button";
+            downloadButton.type = "button";
+            downloadButton.title = "Download table CSV";
+            downloadButton.setAttribute("aria-label", "Download table CSV");
+            downloadButton.innerHTML = downloadIconMarkup;
+            downloadButton.addEventListener("click", () => {
+              downloadTableCsv(table, tableIndex);
+            });
+            toolbar.appendChild(downloadButton);
+          }
           const resetButton = document.createElement("button");
           resetButton.className = "icon-button";
           resetButton.type = "button";
@@ -279,24 +327,73 @@
           resetButton.innerHTML = resetIconMarkup;
           resetButton.addEventListener("click", () => {
             window.localStorage.removeItem(storageKey);
+            const originalOrder = headers
+              .map((header) => Number(header.dataset.originalColumnIndex))
+              .sort((a, b) => a - b);
+            applyColumnOrder(originalOrder);
             headers.forEach((header) => {
               header.style.width = "";
             });
           });
-          toolbar.appendChild(downloadButton);
           toolbar.appendChild(resetButton);
           if (!existingToolbar) {
             wrap.prepend(toolbar);
           }
 
-          const persistWidths = () => {
+          const persistLayout = () => {
             const widths = headers.map((header) => Math.round(header.getBoundingClientRect().width));
-            window.localStorage.setItem(storageKey, JSON.stringify({widths}));
+            window.localStorage.setItem(storageKey, JSON.stringify({widths, order: currentOrder()}));
           };
 
           headers.forEach((header, columnIndex) => {
             if (savedLayout.widths && savedLayout.widths[columnIndex]) {
               header.style.width = `${savedLayout.widths[columnIndex]}px`;
+            }
+            if (reorderEnabled) {
+              header.draggable = true;
+              header.title = header.title || "Drag to reposition column";
+              header.addEventListener("dragstart", (event) => {
+                if (event.target?.classList?.contains("table-resize-handle")) {
+                  event.preventDefault();
+                  return;
+                }
+                const currentColumnIndex = Array.from(headerRow.cells).indexOf(header);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", String(currentColumnIndex));
+                header.classList.add("table-column-dragging");
+              });
+              header.addEventListener("dragend", () => {
+                header.classList.remove("table-column-dragging");
+                headers.forEach((item) => item.classList.remove("table-column-drop-target"));
+              });
+              header.addEventListener("dragover", (event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                header.classList.add("table-column-drop-target");
+              });
+              header.addEventListener("dragleave", () => {
+                header.classList.remove("table-column-drop-target");
+              });
+              header.addEventListener("drop", (event) => {
+                event.preventDefault();
+                headers.forEach((item) => item.classList.remove("table-column-drop-target"));
+                const fromIndex = Number(event.dataTransfer.getData("text/plain"));
+                const toIndex = Array.from(headerRow.cells).indexOf(header);
+                if (!Number.isInteger(fromIndex) || fromIndex === toIndex) {
+                  return;
+                }
+                tableRows().forEach((row) => {
+                  const cells = Array.from(row.cells);
+                  if (cells.length !== headers.length) {
+                    return;
+                  }
+                  const cell = cells[fromIndex];
+                  const reference = fromIndex < toIndex ? cells[toIndex].nextSibling : cells[toIndex];
+                  row.insertBefore(cell, reference);
+                });
+                headers = headerRow ? Array.from(headerRow.cells) : [];
+                persistLayout();
+              });
             }
             const originalText = header.textContent.trim();
             if (originalText) {
@@ -306,6 +403,7 @@
               button.type = "button";
               button.innerHTML = `<span>${originalText}</span><span class="table-sort-indicator" aria-hidden="true"></span>`;
               button.addEventListener("click", () => {
+                const sortColumnIndex = Array.from(headerRow.cells).indexOf(header);
                 const currentDirection = header.dataset.sortDirection === "asc" ? "desc" : "asc";
                 headers.forEach((item) => {
                   item.dataset.sortDirection = "";
@@ -319,7 +417,7 @@
                 Array.from(table.tBodies).forEach((tbody) => {
                   Array.from(tbody.rows)
                     .sort((rowA, rowB) => {
-                      const result = compareValues(parseCellValue(rowA, columnIndex), parseCellValue(rowB, columnIndex));
+                      const result = compareValues(parseCellValue(rowA, sortColumnIndex), parseCellValue(rowB, sortColumnIndex));
                       return currentDirection === "asc" ? result : -result;
                     })
                     .forEach((row) => tbody.appendChild(row));
@@ -342,7 +440,7 @@
                 header.style.width = `${nextWidth}px`;
               };
               const onUp = () => {
-                persistWidths();
+                persistLayout();
                 handle.removeEventListener("pointermove", onMove);
                 handle.removeEventListener("pointerup", onUp);
                 handle.removeEventListener("pointercancel", onUp);

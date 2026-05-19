@@ -19,6 +19,8 @@ from time import perf_counter
 from uuid import uuid4
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from modules import object_storage_util, profile_store, update_util
+from modules.core_util import chmod_private_file, parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
 from modules.heatwave_pages import (
     build_dashboard_heatwave_summary as module_build_dashboard_heatwave_summary,
     build_heatwave_management_context as module_build_heatwave_management_context,
@@ -353,126 +355,39 @@ def add_authenticated_no_store_headers(response):
 
 
 def ensure_profile_store():
-    if PROFILE_STORE.exists():
-        chmod_private_file(PROFILE_STORE)
-        return
-    PROFILE_STORE.write_text(json.dumps({"profiles": []}, indent=2), encoding="utf-8")
-    chmod_private_file(PROFILE_STORE)
+    profile_store.ensure_profile_store(PROFILE_STORE)
 
 
 def ensure_object_storage_store():
-    if OBJECT_STORAGE_STORE.exists():
-        chmod_private_file(OBJECT_STORAGE_STORE)
-        return
-    OBJECT_STORAGE_STORE.write_text(json.dumps(DEFAULT_OBJECT_STORAGE, indent=2), encoding="utf-8")
-    chmod_private_file(OBJECT_STORAGE_STORE)
-
-
-def _utc_now_iso():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def chmod_private_file(path):
-    try:
-        Path(path).chmod(0o600)
-    except OSError:
-        pass
-
-
-def _parse_iso_datetime(value):
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None
+    object_storage_util.ensure_object_storage_store(OBJECT_STORAGE_STORE)
 
 
 def _append_dbconsole_update_log(message):
-    DBCONSOLE_UPDATE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with DBCONSOLE_UPDATE_LOG_FILE.open("a", encoding="utf-8") as handle:
-        handle.write(str(message or ""))
-        if not str(message or "").endswith("\n"):
-            handle.write("\n")
-    chmod_private_file(DBCONSOLE_UPDATE_LOG_FILE)
+    update_util.append_update_log(DBCONSOLE_UPDATE_LOG_FILE, message)
 
 
 def _write_dbconsole_update_status(payload):
-    DBCONSOLE_UPDATE_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    data = dict(payload)
-    data["updated_at"] = _utc_now_iso()
-    temp_path = DBCONSOLE_UPDATE_STATUS_FILE.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    chmod_private_file(temp_path)
-    temp_path.replace(DBCONSOLE_UPDATE_STATUS_FILE)
-    chmod_private_file(DBCONSOLE_UPDATE_STATUS_FILE)
-    return data
+    return update_util.write_update_status(DBCONSOLE_UPDATE_STATUS_FILE, payload)
 
 
 def _default_dbconsole_update_status():
-    return {
-        "job_id": "",
-        "state": "idle",
-        "step": "Ready",
-        "message": "No update has been started.",
-        "completion_message": "",
-        "started_at": "",
-        "updated_at": "",
-        "finished_at": "",
-        "worker_pid": None,
-        "service_names": [],
-        "restart_requested_at": "",
-    }
+    return update_util.default_update_status()
 
 
 def _pid_is_alive(pid):
-    try:
-        normalized_pid = int(pid)
-    except (TypeError, ValueError):
-        return False
-    if normalized_pid <= 0:
-        return False
-    try:
-        os.kill(normalized_pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+    return update_util.pid_is_alive(pid)
 
 
 def _read_dbconsole_update_log_tail(max_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES):
-    if not DBCONSOLE_UPDATE_LOG_FILE.exists():
-        return []
-    try:
-        lines = DBCONSOLE_UPDATE_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    if max_lines > 0:
-        return lines[-max_lines:]
-    return lines
+    return update_util.read_update_log_tail(DBCONSOLE_UPDATE_LOG_FILE, max_lines)
 
 
 def _load_dbconsole_update_status_payload():
-    if not DBCONSOLE_UPDATE_STATUS_FILE.exists():
-        return _default_dbconsole_update_status()
-    try:
-        payload = json.loads(DBCONSOLE_UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return _default_dbconsole_update_status()
-    status = _default_dbconsole_update_status()
-    status.update(payload if isinstance(payload, dict) else {})
-    service_names = status.get("service_names", [])
-    if not isinstance(service_names, list):
-        status["service_names"] = []
-    return status
+    return update_util.load_update_status_payload(DBCONSOLE_UPDATE_STATUS_FILE)
 
 
 def _public_dbconsole_update_status(status):
-    public_status = dict(status or {})
-    public_status.pop("poll_token", None)
-    return public_status
+    return update_util.public_update_status(status)
 
 
 def _ensure_dbconsole_update_poll_token():
@@ -490,44 +405,21 @@ def _update_status_poll_token_is_valid(status):
 
 
 def _maybe_finalize_dbconsole_update_status(status):
-    normalized_status = dict(status or _default_dbconsole_update_status())
-    restart_requested_at = _parse_iso_datetime(normalized_status.get("restart_requested_at"))
-
-    if normalized_status.get("state") == "restarting" and restart_requested_at:
-        if PROCESS_STARTED_AT > restart_requested_at:
-            _append_dbconsole_update_log("DBConsole service restart completed.")
-            normalized_status["state"] = "completed"
-            normalized_status["step"] = "Completed"
-            normalized_status["message"] = normalized_status.get("completion_message") or "Repository refresh, setup, and service restart completed."
-            normalized_status["finished_at"] = _utc_now_iso()
-            normalized_status = _write_dbconsole_update_status(normalized_status)
-        elif (datetime.now(timezone.utc) - restart_requested_at).total_seconds() > 120:
-            _append_dbconsole_update_log("DBConsole service restart did not complete within the expected time window.")
-            normalized_status["state"] = "error"
-            normalized_status["step"] = "Failed"
-            normalized_status["message"] = "The scheduled service restart did not complete within 120 seconds."
-            normalized_status["finished_at"] = _utc_now_iso()
-            normalized_status = _write_dbconsole_update_status(normalized_status)
-
-    if normalized_status.get("state") in {"starting", "running"} and normalized_status.get("worker_pid"):
-        if not _pid_is_alive(normalized_status.get("worker_pid")):
-            _append_dbconsole_update_log("The update worker stopped before reporting completion.")
-            normalized_status["state"] = "error"
-            normalized_status["step"] = "Failed"
-            normalized_status["message"] = "The update worker stopped unexpectedly. Review the log output."
-            normalized_status["finished_at"] = _utc_now_iso()
-            normalized_status = _write_dbconsole_update_status(normalized_status)
-
-    return normalized_status
+    return update_util.maybe_finalize_update_status(
+        DBCONSOLE_UPDATE_STATUS_FILE,
+        DBCONSOLE_UPDATE_LOG_FILE,
+        PROCESS_STARTED_AT,
+        status,
+    )
 
 
 def get_dbconsole_update_status():
-    status = _maybe_finalize_dbconsole_update_status(_load_dbconsole_update_status_payload())
-    log_lines = _read_dbconsole_update_log_tail()
-    status["log_lines"] = log_lines
-    status["log_text"] = "\n".join(log_lines)
-    status["can_start"] = status.get("state") not in DBCONSOLE_UPDATE_RUNNING_STATES
-    return status
+    return update_util.get_update_status(
+        DBCONSOLE_UPDATE_STATUS_FILE,
+        DBCONSOLE_UPDATE_LOG_FILE,
+        PROCESS_STARTED_AT,
+        DBCONSOLE_UPDATE_MAX_LOG_LINES,
+    )
 
 
 def local_admin_profile_needs_bootstrap():
@@ -584,219 +476,46 @@ def normalize_update_local_admin_bootstrap_credentials(form_payload, require_pas
 
 
 def start_dbconsole_update_job(local_admin_password_reset=None):
-    current_status = get_dbconsole_update_status()
-    if not current_status.get("can_start"):
-        raise ValueError("A DBConsole update is already in progress.")
-    if not DBCONSOLE_UPDATE_WORKER.exists():
-        raise ValueError(f"Update worker script was not found at {DBCONSOLE_UPDATE_WORKER}.")
-
-    DBCONSOLE_UPDATE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DBCONSOLE_UPDATE_LOG_FILE.write_text("", encoding="utf-8")
-
-    status_payload = _write_dbconsole_update_status(
-        {
-            "job_id": _utc_now_iso().replace(":", "").replace("-", ""),
-            "state": "starting",
-            "step": "Starting",
-            "message": "Launching the DBConsole update worker.",
-            "completion_message": "",
-            "started_at": _utc_now_iso(),
-            "finished_at": "",
-            "worker_pid": None,
-            "service_names": [],
-            "restart_requested_at": "",
-            "poll_token": _ensure_dbconsole_update_poll_token(),
-        }
+    return update_util.start_update_job(
+        repo_dir=ROOT_DIR,
+        worker_script=DBCONSOLE_UPDATE_WORKER,
+        status_file=DBCONSOLE_UPDATE_STATUS_FILE,
+        log_file=DBCONSOLE_UPDATE_LOG_FILE,
+        python_executable=sys.executable,
+        service_pid=os.getpid(),
+        poll_token=_ensure_dbconsole_update_poll_token(),
+        process_started_at=PROCESS_STARTED_AT,
+        max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
+        local_admin_password_reset=local_admin_password_reset,
     )
-    _append_dbconsole_update_log("Launching the DBConsole update worker.")
-
-    worker_env = os.environ.copy()
-    worker_env["PYTHONUNBUFFERED"] = "1"
-    local_admin_password_reset = dict(local_admin_password_reset or {})
-    for key in ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME"):
-        value = str(local_admin_password_reset.get(key, "") or "")
-        if value:
-            worker_env[key] = value
-    if local_admin_password_reset:
-        _append_dbconsole_update_log(
-            "Localadmin first-time bootstrap credentials were supplied for this update. The password is not logged or saved."
-        )
-    worker = subprocess.Popen(
-        [
-            sys.executable,
-            str(DBCONSOLE_UPDATE_WORKER),
-            "--repo-dir",
-            str(ROOT_DIR),
-            "--status-file",
-            str(DBCONSOLE_UPDATE_STATUS_FILE),
-            "--log-file",
-            str(DBCONSOLE_UPDATE_LOG_FILE),
-            "--service-pid",
-            str(os.getpid()),
-        ],
-        cwd=str(ROOT_DIR),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=True,
-        env=worker_env,
-    )
-    status_payload["worker_pid"] = worker.pid
-    status_payload["message"] = f"Update worker started with PID {worker.pid}."
-    _write_dbconsole_update_status(status_payload)
-    return get_dbconsole_update_status()
 
 
 def get_local_app_version():
-    if not APP_VERSION_FILE.exists():
-        return "-"
-    try:
-        payload = json.loads(APP_VERSION_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return "-"
-    version = str(payload.get("version", "")).strip()
-    return version or "-"
+    return update_util.get_local_app_version(APP_VERSION_FILE)
 
 
 def _normalize_git_remote_url(remote_url):
-    remote = str(remote_url or "").strip()
-    if remote.startswith("git@github.com:"):
-        remote = "https://github.com/" + remote[len("git@github.com:"):]
-    if remote.startswith("https://github.com/"):
-        if remote.endswith(".git"):
-            remote = remote[:-4]
-        if remote.count("/") >= 4:
-            return remote
-    return ""
+    return update_util.normalize_git_remote_url(remote_url)
 
 
 def infer_app_version_url():
-    configured_url = os.environ.get("DBCONSOLE_VERSION_URL", "").strip()
-    if configured_url:
-        return configured_url
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(ROOT_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            check=False,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    remote_url = _normalize_git_remote_url(result.stdout)
-    if not remote_url:
-        return ""
-    try:
-        branch_result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=str(ROOT_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            check=False,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        branch_name = ""
-    else:
-        branch_name = branch_result.stdout.strip()
-    branch_name = branch_name or os.environ.get("DBCONSOLE_VERSION_BRANCH", "").strip() or "main"
-    owner_repo = remote_url[len("https://github.com/"):].strip("/")
-    return f"https://raw.githubusercontent.com/{owner_repo}/{branch_name}/appver.json"
+    return update_util.infer_app_version_url(ROOT_DIR)
 
 
 def normalize_repository_version_request_url(version_url):
-    raw_match = re.fullmatch(
-        r"https://raw\.githubusercontent\.com/([^/]+/[^/]+)/([^/]+)/appver\.json(?:\?.*)?",
-        str(version_url or "").strip(),
-    )
-    if raw_match:
-        owner_repo, branch_name = raw_match.groups()
-        return f"https://api.github.com/repos/{owner_repo}/contents/appver.json?ref={branch_name}"
-
-    github_raw_match = re.fullmatch(
-        r"https://github\.com/([^/]+/[^/]+)/raw/([^/]+)/appver\.json(?:\?.*)?",
-        str(version_url or "").strip(),
-    )
-    if github_raw_match:
-        owner_repo, branch_name = github_raw_match.groups()
-        return f"https://api.github.com/repos/{owner_repo}/contents/appver.json?ref={branch_name}"
-
-    return version_url
+    return update_util.normalize_repository_version_request_url(version_url)
 
 
 def build_repository_version_ssl_context():
-    ca_bundle = os.environ.get("DBCONSOLE_VERSION_CA_BUNDLE", "").strip()
-    if ca_bundle:
-        return ssl.create_default_context(cafile=os.path.expanduser(ca_bundle))
-    try:
-        import certifi
-    except ImportError:
-        return None
-    return ssl.create_default_context(cafile=certifi.where())
+    return update_util.build_repository_version_ssl_context()
 
 
 def read_repository_version_payload(response_body):
-    payload = json.loads(response_body.decode("utf-8"))
-    if "version" in payload:
-        return payload
-    encoded_content = payload.get("content")
-    if encoded_content:
-        decoded_body = base64.b64decode(str(encoded_content).encode("utf-8"))
-        return json.loads(decoded_body.decode("utf-8"))
-    return payload
+    return update_util.read_repository_version_payload(response_body)
 
 
 def fetch_repository_app_version(timeout=2):
-    version_url = infer_app_version_url()
-    if not version_url:
-        return {
-            "repo_version": "-",
-            "version_url": "",
-            "error": "Set DBCONSOLE_VERSION_URL to enable repository version checks.",
-        }
-    try:
-        request_url = normalize_repository_version_request_url(version_url)
-        request_object = urllib.request.Request(
-            request_url,
-            headers={
-                "Accept": "application/vnd.github.raw+json, application/json",
-                "Cache-Control": "no-cache",
-                "Pragma": "no-cache",
-            },
-        )
-        ssl_context = build_repository_version_ssl_context() if request_url.lower().startswith("https://") else None
-        with urllib.request.urlopen(request_object, timeout=timeout, context=ssl_context) as response:
-            payload = read_repository_version_payload(response.read())
-    except ssl.SSLError as error:
-        return {
-            "repo_version": "-",
-            "version_url": version_url,
-            "error": f"TLS certificate verification failed. Set DBCONSOLE_VERSION_CA_BUNDLE to a valid CA bundle path. Details: {error}",
-        }
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
-        reason = getattr(error, "reason", None)
-        if isinstance(reason, ssl.SSLError):
-            error_message = (
-                "TLS certificate verification failed. Set DBCONSOLE_VERSION_CA_BUNDLE to a valid CA bundle path. "
-                f"Details: {reason}"
-            )
-        else:
-            error_message = str(error)
-        return {
-            "repo_version": "-",
-            "version_url": version_url,
-            "error": error_message,
-        }
-    repo_version = str(payload.get("version", "")).strip() or "-"
-    return {
-        "repo_version": repo_version,
-        "version_url": version_url,
-        "error": "",
-    }
+    return update_util.fetch_repository_app_version(ROOT_DIR, timeout=timeout)
 
 
 def refresh_repo_version_check():
@@ -844,41 +563,15 @@ def _normalize_int(value, default, minimum=None):
 
 
 def load_profiles():
-    ensure_profile_store()
-    try:
-        payload = json.loads(PROFILE_STORE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    profiles = []
-    for row in payload.get("profiles", []):
-        profile = normalize_profile(row)
-        if profile["name"]:
-            profiles.append(profile)
-    return sorted(profiles, key=lambda item: item["name"].lower())
+    return profile_store.load_profiles(PROFILE_STORE)
 
 
 def save_profiles(profiles):
-    normalized_profiles = []
-    seen = set()
-    for row in profiles:
-        profile = normalize_profile(row)
-        if not profile["name"]:
-            continue
-        key = profile["name"].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized_profiles.append(profile)
-    PROFILE_STORE.write_text(json.dumps({"profiles": normalized_profiles}, indent=2), encoding="utf-8")
-    chmod_private_file(PROFILE_STORE)
+    profile_store.save_profiles(PROFILE_STORE, profiles)
 
 
 def get_profile_by_name(profile_name):
-    profile_lookup = str(profile_name or "").strip().lower()
-    for profile in load_profiles():
-        if profile["name"].lower() == profile_lookup:
-            return profile
-    return None
+    return profile_store.get_profile_by_name(PROFILE_STORE, profile_name)
 
 
 def is_local_admin_profile_session():
@@ -931,79 +624,27 @@ def nav_groups_for_current_session():
 
 
 def _safe_profile_key_dir_name(profile_name):
-    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(profile_name or "").strip()).strip("._")
-    if not cleaned:
-        cleaned = "profile"
-    return cleaned[:80]
+    return profile_store.safe_profile_key_dir_name(profile_name)
 
 
 def save_uploaded_profile_ssh_key(profile_name, upload_storage):
-    if upload_storage is None or not getattr(upload_storage, "filename", ""):
-        return ""
-    key_payload = upload_storage.read()
-    if not key_payload:
-        raise ValueError("Uploaded SSH private key file is empty.")
-    if len(key_payload) > 65536:
-        raise ValueError("Uploaded SSH private key file is too large.")
-    key_text = key_payload.decode("utf-8", errors="ignore")
-    if "PRIVATE KEY" not in key_text:
-        raise ValueError("Upload a valid SSH private key file.")
-
-    profile_dir = PROFILE_SSH_KEY_DIR / _safe_profile_key_dir_name(profile_name)
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        PROFILE_SSH_KEY_DIR.chmod(0o700)
-        profile_dir.chmod(0o700)
-    except OSError:
-        pass
-
-    key_path = profile_dir / "ssh_private_key"
-    temp_path = profile_dir / f".{uuid4().hex}.tmp"
-    temp_path.write_bytes(key_payload)
-    temp_path.chmod(0o600)
-    temp_path.replace(key_path)
-    try:
-        key_path.chmod(0o600)
-    except OSError:
-        pass
-    return str(key_path)
+    return profile_store.save_uploaded_profile_ssh_key(PROFILE_SSH_KEY_DIR, profile_name, upload_storage)
 
 
 def normalize_object_storage(payload):
-    return {
-        "region": str(payload.get("region", "")).strip(),
-        "namespace": str(payload.get("namespace", "")).strip(),
-        "bucket_name": str(payload.get("bucket_name", "")).strip(),
-        "bucket_prefix": str(payload.get("bucket_prefix", "")).strip(),
-        "config_profile": str(payload.get("config_profile", "")).strip() or DEFAULT_OBJECT_STORAGE["config_profile"],
-    }
+    return object_storage_util.normalize_object_storage(payload)
 
 
 def load_object_storage_config():
-    ensure_object_storage_store()
-    try:
-        payload = json.loads(OBJECT_STORAGE_STORE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return dict(DEFAULT_OBJECT_STORAGE)
-    normalized = normalize_object_storage(payload)
-    if not normalized["config_profile"]:
-        normalized["config_profile"] = DEFAULT_OBJECT_STORAGE["config_profile"]
-    return normalized
+    return object_storage_util.load_object_storage_config(OBJECT_STORAGE_STORE)
 
 
 def save_object_storage_config(payload):
-    OBJECT_STORAGE_STORE.write_text(json.dumps(normalize_object_storage(payload), indent=2), encoding="utf-8")
-    chmod_private_file(OBJECT_STORAGE_STORE)
+    object_storage_util.save_object_storage_config(OBJECT_STORAGE_STORE, payload)
 
 
 def fetch_setup_status():
-    config = load_object_storage_config()
-    missing = [key for key in ("region", "namespace", "bucket_name") if not config.get(key)]
-    return {
-        "configured": not missing,
-        "missing_fields": missing,
-        "summary": "Configured" if not missing else f"Missing {', '.join(missing)}",
-    }
+    return object_storage_util.fetch_setup_status(OBJECT_STORAGE_STORE)
 
 
 def get_session_profile():

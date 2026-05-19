@@ -270,6 +270,28 @@ run_as_root() {
   fi
 }
 
+wait_for_rpm_lock() {
+  local deadline=$((SECONDS + ${RPM_LOCK_TIMEOUT_SECONDS:-600}))
+  if ! command -v rpm >/dev/null 2>&1; then
+    return 0
+  fi
+  while [[ -e /var/lib/rpm/.rpm.lock ]] && ! run_as_root rpm --eval '%{_db_backend}' >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      echo "Timed out waiting for the RPM database lock to clear." >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+import_mysql_gpg_key() {
+  local key_file="/etc/pki/rpm-gpg/RPM-GPG-KEY-mysql-2025"
+  if [[ -r "$key_file" ]]; then
+    wait_for_rpm_lock
+    run_as_root rpm --import "$key_file" || true
+  fi
+}
+
 write_root_file() {
   local target_path="$1"
 
@@ -2717,6 +2739,8 @@ install_local_mysql_server() {
       if [[ "$os_family" == "ol8" ]]; then
         run_as_root dnf -y module disable mysql >/dev/null 2>&1 || true
       fi
+      wait_for_rpm_lock
+      import_mysql_gpg_key
       run_as_root dnf install -y --refresh --best --allowerasing mysql-community-server mysql-community-client
       if command -v systemctl >/dev/null 2>&1; then
         run_as_root systemctl disable --now mysqld >/dev/null 2>&1 || true
