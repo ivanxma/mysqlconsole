@@ -82,6 +82,27 @@
         Default MySQL Username
         <input name="username" type="text" value="{{ editing_profile.username }}" autocomplete="off" autocapitalize="none" spellcheck="false">
       </label>
+      <label>
+        SSL Mode
+        <select name="ssl_mode">
+          <option value="REQUIRED" {% if editing_profile.ssl_mode == "REQUIRED" %}selected{% endif %}>Required</option>
+          <option value="VERIFY_CA" {% if editing_profile.ssl_mode == "VERIFY_CA" %}selected{% endif %}>Verify CA</option>
+          <option value="VERIFY_IDENTITY" {% if editing_profile.ssl_mode == "VERIFY_IDENTITY" %}selected{% endif %}>Verify Identity</option>
+          <option value="DISABLED" {% if editing_profile.ssl_mode == "DISABLED" %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+      <label>
+        SSL CA Path
+        <input name="ssl_ca" type="text" value="{{ editing_profile.ssl_ca }}">
+      </label>
+      <label>
+        SSL Cert Path
+        <input name="ssl_cert" type="text" value="{{ editing_profile.ssl_cert }}">
+      </label>
+      <label>
+        SSL Key Path
+        <input name="ssl_key" type="text" value="{{ editing_profile.ssl_key }}">
+      </label>
       <label class="checkbox-field">
         <input name="ssh_enabled" type="checkbox" value="1" {% if editing_profile.ssh_enabled %}checked{% endif %}>
         <span>Use SSH Tunnel</span>
@@ -122,6 +143,10 @@
     <input type="hidden" name="port" value="{{ editing_profile.port }}">
     <input type="hidden" name="database" value="{{ editing_profile.database }}">
     <input type="hidden" name="username" value="{{ editing_profile.username }}">
+    <input type="hidden" name="ssl_mode" value="{{ editing_profile.ssl_mode }}">
+    <input type="hidden" name="ssl_ca" value="{{ editing_profile.ssl_ca }}">
+    <input type="hidden" name="ssl_cert" value="{{ editing_profile.ssl_cert }}">
+    <input type="hidden" name="ssl_key" value="{{ editing_profile.ssl_key }}">
     {% if editing_profile.socket_enabled %}
     <input type="hidden" name="socket_enabled" value="1">
     {% endif %}

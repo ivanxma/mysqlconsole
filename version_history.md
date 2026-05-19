@@ -1,6 +1,19 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3n`.
+Version summary from `1.0.2a` to `1.0.3o`.
+
+## 1.0.3o Summary
+
+Version `1.0.3o` moves DBConsole's MySQL driver boundary to Oracle MySQL Connector/Python and centralizes connection behavior in `modules/mysql_util.py`.
+
+- Replaced the active MySQL Python driver dependency with `mysql-connector-python>=9.5,<10.0`.
+- Added `modules/mysql_util.py` for profile normalization, TLS mode handling, Connector/Python cursor adaptation, cached connection borrowing, `SELECT 1` health checks, transaction cleanup, SSH tunnel cleanup, and SQL literal escaping.
+- Updated TCP profiles to support `SSL Mode = Required`, `VERIFY_CA`, `VERIFY_IDENTITY`, and `DISABLED` through Connector/Python arguments, including explicit SSL client flag handling for servers with `require_secure_transport=ON`.
+- Kept server-side cached connections per active profile/session while validating every borrowed connection with `SELECT 1` before use.
+- Updated DB Admin helpers to consume MySQL utility exception aliases and SQL literal escaping instead of importing a connector directly.
+- Added `mysql_util_refactor_plan.html` to document the refactor, validation matrix, platform checks, OCI setup verification, rollback path, and `myapp` skill synchronization.
+- Fixed macOS `setup.sh` HTTPS setup so Linux-only `service_user` and `service_group` values are initialized before TLS asset handling.
+- Updated the local `myapp` skill and the `codexSKILL` mirror so future MySQL apps default to Connector/Python and the `modules/mysql_util.py` pattern.
 
 ## 1.0.3n Summary
 

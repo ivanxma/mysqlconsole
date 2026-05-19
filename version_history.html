@@ -128,10 +128,27 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3n</span>
+      <span class="badge">Release 1.0.3o</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3n</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3o</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3o Summary</h2>
+      <p>
+        Version <code>1.0.3o</code> moves DBConsole's MySQL driver boundary to Oracle MySQL Connector/Python and centralizes connection behavior in <code>modules/mysql_util.py</code>.
+      </p>
+      <ul>
+        <li>Replaced the active MySQL Python driver dependency with <code>mysql-connector-python&gt;=9.5,&lt;10.0</code>.</li>
+        <li>Added <code>modules/mysql_util.py</code> for profile normalization, TLS mode handling, Connector/Python cursor adaptation, cached connection borrowing, <code>SELECT 1</code> health checks, transaction cleanup, SSH tunnel cleanup, and SQL literal escaping.</li>
+        <li>Updated TCP profiles to support <code>SSL Mode = Required</code>, <code>VERIFY_CA</code>, <code>VERIFY_IDENTITY</code>, and <code>DISABLED</code> through Connector/Python arguments, including explicit SSL client flag handling for servers with <code>require_secure_transport=ON</code>.</li>
+        <li>Kept server-side cached connections per active profile/session while validating every borrowed connection with <code>SELECT 1</code> before use.</li>
+        <li>Updated DB Admin helpers to consume MySQL utility exception aliases and SQL literal escaping instead of importing a connector directly.</li>
+        <li>Added <code>mysql_util_refactor_plan.html</code> to document the refactor, validation matrix, platform checks, OCI setup verification, rollback path, and <code>myapp</code> skill synchronization.</li>
+        <li>Fixed macOS <code>setup.sh</code> HTTPS setup so Linux-only <code>service_user</code> and <code>service_group</code> values are initialized before TLS asset handling.</li>
+        <li>Updated the local <code>myapp</code> skill and the <code>codexSKILL</code> mirror so future MySQL apps default to Connector/Python and the <code>modules/mysql_util.py</code> pattern.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3n Summary</h2>

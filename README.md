@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3n`
+Current version: `1.0.3o`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -32,7 +32,7 @@ The `Admin > Auto-Update` status page uses a job-scoped polling token for status
 
 Key files:
 
-- `app.py`: Flask app creation, shared session handling, shared DB helpers, route registration
+- `app.py`: Flask app creation, shared session handling, profile persistence, route registration
 - `modules/`: feature modules for page orchestration and extracted logic
 - `templates/`: Jinja templates
 - `static/style.css`: shared styling
@@ -45,6 +45,7 @@ Key files:
 Current feature modules:
 
 - `modules/mysql_import.py`
+- `modules/mysql_util.py`: MySQL Connector/Python boundary for profile normalization, TLS options, cached connections, health checks, transactions, and SQL literal escaping
 - `modules/status_variables.py`
 - `modules/mysql_pages.py`
 - `modules/heatwave_pages.py`
@@ -59,7 +60,7 @@ Current feature modules:
 Python dependencies are installed from `requirements.txt`. `pyproject.toml` also declares `requires-python = ">=3.12"` for tooling that reads Python project metadata.
 
 - `Flask`
-- `PyMySQL`
+- `mysql-connector-python`
 - `sshtunnel`
 
 ## Local Run

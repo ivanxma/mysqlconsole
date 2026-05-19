@@ -12,14 +12,12 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-import pymysql
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from modules.heatwave_pages import (
     build_dashboard_heatwave_summary as module_build_dashboard_heatwave_summary,
@@ -36,6 +34,16 @@ from modules.mysql_import import (
     run_mysql_import as module_run_mysql_import,
     save_mysql_import_plan as module_save_mysql_import_plan,
     validate_mysql_import_request as module_validate_mysql_import_request,
+)
+from modules.mysql_util import (
+    DEFAULT_PROFILE,
+    InterfaceError as MySQLInterfaceError,
+    OperationalError as MySQLOperationalError,
+    borrow_connection,
+    close_cached_connection,
+    normalize_profile,
+    public_profile,
+    public_profiles,
 )
 from modules.mysql_pages import (
     append_sql_workspace_history as module_append_sql_workspace_history,
@@ -60,13 +68,6 @@ from modules.status_variables import (
     build_empty_status_variable_page as module_build_empty_status_variable_page,
     fetch_grouped_status_variables as module_fetch_grouped_status_variables,
 )
-from pymysql.cursors import DictCursor
-
-try:
-    from sshtunnel import SSHTunnelForwarder
-except ImportError:  # pragma: no cover - optional dependency at runtime
-    SSHTunnelForwarder = None
-
 
 APP_TITLE = "MySQL DBConsole"
 ROOT_DIR = Path(__file__).resolve().parent
@@ -83,21 +84,6 @@ DBCONSOLE_UPDATE_MAX_LOG_LINES = 400
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_$]+$")
 IMPORT_SQL_TYPE_RE = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)*(?:\([0-9, ]+\))?$")
-DEFAULT_PROFILE = {
-    "name": "",
-    "host": "",
-    "port": 3306,
-    "database": "mysql",
-    "username": "",
-    "socket_enabled": False,
-    "socket_path": "",
-    "ssh_enabled": False,
-    "ssh_host": "",
-    "ssh_port": 22,
-    "ssh_user": "",
-    "ssh_key_path": "",
-    "require_password_change": False,
-}
 DEFAULT_OBJECT_STORAGE = {
     "region": "",
     "namespace": "",
@@ -857,25 +843,6 @@ def _normalize_int(value, default, minimum=None):
     return normalized
 
 
-def normalize_profile(payload):
-    return {
-        "name": str(payload.get("name", "")).strip(),
-        "host": str(payload.get("host", "")).strip(),
-        "port": _normalize_int(payload.get("port"), DEFAULT_PROFILE["port"], minimum=1),
-        "database": str(payload.get("database", "")).strip() or DEFAULT_PROFILE["database"],
-        "username": str(payload.get("username", "")).strip(),
-        "socket_enabled": str(payload.get("socket_enabled", "")).strip().lower() in {"1", "true", "yes", "on"},
-        "socket_path": str(payload.get("socket_path", "")).strip(),
-        "ssh_enabled": str(payload.get("ssh_enabled", "")).strip().lower() in {"1", "true", "yes", "on"},
-        "ssh_host": str(payload.get("ssh_host", "")).strip(),
-        "ssh_port": _normalize_int(payload.get("ssh_port"), DEFAULT_PROFILE["ssh_port"], minimum=1),
-        "ssh_user": str(payload.get("ssh_user", "")).strip(),
-        "ssh_key_path": str(payload.get("ssh_key_path", "")).strip(),
-        "require_password_change": str(payload.get("require_password_change", "")).strip().lower()
-        in {"1", "true", "yes", "on"},
-    }
-
-
 def load_profiles():
     ensure_profile_store()
     try:
@@ -912,17 +879,6 @@ def get_profile_by_name(profile_name):
         if profile["name"].lower() == profile_lookup:
             return profile
     return None
-
-
-def public_profile(profile):
-    payload = normalize_profile(profile)
-    payload["ssh_key_path"] = ""
-    payload["ssh_key_uploaded"] = bool(normalize_profile(profile).get("ssh_key_path"))
-    return payload
-
-
-def public_profiles(profiles):
-    return [public_profile(profile) for profile in profiles]
 
 
 def is_local_admin_profile_session():
@@ -1074,7 +1030,8 @@ def _cleanup_expired_server_sessions():
         if created_at is None or (now - created_at).total_seconds() > DBCONSOLE_CREDENTIAL_TTL_SECONDS:
             expired_session_ids.append(server_session_id)
     for server_session_id in expired_session_ids:
-        ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
+        entry = ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
+        close_cached_connection(entry)
 
 
 def _get_server_session_entry():
@@ -1089,7 +1046,8 @@ def _get_server_session_entry():
 def set_session_credentials(username, password):
     old_session_id = _get_server_session_id()
     if old_session_id:
-        ACTIVE_DBCONSOLE_SESSIONS.pop(old_session_id, None)
+        old_entry = ACTIVE_DBCONSOLE_SESSIONS.pop(old_session_id, None)
+        close_cached_connection(old_entry)
     server_session_id = uuid4().hex
     ACTIVE_DBCONSOLE_SESSIONS[server_session_id] = {
         "username": str(username or "").strip(),
@@ -1123,7 +1081,8 @@ def has_active_login_state():
 def clear_login_state(keep_profile=True):
     server_session_id = _get_server_session_id()
     if server_session_id:
-        ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
+        entry = ACTIVE_DBCONSOLE_SESSIONS.pop(server_session_id, None)
+        close_cached_connection(entry)
     profile = session.get("connection_profile") if keep_profile else None
     profile_name = session.get("profile_name") if keep_profile else None
     session.clear()
@@ -1226,70 +1185,25 @@ def normalize_sql_workspace_secondary_engine(value):
     return normalized
 
 
-@contextmanager
 def mysql_connection(database_override=None, connect_timeout=5, autocommit=True):
-    profile = get_session_profile()
-    credentials = get_session_credentials()
-    if not credentials["username"]:
-        raise ValueError("No active MySQL login is available in the current session.")
-    use_unix_socket = bool(profile.get("socket_enabled") and profile.get("socket_path"))
-    if not use_unix_socket and not profile["host"]:
-        raise ValueError("The selected profile does not have a MySQL host configured.")
-    if use_unix_socket and profile["ssh_enabled"]:
-        raise ValueError("Unix socket profiles cannot also use SSH tunneling.")
-
-    tunnel = None
-    target_host = profile["host"]
-    target_port = profile["port"]
-
-    if profile["ssh_enabled"]:
-        if SSHTunnelForwarder is None:
-            raise RuntimeError("SSH tunneling requires the `sshtunnel` package.")
-        if not profile["ssh_host"] or not profile["ssh_user"] or not profile["ssh_key_path"]:
-            raise ValueError("SSH-enabled profiles require jump host, SSH user, and private key path.")
-        tunnel = SSHTunnelForwarder(
-            (profile["ssh_host"], profile["ssh_port"]),
-            ssh_username=profile["ssh_user"],
-            ssh_pkey=os.path.expanduser(profile["ssh_key_path"]),
-            remote_bind_address=(profile["host"], profile["port"]),
-        )
-        tunnel.start()
-        target_host = "127.0.0.1"
-        target_port = tunnel.local_bind_port
-
-    connection = None
-    try:
-        connect_kwargs = {
-            "user": credentials["username"],
-            "password": credentials["password"],
-            "database": database_override or profile["database"] or None,
-            "connect_timeout": connect_timeout,
-            "charset": "utf8mb4",
-            "cursorclass": DictCursor,
-            "autocommit": autocommit,
-        }
-        if use_unix_socket:
-            connect_kwargs["unix_socket"] = os.path.expanduser(profile["socket_path"])
-        else:
-            connect_kwargs["host"] = target_host
-            connect_kwargs["port"] = target_port
-        connection = pymysql.connect(**connect_kwargs)
-        yield connection
-    finally:
-        if connection is not None:
-            connection.close()
-        if tunnel is not None:
-            tunnel.stop()
+    return borrow_connection(
+        profile=get_session_profile(),
+        credentials=get_session_credentials(),
+        session_entry=_get_server_session_entry(),
+        database_override=database_override,
+        connect_timeout=connect_timeout,
+        autocommit=autocommit,
+    )
 
 
-@app.errorhandler(pymysql.err.OperationalError)
+@app.errorhandler(MySQLOperationalError)
 def handle_mysql_operational_error(error):
     if not session.get("logged_in"):
         return f"MySQL operational error: {error}", 500
     return _redirect_to_login_for_mysql_unavailable(error)
 
 
-@app.errorhandler(pymysql.err.InterfaceError)
+@app.errorhandler(MySQLInterfaceError)
 def handle_mysql_interface_error(error):
     if not session.get("logged_in"):
         return f"MySQL interface error: {error}", 500

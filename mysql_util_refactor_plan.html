@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DBConsole MySQL Utility Refactor Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #1f2933;
+      --muted: #5d6875;
+      --border: #d8dee6;
+      --accent: #1d6f8f;
+      --accent-soft: #e8f3f7;
+      --warn: #8a5a00;
+      --warn-soft: #fff7df;
+      --ok: #176b3a;
+      --ok-soft: #e9f6ee;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 22px 56px;
+    }
+
+    header {
+      margin-bottom: 22px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      background: #eef2f6;
+      border: 1px solid #dce3eb;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 0 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--border);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      background: #f0f4f8;
+      font-weight: 700;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .meta div {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-bottom: 3px;
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill-ok {
+      color: var(--ok);
+      background: var(--ok-soft);
+    }
+
+    .pill-warn {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .callout {
+      background: var(--accent-soft);
+      border-left: 4px solid var(--accent);
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 12px;
+    }
+
+    .phase-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .phase {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfd;
+    }
+
+    @media (max-width: 820px) {
+      main {
+        padding: 22px 14px 36px;
+      }
+
+      .meta,
+      .phase-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>DBConsole MySQL Utility Refactor Plan</h1>
+    <p>Plan to extract MySQL-specific connection, profile, TLS, cursor, transaction, and verification behavior from <code>app.py</code> into a dedicated <code>modules/mysql_util.py</code> module.</p>
+    <div class="meta">
+      <div><span class="label">Target Module</span><strong><code>modules/mysql_util.py</code></strong></div>
+      <div><span class="label">Connector</span><strong><code>mysql-connector-python</code></strong></div>
+      <div><span class="label">Primary Risk</span><strong>Connection lifecycle and deployment parity</strong></div>
+      <div><span class="label">Deployment Scope</span><strong>macOS, OL8, OL9, Ubuntu, OCI Compute</strong></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>Goals</h2>
+    <ul>
+      <li>Move MySQL-specific API code out of <code>app.py</code> into a reusable utility module with a narrow, testable public API.</li>
+      <li>Keep existing behavior for saved profiles, SSH tunnels, Unix sockets, TLS modes, cached connections, <code>SELECT 1</code> checks, and transaction handling.</li>
+      <li>Make Connector/Python behavior explicit and isolated so future driver changes do not spread across routes and page modules.</li>
+      <li>Preserve deployment behavior across <code>setup.sh</code>, start scripts, Auto-Update, and OCI first-boot setup.</li>
+      <li>Add validation coverage for local development, Linux systemd services, macOS local hosting, and OCI Compute initialization.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Non-Goals</h2>
+    <ul>
+      <li>Do not rewrite dashboard, DB Admin, HeatWave, Monitoring, or Import feature logic.</li>
+      <li>Do not change profile secrets storage or put database passwords in <code>profiles.json</code>.</li>
+      <li>Do not change the app-managed local MySQL provisioning model in <code>setup.sh</code>.</li>
+      <li>Do not introduce SQLAlchemy or another ORM.</li>
+      <li>Do not change OCI tenancy, compartment, subnet, or image assumptions beyond validation documentation.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Current Coupling To Remove</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Area</th>
+          <th>Current Location</th>
+          <th>Problem</th>
+          <th>Refactor Destination</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Connector imports and exceptions</td>
+          <td><code>app.py</code>, <code>modules/mysql_pages.py</code></td>
+          <td>Driver-specific API is spread across routing and page logic.</td>
+          <td><code>modules/mysql_util.py</code> exposes connector errors and helper predicates.</td>
+        </tr>
+        <tr>
+          <td>Profile normalization and TLS options</td>
+          <td><code>app.py</code></td>
+          <td>Profile schema and connection arguments are mixed with Flask session code.</td>
+          <td><code>normalize_profile()</code>, <code>normalize_mysql_ssl_mode()</code>, and TLS argument builders move into utility module.</td>
+        </tr>
+        <tr>
+          <td>Cached connection lifecycle</td>
+          <td><code>app.py</code></td>
+          <td>Connection cache cleanup is interleaved with credential session cleanup.</td>
+          <td>Utility owns cache entries; Flask code calls explicit cleanup hooks.</td>
+        </tr>
+        <tr>
+          <td>Connector/Python cursor adapter</td>
+          <td><code>app.py</code></td>
+          <td>Route layer knows dictionary cursor implementation details.</td>
+          <td><code>MySQLConnectionAdapter</code> in utility module.</td>
+        </tr>
+        <tr>
+          <td>Health check</td>
+          <td><code>app.py</code></td>
+          <td><code>SELECT 1</code> policy should be enforced at one connection boundary.</td>
+          <td><code>test_connection()</code> and <code>prepare_connection_for_use()</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Target Module API</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Function or Class</th>
+          <th>Responsibility</th>
+          <th>Consumers</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>DEFAULT_PROFILE</code>, <code>MYSQL_SSL_MODES</code></td>
+          <td>Define normalized connection profile defaults and valid TLS modes.</td>
+          <td><code>app.py</code>, profile routes, setup profile patch checks.</td>
+        </tr>
+        <tr>
+          <td><code>normalize_profile(payload)</code></td>
+          <td>Normalize persisted and form-submitted profile payloads.</td>
+          <td>Profile load/save, login, session restore.</td>
+        </tr>
+        <tr>
+          <td><code>public_profile(profile)</code>, <code>public_profiles(profiles)</code></td>
+          <td>Hide server-only SSH key paths and prepare profiles for templates.</td>
+          <td>Login and Admin Profile pages.</td>
+        </tr>
+        <tr>
+          <td><code>profile_signature(profile, username)</code></td>
+          <td>Detect when a cached connection is no longer valid for the active profile/user.</td>
+          <td>Connection cache manager.</td>
+        </tr>
+        <tr>
+          <td><code>MySQLConnectionAdapter</code></td>
+          <td>Wrap Connector/Python with the app's existing dictionary cursor and transaction expectations.</td>
+          <td>All app code that uses <code>with mysql_connection()</code>.</td>
+        </tr>
+        <tr>
+          <td><code>build_connect_kwargs(profile, credentials, database, timeout)</code></td>
+          <td>Build Connector/Python arguments for TCP, Unix socket, TLS, and SSH-local binds.</td>
+          <td><code>open_connection()</code>.</td>
+        </tr>
+        <tr>
+          <td><code>open_connection(...)</code></td>
+          <td>Open Connector/Python connection and optional SSH tunnel.</td>
+          <td>Connection cache manager.</td>
+        </tr>
+        <tr>
+          <td><code>borrow_connection(...)</code></td>
+          <td>Context manager that reuses cached connection, runs <code>SELECT 1</code>, resets autocommit, and recreates dead connections.</td>
+          <td><code>app.py</code> wrapper or direct import.</td>
+        </tr>
+        <tr>
+          <td><code>close_cached_connection(entry)</code></td>
+          <td>Close cached Connector/Python connection and SSH tunnel during logout, credential reset, and session expiry.</td>
+          <td>Session cleanup code.</td>
+        </tr>
+        <tr>
+          <td><code>quote_sql_string_literal(value)</code></td>
+          <td>Provide a driver-independent SQL literal helper for DB Admin comments.</td>
+          <td><code>modules/mysql_pages.py</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Implementation Phases</h2>
+    <div class="phase-grid">
+      <article class="phase">
+        <h3>Phase 1: Extract Pure Profile And TLS Helpers</h3>
+        <ol>
+          <li>Create <code>modules/mysql_util.py</code>.</li>
+          <li>Move <code>DEFAULT_PROFILE</code>, <code>MYSQL_SSL_MODES</code>, <code>normalize_mysql_ssl_mode()</code>, <code>normalize_profile()</code>, <code>public_profile()</code>, <code>public_profiles()</code>, and <code>profile_signature()</code>.</li>
+          <li>Update imports in <code>app.py</code>.</li>
+          <li>Run compile checks before moving connection code.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 2: Extract Connector Adapter</h3>
+        <ol>
+          <li>Move <code>MySQLConnectorConnection</code> to <code>modules/mysql_util.py</code>.</li>
+          <li>Rename it to <code>MySQLConnectionAdapter</code> for driver-neutral app semantics.</li>
+          <li>Keep <code>cursor(dictionary=True, buffered=True)</code> inside the adapter.</li>
+          <li>Keep <code>commit()</code>, <code>rollback()</code>, <code>select_db()</code>, and <code>set_autocommit()</code> behavior unchanged.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 3: Extract Connection Cache Manager</h3>
+        <ol>
+          <li>Move <code>apply_mysql_ssl_profile()</code>, <code>open_mysql_connection()</code>, <code>test_mysql_connection()</code>, <code>prepare_mysql_connection_for_use()</code>, and <code>close_cached_mysql_connection()</code>.</li>
+          <li>Replace app-level logic with <code>borrow_connection()</code> context manager.</li>
+          <li>Keep session credential ownership in <code>app.py</code>; pass the session entry into the utility module.</li>
+          <li>Keep SSH tunnel lifecycle attached to the same cache entry as the MySQL connection.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 4: Normalize Exception Handling</h3>
+        <ol>
+          <li>Expose <code>OperationalError</code>, <code>InterfaceError</code>, and <code>ProgrammingError</code> aliases from the utility module.</li>
+          <li>Update <code>app.py</code> error handlers to import utility aliases.</li>
+          <li>Update <code>modules/mysql_pages.py</code> to depend on utility aliases instead of <code>mysql.connector</code> directly.</li>
+          <li>Keep error-code checks for missing table error <code>1146</code>.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 5: Move SQL Literal Helper</h3>
+        <ol>
+          <li>Move DB Admin comment escaping to <code>quote_sql_string_literal()</code> in <code>modules/mysql_util.py</code>.</li>
+          <li>Use a focused unit-style validation matrix for quotes, backslashes, NUL, newlines, carriage returns, and Ctrl-Z.</li>
+          <li>Update <code>modules/mysql_pages.py</code> to import only the helper and exception aliases.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 6: Documentation And Deployment Notes</h3>
+        <ol>
+          <li>Update <code>README.md</code> to name <code>modules/mysql_util.py</code> as the driver boundary.</li>
+          <li>Document Connector/Python dependency and profile TLS behavior.</li>
+          <li>Document that setup-created deployments install Python 3.12+ and <code>mysql-connector-python</code> from <code>requirements.txt</code>.</li>
+        </ol>
+      </article>
+
+      <article class="phase">
+        <h3>Phase 7: Sync The <code>myapp</code> Skill</h3>
+        <ol>
+          <li>Update <code>/Users/ivanma/.codex/skills/myapp/SKILL.md</code> so the default MySQL driver is <code>mysql-connector-python</code>, not <code>PyMySQL</code>.</li>
+          <li>Add a generation rule that MySQL connection/profile/TLS/cache code belongs in <code>modules/mysql_util.py</code> for DBConsole-style apps instead of directly in <code>app.py</code>.</li>
+          <li>Document the expected public API: profile normalization, public profile helpers, Connector/Python adapter, TLS kwargs, cached connection borrowing, <code>SELECT 1</code> health checks, transaction cleanup, SSH tunnel cleanup, and SQL literal escaping.</li>
+          <li>Update the skill’s default dependency guidance so new apps use <code>mysql-connector-python&gt;=9.5,&lt;10.0</code> with <code>sshtunnel</code> only when SSH tunneling remains configurable.</li>
+          <li>Add validation guidance to the skill: compile <code>app.py</code> and <code>modules/*.py</code>, run <code>pip check</code>, validate TLS kwargs, mock cached connection reuse, run <code>bash -n</code> on setup/start/OCI scripts, and check Connector/Python wheel availability for target platforms.</li>
+        </ol>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>MyApp Skill Update Plan</h2>
+    <p>The refactor must update the local <code>myapp</code> skill so future DBConsole-style apps do not regress to PyMySQL or single-file connection logic.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Skill Area</th>
+          <th>Current Risk</th>
+          <th>Required Revision</th>
+          <th>Validation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Default stack</td>
+          <td>The skill still lists <code>PyMySQL</code> as the default driver.</td>
+          <td>Replace it with <code>mysql-connector-python&gt;=9.5,&lt;10.0</code>.</td>
+          <td>Search <code>SKILL.md</code> for <code>PyMySQL</code>; no default-driver reference should remain.</td>
+        </tr>
+        <tr>
+          <td>Module layout guidance</td>
+          <td>Generated apps may put connection code directly in <code>app.py</code>.</td>
+          <td>Add <code>modules/mysql_util.py</code> as the standard location for MySQL driver, profile, TLS, cache, health-check, SSH tunnel, transaction, and SQL literal helper code.</td>
+          <td>Generate or review a scaffold plan and confirm MySQL-specific API is behind <code>mysql_util</code>.</td>
+        </tr>
+        <tr>
+          <td>Connection behavior</td>
+          <td>Future apps may reconnect per page or skip health checks.</td>
+          <td>Require server-side cached connections per active session/profile and a <code>SELECT 1</code> check before each borrow.</td>
+          <td>Mocked connection test proves one physical connect, repeated <code>SELECT 1</code>, and cache cleanup on logout/session expiry.</td>
+        </tr>
+        <tr>
+          <td>TLS behavior</td>
+          <td>Future remote profiles may fail against <code>require_secure_transport=ON</code>.</td>
+          <td>Default TCP profiles to <code>SSL Mode = Required</code> and force Connector/Python TLS via <code>ssl_disabled=False</code> and <code>ClientFlag.SSL</code>.</td>
+          <td>Validate kwargs for <code>REQUIRED</code>, <code>VERIFY_CA</code>, <code>VERIFY_IDENTITY</code>, and <code>DISABLED</code>.</td>
+        </tr>
+        <tr>
+          <td>Deployment validation</td>
+          <td>Skill-generated deployment scripts may miss platform verification.</td>
+          <td>Add checks for macOS, OL8, OL9, Ubuntu, Auto-Update, and OCI first-boot paths, including <code>bash -n</code>, <code>pip check</code>, and Connector/Python wheel availability.</td>
+          <td>Skill instructions include a required validation checklist before final response.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Validation Matrix</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Target</th>
+          <th>Validation</th>
+          <th>Expected Result</th>
+          <th>Evidence To Capture</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Static Python</td>
+          <td><code>.venv/bin/python -m py_compile app.py modules/*.py</code></td>
+          <td>All Python files compile.</td>
+          <td>Command output and exit code.</td>
+        </tr>
+        <tr>
+          <td>Dependency integrity</td>
+          <td><code>.venv/bin/python -m pip check</code></td>
+          <td>No broken requirements.</td>
+          <td>Installed Connector/Python version and pip-check output.</td>
+        </tr>
+        <tr>
+          <td>Unit-style MySQL utility checks</td>
+          <td>Mock Connector/Python connection and run cached connection twice.</td>
+          <td>One physical connect, two <code>SELECT 1</code> executions, dictionary buffered cursor requested each time.</td>
+          <td>Mock call log.</td>
+        </tr>
+        <tr>
+          <td>TLS profile modes</td>
+          <td>Build connect kwargs for <code>REQUIRED</code>, <code>VERIFY_CA</code>, <code>VERIFY_IDENTITY</code>, and <code>DISABLED</code>.</td>
+          <td>TLS modes set <code>ssl_disabled=False</code> and <code>ClientFlag.SSL</code>; disabled mode sets <code>ssl_disabled=True</code>.</td>
+          <td>Rendered kwargs without passwords.</td>
+        </tr>
+        <tr>
+          <td>Unix socket profile</td>
+          <td>Mock socket profile and validate kwargs.</td>
+          <td>Uses <code>unix_socket</code>; does not set TCP host/port or SSH tunnel.</td>
+          <td>Rendered kwargs without passwords.</td>
+        </tr>
+        <tr>
+          <td>SSH tunnel profile</td>
+          <td>Mock <code>SSHTunnelForwarder</code> and connection open.</td>
+          <td>Tunnel starts once; connection targets <code>127.0.0.1</code> and local bind port; cleanup stops tunnel.</td>
+          <td>Mock tunnel lifecycle log.</td>
+        </tr>
+        <tr>
+          <td>Transaction path</td>
+          <td>Run import path with mocked connection and <code>autocommit=False</code>.</td>
+          <td>Commit on success, rollback on failure, autocommit reset to true after context exit.</td>
+          <td>Mock transaction call log.</td>
+        </tr>
+        <tr>
+          <td>Shell scripts</td>
+          <td><code>bash -n setup.sh start_http.sh start_https.sh start_mysql.sh stop_mysql.sh oci_compute_init.sh</code></td>
+          <td>All shell scripts parse.</td>
+          <td>Command output and exit code.</td>
+        </tr>
+        <tr>
+          <td>Platform installer scripts</td>
+          <td><code>bash -n ol8/install_mysql_shell_innovation.sh ol9/install_mysql_shell_innovation.sh ubuntu/install_mysql_shell_innovation.sh macos/install_mysql_shell_innovation.sh</code></td>
+          <td>All platform scripts parse.</td>
+          <td>Command output and exit code.</td>
+        </tr>
+        <tr>
+          <td>Wheel availability</td>
+          <td>Download Connector/Python wheels for Python 3.12 Linux x86_64, Linux aarch64, macOS x86_64, and macOS arm64.</td>
+          <td>Wheels exist for setup-created venvs on target architectures.</td>
+          <td>Wheel filenames and download exit codes.</td>
+        </tr>
+        <tr>
+          <td><code>myapp</code> skill sync</td>
+          <td>Inspect <code>/Users/ivanma/.codex/skills/myapp/SKILL.md</code>.</td>
+          <td>Skill names Connector/Python and <code>modules/mysql_util.py</code> as the default MySQL implementation pattern.</td>
+          <td><code>rg -n "PyMySQL|mysql-connector-python|mysql_util|mysql-util" /Users/ivanma/.codex/skills/myapp/SKILL.md</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Platform Verification Plan</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Platform</th>
+          <th>Setup Command</th>
+          <th>Verification Commands</th>
+          <th>Pass Criteria</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>macOS local hosting</td>
+          <td><code>./setup.sh macos none</code></td>
+          <td><code>.venv/bin/python -c "import mysql.connector"</code><br><code>./start_http.sh</code> or direct Flask run for local smoke.</td>
+          <td>Connector imports, app starts, login profile connects with TLS or socket as configured.</td>
+        </tr>
+        <tr>
+          <td>Oracle Linux 8 systemd</td>
+          <td><code>./setup.sh ol8 https --https-port 443</code></td>
+          <td><code>systemctl status dbconsole-https.service</code><br><code>journalctl -u dbconsole-https.service</code><br><code>.venv/bin/python -m pip check</code></td>
+          <td>Service active, Connector/Python installed, no import errors, HTTPS endpoint responds.</td>
+        </tr>
+        <tr>
+          <td>Oracle Linux 9 systemd</td>
+          <td><code>./setup.sh ol9 both --http-port 80 --https-port 443</code></td>
+          <td><code>systemctl status dbconsole-http.service dbconsole-https.service</code><br><code>curl -kI https://127.0.0.1/</code></td>
+          <td>Selected services active, low-port capabilities still work, app loads login page.</td>
+        </tr>
+        <tr>
+          <td>Ubuntu systemd</td>
+          <td><code>./setup.sh ubuntu https --https-port 443</code></td>
+          <td><code>systemctl status dbconsole-https.service</code><br><code>curl -kI https://127.0.0.1/</code><br><code>.venv/bin/python -m pip check</code></td>
+          <td>Python venv repair path works, Connector/Python installed, HTTPS service responds.</td>
+        </tr>
+        <tr>
+          <td>Auto-Update privileged path</td>
+          <td>Start update from authenticated <code>local-admin-profile</code> session.</td>
+          <td>Review update status log, setup rerun output, service restart, post-restart app import.</td>
+          <td>Update reruns <code>setup.sh</code>, reinstalls requirements, service restarts, Connector/Python imports.</td>
+        </tr>
+        <tr>
+          <td>Auto-Update unprivileged path</td>
+          <td>Run update where passwordless sudo is unavailable.</td>
+          <td>Review updater log for <code>SKIP_PRIVILEGED_SETUP=1</code>, dependency reinstall, and self-restart.</td>
+          <td>Repository refresh and Python dependency refresh complete without privileged system changes.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>OCI Compute Verification Plan</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>OCI Target</th>
+          <th>Initialization Inputs</th>
+          <th>Verification</th>
+          <th>Pass Criteria</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Oracle Linux 8 image</td>
+          <td><code>OS_FAMILY=ol8</code>, <code>APP_USER=opc</code>, explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</td>
+          <td>SSH as <code>opc</code>; inspect login banner; check <code>/var/log/dbconsole-init.log</code>; run <code>systemctl status dbconsole-https.service</code>.</td>
+          <td>Init script completes, local socket MySQL profile created, Connector/Python installed in app venv, HTTPS endpoint responds.</td>
+        </tr>
+        <tr>
+          <td>Oracle Linux 9 image</td>
+          <td><code>OS_FAMILY=ol9</code>, <code>APP_USER=opc</code>, explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</td>
+          <td>SSH as <code>opc</code>; validate banner success state; check service status and init log.</td>
+          <td>Setup completes without manual package intervention and DBConsole login page loads.</td>
+        </tr>
+        <tr>
+          <td>Ubuntu image</td>
+          <td><code>OS_FAMILY=ubuntu</code>, <code>APP_USER=ubuntu</code>, explicit <code>LOCAL_MYSQL_ADMIN_PASSWORD</code>.</td>
+          <td>SSH as <code>ubuntu</code>; confirm AppArmor allowance path when local MySQL is bootstrapped; check service and HTTPS response.</td>
+          <td>Python 3.12 venv support is present or repaired, Connector/Python installs, local MySQL socket starts, app responds.</td>
+        </tr>
+        <tr>
+          <td>OCI network access</td>
+          <td>Ingress for chosen HTTP/HTTPS ports and SSH.</td>
+          <td>External <code>curl -kI https://PUBLIC_IP/</code> or configured port check.</td>
+          <td>Security list or NSG allows the selected listener port and app returns HTTP headers.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <strong>Security requirement:</strong> OCI user-data examples must keep <code>LOCAL_MYSQL_ADMIN_PASSWORD</code> as an explicit operator-supplied value and must not enable shell tracing around secrets.
+    </div>
+  </section>
+
+  <section>
+    <h2>Regression Scenarios</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>Expected Behavior</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Remote HeatWave or MySQL DB System with <code>require_secure_transport=ON</code></td>
+          <td><code>SSL Mode = Required</code> connects through Connector/Python with TLS enabled; no error 3159.</td>
+        </tr>
+        <tr>
+          <td>Cached connection dies between page loads</td>
+          <td>Next borrow runs <code>SELECT 1</code>, closes dead cache entry, opens a new connection, and retries once.</td>
+        </tr>
+        <tr>
+          <td>Profile changes after login</td>
+          <td>Profile signature mismatch closes cached connection and opens a connection for the new profile settings.</td>
+        </tr>
+        <tr>
+          <td>Logout</td>
+          <td>Server-side credentials, cached MySQL connection, and SSH tunnel are closed and removed.</td>
+        </tr>
+        <tr>
+          <td>Session expiry cleanup</td>
+          <td>Expired server-side session cleanup closes cached connection and tunnel.</td>
+        </tr>
+        <tr>
+          <td>Local socket admin profile</td>
+          <td>Utility uses Unix socket and never combines socket mode with SSH tunnel mode.</td>
+        </tr>
+        <tr>
+          <td>CSV/JSON import transaction failure</td>
+          <td>Rollback runs, exception propagates, and cached connection autocommit is restored for later pages.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Rollback Plan</h2>
+    <ol>
+      <li>Keep the refactor in one commit after validation passes.</li>
+      <li>If runtime issues appear, revert only the refactor commit while retaining the already validated Connector/Python dependency change if needed.</li>
+      <li>Clear any active server-side sessions by restarting DBConsole after rollback so cached connection objects are not reused across code versions.</li>
+      <li>Rerun <code>./setup.sh &lt;os_family&gt; &lt;deploy_mode&gt;</code> on deployed hosts if dependency files were changed.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Definition Of Done</h2>
+    <ul>
+      <li><span class="pill pill-ok">Required</span> <code>modules/mysql_util.py</code> owns connector imports, profile normalization, TLS kwargs, connection cache, health check, and SQL literal helper.</li>
+      <li><span class="pill pill-ok">Required</span> <code>app.py</code> keeps Flask routes, session ownership, and profile persistence only.</li>
+      <li><span class="pill pill-ok">Required</span> <code>modules/mysql_pages.py</code> no longer imports Connector/Python directly unless a narrow exception alias import is intentionally retained.</li>
+      <li><span class="pill pill-ok">Required</span> The local <code>myapp</code> skill is updated so future MySQL apps use <code>mysql-connector-python</code> and the <code>modules/mysql_util.py</code> refactor pattern.</li>
+      <li><span class="pill pill-ok">Required</span> Static Python, shell syntax, dependency, cache, TLS, socket, SSH, and transaction checks pass.</li>
+      <li><span class="pill pill-ok">Required</span> Platform validation evidence is captured for macOS and at least one Linux systemd deployment before release.</li>
+      <li><span class="pill pill-warn">Release Gate</span> OCI Compute validation is completed for OL9 and Ubuntu before marking OCI setup as fully verified.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

@@ -3135,6 +3135,8 @@ main() {
       ;;
   esac
 
+  service_user=""
+  service_group=""
   case "$os_family" in
     ol8|ol9|ubuntu)
       service_user="$(resolve_service_user)"
