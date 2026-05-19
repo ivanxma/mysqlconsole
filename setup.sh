@@ -1067,13 +1067,14 @@ open_firewall_port() {
     if run_as_root_with_timeout 20 firewall-cmd --permanent --add-port="${port_value}/tcp"; then
       if run_as_root_with_timeout 20 firewall-cmd --reload; then
         echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+        return 0
       else
         echo "Warning: firewall-cmd reload timed out or failed after adding ${port_value}/tcp for ${protocol_label}; verify firewall state manually." >&2
       fi
     else
       echo "Warning: firewall-cmd could not add ${port_value}/tcp for ${protocol_label} within 20 seconds. Open it manually if external access is required." >&2
     fi
-    return 0
+    echo "Trying another firewall tool for ${port_value}/tcp because firewall-cmd did not confirm the change." >&2
   fi
 
   if command -v ufw >/dev/null 2>&1; then
@@ -1140,18 +1141,17 @@ close_firewall_port() {
     fi
     if ! run_as_root_with_timeout 20 firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in firewall-cmd."
-      return 0
-    fi
-    if run_as_root_with_timeout 20 firewall-cmd --permanent --remove-port="${port_value}/tcp"; then
+    elif run_as_root_with_timeout 20 firewall-cmd --permanent --remove-port="${port_value}/tcp"; then
       if run_as_root_with_timeout 20 firewall-cmd --reload; then
         echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
+        return 0
       else
         echo "Warning: firewall-cmd reload timed out or failed after removing ${port_value}/tcp for ${protocol_label}; verify firewall state manually." >&2
       fi
     else
       echo "Warning: firewall-cmd could not remove ${port_value}/tcp for ${protocol_label} within 20 seconds. Close it manually if needed." >&2
     fi
-    return 0
+    echo "Trying another firewall tool for ${port_value}/tcp cleanup because firewall-cmd did not confirm the change." >&2
   fi
 
   if command -v ufw >/dev/null 2>&1; then
