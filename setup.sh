@@ -975,8 +975,57 @@ prompt_for_ports_if_needed() {
 run_with_timeout() {
   local seconds="$1"
   shift
+  local python_bin=""
+  local candidate
+
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      python_bin="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$python_bin" ]]; then
+    "$python_bin" - "$seconds" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+seconds = float(sys.argv[1])
+command = sys.argv[2:]
+
+try:
+    process = subprocess.Popen(command, start_new_session=True)
+except FileNotFoundError:
+    sys.exit(127)
+
+try:
+    sys.exit(process.wait(timeout=seconds))
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        result = process.poll()
+        if result is not None:
+            sys.exit(124)
+        time.sleep(0.1)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+    sys.exit(124)
+PY
+    return $?
+  fi
+
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$seconds" "$@"
+    timeout -k 5s "$seconds" "$@"
   else
     "$@"
   fi
@@ -1037,6 +1086,41 @@ open_firewall_port() {
     return 0
   fi
 
+  if command -v iptables >/dev/null 2>&1; then
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall update for port ${port_value}/tcp"
+      return 0
+    fi
+    if run_as_root /bin/sh -c '
+      port_value="$1"
+      protocol_label="$2"
+      if iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT >/dev/null 2>&1 ||
+         iptables -C INPUT -p tcp -m tcp --dport "$port_value" -j ACCEPT >/dev/null 2>&1; then
+        echo "Firewall port ${port_value}/tcp for ${protocol_label} is already open in iptables."
+        exit 0
+      fi
+
+      insert_at="$(iptables -L INPUT --line-numbers -n 2>/dev/null | awk '\''$2 == "REJECT" || $2 == "DROP" { print $1; exit }'\'')"
+      if [ -n "$insert_at" ]; then
+        iptables -I INPUT "$insert_at" -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT
+      else
+        iptables -I INPUT 1 -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT
+      fi
+
+      if command -v iptables-save >/dev/null 2>&1; then
+        mkdir -p /etc/iptables 2>/dev/null || true
+        if [ -d /etc/iptables ]; then
+          iptables-save > /etc/iptables/rules.v4 || echo "Warning: unable to persist iptables rules to /etc/iptables/rules.v4." >&2
+        fi
+      fi
+      echo "Opened firewall port ${port_value}/tcp for ${protocol_label} with iptables."
+    ' sh "$port_value" "$protocol_label"; then
+      return 0
+    fi
+    echo "Warning: iptables could not open ${port_value}/tcp for ${protocol_label}. Open it manually if external access is required." >&2
+    return 0
+  fi
+
   echo "Firewall tool not found. Open ${port_value}/tcp for ${protocol_label} manually on this host." >&2
 }
 
@@ -1081,6 +1165,37 @@ close_firewall_port() {
     else
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in ufw."
     fi
+    return 0
+  fi
+
+  if command -v iptables >/dev/null 2>&1; then
+    if skip_privileged_setup_enabled; then
+      log_skipped_privileged_step "firewall cleanup for port ${port_value}/tcp"
+      return 0
+    fi
+    if run_as_root /bin/sh -c '
+      port_value="$1"
+      protocol_label="$2"
+      removed=0
+      while iptables -D INPUT -p tcp -m state --state NEW -m tcp --dport "$port_value" -j ACCEPT >/dev/null 2>&1; do
+        removed=1
+      done
+      while iptables -D INPUT -p tcp -m tcp --dport "$port_value" -j ACCEPT >/dev/null 2>&1; do
+        removed=1
+      done
+
+      if [ "$removed" -eq 1 ]; then
+        if command -v iptables-save >/dev/null 2>&1 && [ -d /etc/iptables ]; then
+          iptables-save > /etc/iptables/rules.v4 || echo "Warning: unable to persist iptables rules to /etc/iptables/rules.v4." >&2
+        fi
+        echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with iptables."
+      else
+        echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in iptables."
+      fi
+    ' sh "$port_value" "$protocol_label"; then
+      return 0
+    fi
+    echo "Warning: iptables could not remove ${port_value}/tcp for ${protocol_label}. Close it manually if needed." >&2
     return 0
   fi
 
@@ -2547,12 +2662,15 @@ configure_ubuntu_mysqld_apparmor() {
   run_as_root touch "$apparmor_local"
   append_root_file_once "$apparmor_local" "# DBConsole app-managed socket-only MySQL state"
   append_root_file_once "$apparmor_local" "$SCRIPT_DIR/etc/my.cnf r,"
+  append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.embedded/mysql-server/ r,"
+  append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.embedded/mysql-server/** rm,"
   append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.data/ rw,"
   append_root_file_once "$apparmor_local" "$SCRIPT_DIR/.data/** rwk,"
   run_as_root apparmor_parser -r "$apparmor_profile" || {
     echo "Unable to reload the mysqld AppArmor profile. DBConsole local MySQL may not start until AppArmor is reloaded." >&2
     return 1
   }
+  echo "Configured Ubuntu AppArmor allowances for DBConsole local MySQL paths. AppArmor does not control HTTPS port 443 ingress; setup opens that port through the host firewall."
 }
 
 install_local_mysql_server() {
