@@ -439,10 +439,17 @@
     folderSelect.addEventListener("change", () => {
       fileSelect.value = "";
       const params = new URLSearchParams(new FormData(folderSelect.form));
+      params.set("tab", "load");
+      params.set("load_folder", folderSelect.value);
+      params.delete("load_file");
+      params.delete("oci_uri");
       params.delete("_csrf_token");
       params.delete("lakehouse_action");
       params.delete("load_sql");
-      window.location.href = `${folderSelect.form.action || window.location.pathname}?${params.toString()}`;
+      const action = folderSelect.form.getAttribute("action") || window.location.href;
+      const target = new URL(action, window.location.origin);
+      target.search = params.toString();
+      window.location.href = target.toString();
     });
     fileSelect.addEventListener("change", () => {
       const selected = fileSelect.selectedOptions[0];

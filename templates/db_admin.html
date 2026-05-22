@@ -325,13 +325,11 @@
       data-table-cell-dialog="true"
     >
       <div class="table-layout-toolbar db-admin-routine-toolbar">
-        <div class="db-admin-charset-left-actions">
+        <div class="db-admin-routine-left-actions">
           <label class="checkbox-field db-admin-table-delete-select-all">
             <input type="checkbox" data-routine-select-all {% if not routine_rows %}disabled{% endif %}>
             <span>Select all</span>
           </label>
-        </div>
-        <div class="db-admin-charset-right-actions">
           <button class="button secondary db-admin-routine-export-action" type="submit" name="db_action" value="download_routines" data-routine-selection-action {% if not routine_rows %}disabled{% endif %} title="Export selected procedures/functions">
             Export Selected
           </button>

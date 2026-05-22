@@ -878,6 +878,24 @@ dialog.management-dialog::backdrop {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.table-layout-toolbar.db-admin-routine-toolbar {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.db-admin-routine-left-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.db-admin-routine-toolbar > .icon-button:first-of-type {
+  margin-left: auto;
+}
+
 .db-admin-charset-preview {
   display: grid;
   gap: 12px;
