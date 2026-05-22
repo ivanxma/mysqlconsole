@@ -4,6 +4,8 @@ import os
 import re
 from uuid import uuid4
 
+from werkzeug.utils import secure_filename
+
 from modules.core_util import chmod_private_file
 
 
@@ -20,6 +22,7 @@ DEFAULT_OCI_CONFIG = {
     "oci_compartment": "",
     "oci_namespace": "",
 }
+SUPPORTED_LAKEHOUSE_UPLOAD_EXTENSIONS = {"csv", "json", "parquet", "delta", "avro"}
 
 
 def normalize_oci_config(payload):
@@ -283,6 +286,91 @@ def build_oci_sdk_config(config):
     key_file = Path(required_fields["key_file"]).expanduser()
     required_fields["key_file"] = str(key_file)
     return required_fields
+
+
+def normalize_object_prefix(value):
+    normalized = str(value or "").strip().strip("/")
+    return f"{normalized}/" if normalized else ""
+
+
+def join_object_prefix(*parts):
+    cleaned_parts = [str(part or "").strip().strip("/") for part in parts if str(part or "").strip().strip("/")]
+    return "/".join(cleaned_parts)
+
+
+def build_object_storage_uri(namespace, bucket_name, object_name):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    object_value = str(object_name or "").strip().lstrip("/")
+    if not namespace_value or not bucket_value or not object_value:
+        return ""
+    return f"oci://{bucket_value}@{namespace_value}/{object_value}"
+
+
+def build_object_storage_client(config):
+    try:
+        import oci
+    except Exception as error:
+        raise RuntimeError("The OCI SDK is not installed. Run setup to install current requirements.") from error
+    return oci.object_storage.ObjectStorageClient(build_oci_sdk_config(config))
+
+
+def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="", limit=1000):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    if not namespace_value or not bucket_value:
+        return []
+    prefix = normalize_object_prefix(base_prefix)
+    client = build_object_storage_client(config)
+    response = client.list_objects(
+        namespace_value,
+        bucket_value,
+        prefix=prefix,
+        delimiter="/",
+        limit=limit,
+    )
+    folders = [prefix]
+    for item in getattr(response.data, "prefixes", []) or []:
+        folder = normalize_object_prefix(item)
+        if folder not in folders:
+            folders.append(folder)
+    return sorted(folders, key=lambda value: (value.count("/"), value.lower()))
+
+
+def create_object_storage_folder(config, *, namespace, bucket_name, parent_prefix="", folder_name=""):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    folder_value = secure_filename(str(folder_name or "").strip())
+    if not namespace_value or not bucket_value:
+        raise ValueError("Object Storage namespace and bucket name are required.")
+    if not folder_value:
+        raise ValueError("Folder name is required.")
+    object_name = normalize_object_prefix(join_object_prefix(parent_prefix, folder_value))
+    client = build_object_storage_client(config)
+    client.put_object(namespace_value, bucket_value, object_name, b"")
+    return object_name
+
+
+def upload_object_storage_file(config, *, namespace, bucket_name, folder_prefix="", upload_storage=None):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    if upload_storage is None or not getattr(upload_storage, "filename", ""):
+        raise ValueError("Choose a file to upload.")
+    if not namespace_value or not bucket_value:
+        raise ValueError("Object Storage namespace and bucket name are required.")
+    filename = secure_filename(Path(upload_storage.filename).name)
+    if not filename:
+        raise ValueError("Upload file name is invalid.")
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    if suffix not in SUPPORTED_LAKEHOUSE_UPLOAD_EXTENSIONS:
+        raise ValueError("Upload a supported Lakehouse file: csv, json, parquet, delta, or avro.")
+    object_name = join_object_prefix(folder_prefix, filename)
+    client = build_object_storage_client(config)
+    client.put_object(namespace_value, bucket_value, object_name, upload_storage.stream)
+    return {
+        "object_name": object_name,
+        "oci_uri": build_object_storage_uri(namespace_value, bucket_value, object_name),
+    }
 
 
 def test_oci_config(config):

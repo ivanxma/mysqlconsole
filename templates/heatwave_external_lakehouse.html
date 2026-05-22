@@ -44,6 +44,14 @@
 <section class="tab-shell">
   <div class="tab-bar" role="tablist" aria-label="Lakehouse tabs">
     <a
+      class="tab-link {% if active_tab == 'upload' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'upload' else 'false' }}"
+      href="{{ url_for('heatwave_external_table_page', tab='upload') }}"
+    >
+      Upload
+    </a>
+    <a
       class="tab-link {% if active_tab == 'load' %}active{% endif %}"
       role="tab"
       aria-selected="{{ 'true' if active_tab == 'load' else 'false' }}"
@@ -62,7 +70,100 @@
   </div>
 </section>
 
-{% if active_tab == 'load' %}
+{% if active_tab == 'upload' %}
+<section class="split-layout split-layout-top">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <h3>Upload File</h3>
+        <span class="helper-text">Upload supported Lakehouse files to the configured Object Storage bucket.</span>
+      </div>
+    </div>
+    {% if object_storage_error %}
+    <p class="helper-text error-text">{{ object_storage_error }}</p>
+    {% endif %}
+    <form method="post" class="form-grid" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="tab" value="upload">
+      <label class="full-span">
+        Object Storage Folder
+        <select name="upload_folder">
+          {% for folder in object_storage_folders %}
+          <option value="{{ folder.strip('/') }}" {% if folder.strip('/') == form.upload_folder.strip('/') %}selected{% endif %}>
+            {{ folder or "/" }}
+          </option>
+          {% else %}
+          <option value="{{ form.upload_folder }}">{{ form.upload_folder or "/" }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="checkbox-field">
+        <input name="create_folder" type="checkbox" value="1" data-lakehouse-create-folder {% if form.create_folder %}checked{% endif %}>
+        <span>Create Folder</span>
+      </label>
+      <label class="full-span" data-lakehouse-folder-name>
+        Folder Name
+        <input name="new_folder_name" type="text" value="{{ form.new_folder_name }}" placeholder="new-folder">
+      </label>
+      <label class="full-span">
+        Upload File
+        <input name="lakehouse_upload_file" type="file" accept=".csv,.json,.parquet,.delta,.avro">
+      </label>
+      <label>
+        Format
+        <select name="file_format">
+          {% for value in ["csv", "json", "parquet", "delta", "avro"] %}
+          <option value="{{ value }}" {% if form.file_format == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="full-span">
+        OCI URI File Attribute
+        <input name="uploaded_oci_uri" type="text" value="{{ form.uploaded_oci_uri or form.oci_uri }}" readonly>
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit" name="lakehouse_action" value="upload_file">Upload File</button>
+      </div>
+    </form>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <h3>Object Storage Target</h3>
+        <span class="helper-text">{{ object_storage_config.bucket_name or "-" }}{% if object_storage_config.namespace %}@{{ object_storage_config.namespace }}{% endif %}</span>
+      </div>
+    </div>
+    <dl class="detail-list">
+      <div>
+        <dt>Region</dt>
+        <dd>{{ object_storage_config.region or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Namespace</dt>
+        <dd>{{ object_storage_config.namespace or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Bucket</dt>
+        <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Base Prefix</dt>
+        <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
+      </div>
+      <div>
+        <dt>Uploaded OCI URI</dt>
+        <dd>{{ form.uploaded_oci_uri or "-" }}</dd>
+      </div>
+    </dl>
+    {% if form.uploaded_oci_uri %}
+    <div class="form-actions">
+      <a class="button secondary" href="{{ url_for('heatwave_external_table_page', tab='load', oci_uri=form.uploaded_oci_uri, file_format=form.file_format) }}">Use in HeatWave Load</a>
+    </div>
+    {% endif %}
+  </article>
+</section>
+{% elif active_tab == 'load' %}
 <section class="panel">
   <div class="panel-header">
     <div>
@@ -297,4 +398,21 @@
   {% endfor %}
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const toggle = document.querySelector("[data-lakehouse-create-folder]");
+    const folderName = document.querySelector("[data-lakehouse-folder-name]");
+    if (!toggle || !folderName) {
+      return;
+    }
+    const syncFolderName = () => {
+      folderName.hidden = !toggle.checked;
+    };
+    toggle.addEventListener("change", syncFolderName);
+    syncFolderName();
+  })();
+</script>
 {% endblock %}

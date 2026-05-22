@@ -642,6 +642,35 @@ def read_oci_config_profile(config_file, profile_name):
     return oci_util.read_oci_config_profile(config_file, profile_name)
 
 
+def list_object_storage_folders(payload):
+    return oci_util.list_object_storage_folders(
+        payload,
+        namespace=payload.get("namespace"),
+        bucket_name=payload.get("bucket_name"),
+        base_prefix=payload.get("bucket_prefix"),
+    )
+
+
+def create_object_storage_folder(payload, parent_prefix, folder_name):
+    return oci_util.create_object_storage_folder(
+        payload,
+        namespace=payload.get("namespace"),
+        bucket_name=payload.get("bucket_name"),
+        parent_prefix=parent_prefix,
+        folder_name=folder_name,
+    )
+
+
+def upload_object_storage_file(payload, folder_prefix, upload_storage):
+    return oci_util.upload_object_storage_file(
+        payload,
+        namespace=payload.get("namespace"),
+        bucket_name=payload.get("bucket_name"),
+        folder_prefix=folder_prefix,
+        upload_storage=upload_storage,
+    )
+
+
 def oci_app_config_dir():
     return str(OCI_CONFIG_DIR)
 
@@ -1198,6 +1227,9 @@ register_heatwave_routes(
         "fetch_tables_for_database": fetch_tables_for_database,
         "execute_query": execute_query,
         "load_object_storage_config": load_object_storage_config,
+        "list_object_storage_folders": list_object_storage_folders,
+        "create_object_storage_folder": create_object_storage_folder,
+        "upload_object_storage_file": upload_object_storage_file,
     },
 )
 

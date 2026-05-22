@@ -53,6 +53,10 @@ def normalize_external_form(source, object_storage_config=None):
         match_columns_by = ""
 
     return {
+        "upload_folder": str(source.get("upload_folder", bucket_prefix)).strip().strip("/"),
+        "create_folder": str(source.get("create_folder", "")).strip().lower() in {"1", "true", "yes", "on"},
+        "new_folder_name": str(source.get("new_folder_name", "")).strip(),
+        "uploaded_oci_uri": str(source.get("uploaded_oci_uri", "")).strip(),
         "database_name": str(source.get("database_name", "")).strip(),
         "table_name": str(source.get("table_name", "")).strip(),
         "oci_uri": str(source.get("oci_uri", default_uri)).strip(),

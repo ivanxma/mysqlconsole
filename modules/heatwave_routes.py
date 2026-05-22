@@ -110,31 +110,57 @@ def register_heatwave_routes(app, deps):
     @app.route("/heatwave/external-table-lakehouse", methods=["GET", "POST"])
     @login_required
     def heatwave_external_table_page():
-        active_tab = str(request.values.get("tab", "load")).strip().lower()
-        if active_tab not in {"load", "refresh"}:
-            active_tab = "load"
+        active_tab = str(request.values.get("tab", "upload")).strip().lower()
+        if active_tab not in {"upload", "load", "refresh"}:
+            active_tab = "upload"
+        object_storage_config = deps["load_object_storage_config"]()
         form = normalize_external_form(
             request.form if request.method == "POST" else request.args,
-            deps["load_object_storage_config"](),
+            object_storage_config,
         )
         result_sets = []
+        upload_result = None
         if request.method == "POST":
             action = str(request.form.get("lakehouse_action", "")).strip()
             try:
-                message, category, generated_sql, result_sets = handle_heatwave_external_action(
-                    action,
-                    form,
-                    execute_multi_result_query=deps["execute_multi_result_query"],
-                    execute_statement=deps["execute_statement"],
-                    quote_identifier=deps["quote_identifier"],
-                )
-                if active_tab == "load":
-                    form["load_sql"] = generated_sql
+                if active_tab == "upload":
+                    upload_folder = form["upload_folder"]
+                    if form["create_folder"]:
+                        upload_folder = deps["create_object_storage_folder"](
+                            object_storage_config,
+                            upload_folder,
+                            form["new_folder_name"],
+                        )
+                        form["upload_folder"] = upload_folder.strip("/")
+                    upload_result = deps["upload_object_storage_file"](
+                        object_storage_config,
+                        upload_folder,
+                        request.files.get("lakehouse_upload_file"),
+                    )
+                    form["uploaded_oci_uri"] = upload_result["oci_uri"]
+                    form["oci_uri"] = upload_result["oci_uri"]
+                    flash("File uploaded to Object Storage.", "success")
                 else:
-                    form["refresh_sql"] = generated_sql
-                flash(message, category)
+                    message, category, generated_sql, result_sets = handle_heatwave_external_action(
+                        action,
+                        form,
+                        execute_multi_result_query=deps["execute_multi_result_query"],
+                        execute_statement=deps["execute_statement"],
+                        quote_identifier=deps["quote_identifier"],
+                    )
+                    if active_tab == "load":
+                        form["load_sql"] = generated_sql
+                    else:
+                        form["refresh_sql"] = generated_sql
+                    flash(message, category)
             except Exception as error:
                 flash(str(error), "error")
+        object_storage_folders = []
+        object_storage_error = ""
+        try:
+            object_storage_folders = deps["list_object_storage_folders"](object_storage_config)
+        except Exception as error:
+            object_storage_error = str(error)
         page_context = build_heatwave_external_context(
             form,
             active_tab=active_tab,
@@ -146,5 +172,9 @@ def register_heatwave_routes(app, deps):
             "heatwave_external_lakehouse.html",
             page_title="External Table/Lakehouse",
             result_sets=result_sets,
+            upload_result=upload_result,
+            object_storage_config=object_storage_config,
+            object_storage_folders=object_storage_folders,
+            object_storage_error=object_storage_error,
             **page_context,
         )
