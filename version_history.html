@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3u</span>
+      <span class="badge">Release 1.0.3v</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3u</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3v</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3v Summary</h2>
+      <p>
+        Version <code>1.0.3v</code> makes the SQL Workspace <code>NL_SQL</code> generated-SQL workaround explicit and opt-in.
+      </p>
+      <ul>
+        <li>Added a <code>Generated SQL for NL_SQL</code> checkbox to the SQL Workspace toolbar.</li>
+        <li>Applies the <code>execute=true</code> to <code>execute=false</code> generated-SQL workaround only when that checkbox is enabled and the submitted <code>sys.NL_SQL</code> options explicitly request <code>execute=true</code>.</li>
+        <li>Leaves <code>sys.NL_SQL</code> calls with <code>execute=false</code>, unchecked calls, and non-<code>NL_SQL</code> statements on the normal SQL Workspace execution path.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3u Summary</h2>

@@ -1164,6 +1164,24 @@ dialog.management-dialog::backdrop {
   min-width: 0;
 }
 
+.workspace-toolbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.workspace-toolbar-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .workspace-toolbar-tag {
   display: inline-flex;
   align-items: center;

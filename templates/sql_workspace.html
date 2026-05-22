@@ -61,6 +61,10 @@
           {% endfor %}
         </select>
       </div>
+      <label class="workspace-toolbar-check">
+        <input type="checkbox" name="generated_nl_sql" value="1" {% if generated_nl_sql %}checked{% endif %}>
+        <span>Generated SQL for NL_SQL</span>
+      </label>
       <div class="workspace-toolbar-group">
         <span class="workspace-toolbar-tag">DB</span>
         <select name="database" class="workspace-toolbar-select workspace-db-select">
@@ -247,6 +251,9 @@
         <input type="hidden" name="database" value="{{ selected_database }}">
         <input type="hidden" name="output_tab" value="history">
         <input type="hidden" name="use_secondary_engine" value="{{ use_secondary_engine }}">
+        {% if generated_nl_sql %}
+        <input type="hidden" name="generated_nl_sql" value="1">
+        {% endif %}
         <textarea name="sql_text" hidden>{{ sql_text }}</textarea>
         <button
           class="panel-icon-button"

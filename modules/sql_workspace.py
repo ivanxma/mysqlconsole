@@ -25,6 +25,10 @@ def normalize_sql_workspace_secondary_engine(value):
     return normalized
 
 
+def normalize_sql_workspace_generated_nl_sql(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def apply_query_session_options(cursor, *, use_secondary_engine=""):
     normalized_secondary_engine = normalize_sql_workspace_secondary_engine(use_secondary_engine) if use_secondary_engine else ""
     if normalized_secondary_engine:
@@ -40,13 +44,6 @@ def reset_query_session_options(cursor):
 
 def _statement_starts_with(statement, keyword):
     return str(statement or "").lstrip().lower().startswith(keyword)
-
-
-def _has_replacement_header(columns):
-    normalized_columns = [str(column or "").strip() for column in columns or []]
-    if not normalized_columns:
-        return False
-    return any(column and set(column) == {"?"} for column in normalized_columns)
 
 
 def _extract_nl_sql_output_variable(statement):
@@ -332,6 +329,10 @@ def _force_nl_sql_execute_false(statement):
     return statement[:absolute_option_start] + updated_option_text + statement[absolute_option_end:]
 
 
+def _nl_sql_execute_true_requested(statement):
+    return _force_nl_sql_execute_false(statement) != statement
+
+
 def _find_generated_nl_sql(value):
     if isinstance(value, str):
         stripped = value.strip()
@@ -395,33 +396,6 @@ def _fetch_nl_sql_generated_statement(cursor, output_variable):
     return _find_generated_nl_sql(raw_output), _summarize_nl_sql_output(raw_output)
 
 
-def _replay_nl_sql_generated_result(cursor, statement, original_result_set):
-    if not _has_replacement_header(original_result_set.get("columns", [])):
-        return None
-    output_variable = _extract_nl_sql_output_variable(statement)
-    generated_sql, _output_summary = _fetch_nl_sql_generated_statement(cursor, output_variable)
-    if not _is_read_only_generated_sql(generated_sql):
-        return None
-
-    cursor.execute(generated_sql)
-    columns = [item[0] for item in cursor.description] if cursor.description else []
-    rows = cursor.fetchall() if columns else []
-    while cursor.nextset():
-        pass
-    if not columns or _has_replacement_header(columns):
-        return None
-    repaired_result_set = dict(original_result_set)
-    repaired_result_set.update(
-        {
-            "label": f"{original_result_set.get('label', 'Statement')} (validated SQL)",
-            "columns": columns,
-            "rows": rows,
-            "statement": generated_sql,
-        }
-    )
-    return repaired_result_set
-
-
 def _drain_cursor_results(cursor):
     while True:
         if cursor.description:
@@ -430,7 +404,10 @@ def _drain_cursor_results(cursor):
             break
 
 
-def _execute_nl_sql_generated_statement(cursor, statement, statement_index):
+def _execute_nl_sql_generated_statement(cursor, statement, statement_index, *, generated_nl_sql_enabled=False):
+    if not generated_nl_sql_enabled or not _nl_sql_execute_true_requested(statement):
+        return None
+
     output_variable = _extract_nl_sql_output_variable(statement)
     if not output_variable:
         return None
@@ -484,16 +461,6 @@ def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
         if not cursor.nextset():
             break
 
-    if any(_has_replacement_header(result_set.get("columns", [])) for result_set in result_sets):
-        repaired_result_sets = []
-        for result_set in result_sets:
-            if result_set.get("kind", "table") == "table":
-                repaired_result_set = _replay_nl_sql_generated_result(cursor, sql, result_set)
-                if repaired_result_set is not None:
-                    result_set = repaired_result_set
-            repaired_result_sets.append(result_set)
-        result_sets = repaired_result_sets
-
     if not result_sets:
         result_sets.append(
             {
@@ -512,6 +479,7 @@ def execute_sql_workspace_statements(
     mysql_connection,
     database=None,
     use_secondary_engine="",
+    generated_nl_sql_enabled=False,
 ):
     result_sets = []
     with mysql_connection(database_override=database) as connection:
@@ -519,7 +487,12 @@ def execute_sql_workspace_statements(
             try:
                 apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
                 for statement_index, statement in enumerate(statements, start=1):
-                    nl_sql_result_sets = _execute_nl_sql_generated_statement(cursor, statement, statement_index)
+                    nl_sql_result_sets = _execute_nl_sql_generated_statement(
+                        cursor,
+                        statement,
+                        statement_index,
+                        generated_nl_sql_enabled=generated_nl_sql_enabled,
+                    )
                     if nl_sql_result_sets is not None:
                         result_sets.extend(nl_sql_result_sets)
                     else:
@@ -683,6 +656,9 @@ def register_sql_workspace_routes(app, deps):
         use_secondary_engine = normalize_sql_workspace_secondary_engine(
             request.values.get("use_secondary_engine", "ON")
         )
+        generated_nl_sql_enabled = normalize_sql_workspace_generated_nl_sql(
+            request.values.get("generated_nl_sql", "")
+        )
         default_database = str(get_session_profile().get("database", "") or "").strip()
         if is_system_schema_name(default_database):
             default_database = ""
@@ -703,10 +679,15 @@ def register_sql_workspace_routes(app, deps):
             use_secondary_engine = normalize_sql_workspace_secondary_engine(
                 request.form.get("use_secondary_engine", "ON")
             )
+            generated_nl_sql_enabled = normalize_sql_workspace_generated_nl_sql(
+                request.form.get("generated_nl_sql", "")
+            )
             if action == "clear_history":
                 session[SQL_WORKSPACE_HISTORY_SESSION_KEY] = []
                 flash("SQL workspace history cleared.", "success")
                 redirect_values = {"output_tab": "history", "use_secondary_engine": use_secondary_engine}
+                if generated_nl_sql_enabled:
+                    redirect_values["generated_nl_sql"] = "1"
                 if selected_database:
                     redirect_values["database"] = selected_database
                 if sql_text:
@@ -792,6 +773,7 @@ def register_sql_workspace_routes(app, deps):
                         mysql_connection=mysql_connection,
                         database=selected_database or None,
                         use_secondary_engine=use_secondary_engine,
+                        generated_nl_sql_enabled=generated_nl_sql_enabled,
                     )
                     duration_ms = (perf_counter() - started_at) * 1000
                     last_result = build_sql_workspace_result(
@@ -852,6 +834,7 @@ def register_sql_workspace_routes(app, deps):
             page_title="SQL Workspace",
             workspace_output_tab=workspace_output_tab,
             use_secondary_engine=use_secondary_engine,
+            generated_nl_sql=generated_nl_sql_enabled,
             secondary_engine_modes=SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS,
             **page_context,
         )

@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3u`.
+Version summary from `1.0.2a` to `1.0.3v`.
+
+## 1.0.3v Summary
+
+Version `1.0.3v` makes the SQL Workspace `NL_SQL` generated-SQL workaround explicit and opt-in.
+
+- Added a `Generated SQL for NL_SQL` checkbox to the SQL Workspace toolbar.
+- Applies the `execute=true` to `execute=false` generated-SQL workaround only when that checkbox is enabled and the submitted `sys.NL_SQL` options explicitly request `execute=true`.
+- Leaves `sys.NL_SQL` calls with `execute=false`, unchecked calls, and non-`NL_SQL` statements on the normal SQL Workspace execution path.
 
 ## 1.0.3u Summary
 

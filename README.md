@@ -557,7 +557,7 @@ For `start_http.sh` and `start_https.sh`:
 - Execute output rendered in one TabView with `Execution Result`, each result set, and `History`
 - Explain output rendered as `Text`, `JSON`, and `Visual` execution-plan tabs
 - multi-result-set SQL handling in the output area
-- HeatWave `sys.NL_SQL` calls are treated as SQL generation first: DBConsole forces `execute=false`, reads the generated SQL from the output variable, then executes the generated `SELECT` directly so non-ASCII aliases render with intact result headers
+- optional `Generated SQL for NL_SQL` mode: when checked and the submitted HeatWave `sys.NL_SQL` options request `execute=true`, DBConsole forces `execute=false`, reads the generated SQL from the output variable, then executes the generated `SELECT` directly so non-ASCII aliases render with intact result headers
 - result-set tables use flexible column widths, horizontal scrolling, sortable headers, drag-to-reorder headers, resize handles, and saved layout reset without duplicating the result download action
 - session-local execution history with execution time, status, database, and `use_secondary_engine`
 
