@@ -49,20 +49,20 @@
   </div>
 </section>
 
-<section class="panel">
+<section class="panel oci-overview-panel">
   <div class="panel-header">
     <div>
-      <h3>Configuration Status</h3>
+      <h3>Configuration Overview</h3>
       <span class="helper-text">{{ setup_status.summary }}</span>
     </div>
   </div>
-  <dl class="detail-list">
+  <dl class="detail-list oci-overview-row">
     <div>
-      <dt>OCI Source</dt>
-      <dd>{{ "~/.oci/config" if oci_config_status.config_source == "config_file" else "User folder config" }}</dd>
+      <dt>Source</dt>
+      <dd>{{ "~/.oci/config" if oci_config_status.config_source == "config_file" else "User Config" }}</dd>
     </div>
     <div>
-      <dt>Effective Config File</dt>
+      <dt>Config File</dt>
       <dd>{{ oci_config_status.effective_file }}</dd>
     </div>
     <div>
@@ -74,8 +74,8 @@
       <dd>{{ oci_config_status.active_profile or "-" }}</dd>
     </div>
     <div>
-      <dt>User Folder</dt>
-      <dd>{{ oci_config_status.user_folder or "-" }}</dd>
+      <dt>Private Key</dt>
+      <dd>{{ "Stored" if object_storage_config.oci_key_file else "-" }}</dd>
     </div>
     <div>
       <dt>Object Storage</dt>
@@ -85,45 +85,100 @@
 </section>
 
 {% if active_tab == 'oci' %}
-<section class="split-layout split-layout-top">
-  <article class="panel">
+<section class="split-layout split-layout-top oci-config-layout">
+  <article class="panel oci-source-panel">
     <div class="panel-header">
       <div>
-        <h3>Use ~/.oci/config</h3>
-        <span class="helper-text">Select the OCI SDK profile from the service user's config file.</span>
+        <h3>Config Source</h3>
+        <span class="helper-text">Choose the source to configure on the right.</span>
       </div>
     </div>
+    <div class="oci-source-options" role="radiogroup" aria-label="OCI config source">
+      <label class="radio-card">
+        <input type="radio" name="oci_source_choice" value="user_folder" data-oci-source-choice {% if oci_source_choice != 'config_file' %}checked{% endif %}>
+        <span>
+          <strong>User Config</strong>
+          <small>Store a generated OCI config in the app-local folder.</small>
+        </span>
+      </label>
+      <label class="radio-card">
+        <input type="radio" name="oci_source_choice" value="config_file" data-oci-source-choice {% if oci_source_choice == 'config_file' %}checked{% endif %}>
+        <span>
+          <strong>OCI Config</strong>
+          <small>Use a profile from <code>~/.oci/config</code>.</small>
+        </span>
+      </label>
+    </div>
+  </article>
+
+  <article class="panel" data-oci-config-panel="config_file">
+    <div class="panel-header">
+      <div>
+        <h3>OCI Config</h3>
+        <span class="helper-text">Read <code>~/.oci/config</code>, inspect a profile, then save the selected profile.</span>
+      </div>
+    </div>
+    <form method="get" class="form-grid compact-form">
+      <input type="hidden" name="config_tab" value="oci">
+      <input type="hidden" name="oci_source_choice" value="config_file">
+      <label class="full-span">
+        Profile
+        <select name="existing_config_profile" onchange="this.form.submit()">
+          {% if not oci_config_status.default_profiles or existing_profile not in oci_config_status.default_profiles %}
+          <option value="{{ existing_profile or 'DEFAULT' }}">{{ existing_profile or "DEFAULT" }}</option>
+          {% endif %}
+          {% for profile in oci_config_status.default_profiles %}
+          <option value="{{ profile }}" {% if profile == existing_profile %}selected{% endif %}>{{ profile }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+
+    {% if existing_profile_detail.error %}
+    <p class="helper-text error-text">{{ existing_profile_detail.error }}</p>
+    {% endif %}
+    <dl class="detail-list oci-profile-detail-list">
+      <div>
+        <dt>User</dt>
+        <dd>{{ existing_profile_detail["values"].get("user") or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Fingerprint</dt>
+        <dd>{{ existing_profile_detail["values"].get("fingerprint") or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Tenancy</dt>
+        <dd>{{ existing_profile_detail["values"].get("tenancy") or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Region</dt>
+        <dd>{{ existing_profile_detail["values"].get("region") or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Key File</dt>
+        <dd>{{ existing_profile_detail["values"].get("key_file") or "-" }}</dd>
+      </div>
+    </dl>
+    <pre class="sql-block oci-profile-config-text">{{ existing_profile_detail.section_text or "No profile content loaded." }}</pre>
+
     <form method="post" class="form-grid">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="config_tab" value="oci">
       <input type="hidden" name="oci_config_file" value="~/.oci/config">
+      <input type="hidden" name="existing_config_profile" value="{{ existing_profile or 'DEFAULT' }}">
       {{ object_storage_hidden(object_storage_config) }}
-      <label class="full-span">
-        Profile
-        <input
-          name="existing_config_profile"
-          type="text"
-          value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}"
-          list="default-oci-config-profiles"
-        >
-      </label>
-      <datalist id="default-oci-config-profiles">
-        {% for profile in oci_config_status.default_profiles %}
-        <option value="{{ profile }}"></option>
-        {% endfor %}
-      </datalist>
       <div class="form-actions">
-        <button class="button primary" type="submit" name="setup_action" value="use_existing_oci_config">Use ~/.oci/config</button>
+        <button class="button primary" type="submit" name="setup_action" value="use_existing_oci_config">Save OCI Config</button>
         <button class="button secondary" type="submit" name="setup_action" value="test_existing_oci_config">Test OCI Config</button>
       </div>
     </form>
   </article>
 
-  <article class="panel">
+  <article class="panel" data-oci-config-panel="user_folder">
     <div class="panel-header">
       <div>
-        <h3>User Folder Config</h3>
-        <span class="helper-text">Create an OCI config file from the form and uploaded private key.</span>
+        <h3>User Config</h3>
+        <span class="helper-text">Edit the profile fields. The config is stored in the app-local git-ignored folder.</span>
       </div>
     </div>
     <form method="post" class="form-grid" enctype="multipart/form-data">
@@ -131,12 +186,12 @@
       <input type="hidden" name="config_tab" value="oci">
       {{ object_storage_hidden(object_storage_config) }}
       <label>
-        User Folder
-        <input name="oci_user_folder" type="text" value="{{ object_storage_config.oci_user_folder or '~/.oci' }}">
-      </label>
-      <label>
         Profile
         <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
+      </label>
+      <label>
+        Region
+        <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
       </label>
       <label class="full-span">
         User OCID
@@ -147,8 +202,8 @@
         <input name="oci_fingerprint" type="text" value="{{ object_storage_config.oci_fingerprint }}" placeholder="31:d7:5f:...">
       </label>
       <label>
-        Region
-        <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
+        Namespace
+        <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
       </label>
       <label class="full-span">
         Tenancy OCID
@@ -158,11 +213,7 @@
         Compartment OCID
         <input name="oci_compartment" type="text" value="{{ object_storage_config.oci_compartment }}" placeholder="ocid1.compartment.oc1..">
       </label>
-      <label>
-        Namespace
-        <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
-      </label>
-      <label>
+      <label class="full-span">
         Private Key
         <input name="oci_private_key_file" type="file" accept=".pem,.key,.txt">
       </label>
@@ -218,4 +269,24 @@
   </form>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const sourceChoices = Array.from(document.querySelectorAll("[data-oci-source-choice]"));
+    const configPanels = Array.from(document.querySelectorAll("[data-oci-config-panel]"));
+    if (!sourceChoices.length || !configPanels.length) {
+      return;
+    }
+    const syncPanels = () => {
+      const selected = sourceChoices.find((choice) => choice.checked)?.value || "user_folder";
+      configPanels.forEach((panel) => {
+        panel.hidden = panel.dataset.ociConfigPanel !== selected;
+      });
+    };
+    sourceChoices.forEach((choice) => choice.addEventListener("change", syncPanels));
+    syncPanels();
+  })();
+</script>
 {% endblock %}

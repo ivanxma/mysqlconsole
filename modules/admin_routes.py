@@ -153,6 +153,7 @@ def register_admin_routes(app, deps):
                             flash("Updated the OCI config file reference.", "success")
                     else:
                         payload["oci_config_source"] = "user_folder"
+                        payload["oci_user_folder"] = deps["oci_app_config_dir"]()
                         uploaded_key_path = deps["save_uploaded_oci_private_key"](
                             payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
                             request.files.get("oci_private_key_file"),
@@ -174,12 +175,25 @@ def register_admin_routes(app, deps):
             except Exception as error:
                 flash(str(error), "error")
             return redirect(url_for("setup_object_storage_page", config_tab=active_tab))
+        existing_profile = (
+            request.args.get("existing_config_profile")
+            or config.get("oci_config_profile")
+            or config.get("config_profile")
+            or "DEFAULT"
+        )
+        existing_profile_detail = deps["read_oci_config_profile"]("~/.oci/config", existing_profile)
+        source_choice = str(request.args.get("oci_source_choice", config.get("oci_config_source", "user_folder"))).strip()
+        if source_choice not in {"user_folder", "config_file"}:
+            source_choice = config.get("oci_config_source", "user_folder")
         return render_dashboard(
             "setup_object_storage.html",
             page_title="Setup OCI Config",
             active_tab=active_tab,
             object_storage_config=config,
             oci_config_status=deps["build_oci_config_status"](config),
+            existing_profile=existing_profile,
+            existing_profile_detail=existing_profile_detail,
+            oci_source_choice=source_choice,
         )
 
     @app.route("/admin/status-variables")

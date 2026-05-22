@@ -2094,6 +2094,62 @@ h4 {
   gap: 12px;
 }
 
+.oci-overview-row {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  align-items: start;
+}
+
+.oci-config-layout {
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+}
+
+.oci-source-panel {
+  position: sticky;
+  top: 18px;
+}
+
+.oci-source-options {
+  display: grid;
+  gap: 12px;
+}
+
+.radio-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  cursor: pointer;
+}
+
+.radio-card input {
+  margin-top: 3px;
+}
+
+.radio-card strong,
+.radio-card small {
+  display: block;
+}
+
+.radio-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.oci-profile-detail-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.oci-profile-config-text {
+  max-height: 260px;
+  overflow: auto;
+}
+
 .detail-list div {
   display: grid;
   gap: 3px;
@@ -2379,6 +2435,15 @@ code {
   .split-layout,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .oci-overview-row,
+  .oci-profile-detail-list {
+    grid-template-columns: 1fr;
+  }
+
+  .oci-source-panel {
+    position: static;
   }
 
   .workspace-toolbar {

@@ -1,4 +1,5 @@
 from pathlib import Path
+import configparser
 import os
 import re
 from uuid import uuid4
@@ -127,6 +128,76 @@ def list_oci_config_profiles(config_file):
         if match:
             profiles.append(match.group(1).strip())
     return profiles
+
+
+def read_oci_config_profile(config_file, profile_name):
+    config_path = Path(os.path.expanduser(str(config_file or "").strip()))
+    profile = str(profile_name or "DEFAULT").strip() or "DEFAULT"
+    if not config_path.exists():
+        return {
+            "profile": profile,
+            "exists": False,
+            "error": f"OCI config file was not found: {config_path}",
+            "values": {},
+            "section_text": "",
+        }
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as error:
+        return {
+            "profile": profile,
+            "exists": False,
+            "error": str(error),
+            "values": {},
+            "section_text": "",
+        }
+
+    parser = configparser.RawConfigParser()
+    parser.optionxform = str
+    try:
+        parser.read_string(text)
+    except configparser.Error as error:
+        return {
+            "profile": profile,
+            "exists": False,
+            "error": str(error),
+            "values": {},
+            "section_text": "",
+        }
+
+    if profile == "DEFAULT":
+        values = dict(parser.defaults())
+        exists = bool(values)
+    elif parser.has_section(profile):
+        values = dict(parser.items(profile))
+        exists = True
+    else:
+        values = {}
+        exists = False
+
+    section_lines = []
+    in_section = False
+    header_pattern = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+    for line in text.splitlines():
+        match = header_pattern.match(line)
+        if match:
+            current_profile = match.group(1).strip()
+            if current_profile == profile:
+                in_section = True
+                section_lines.append(line)
+                continue
+            if in_section:
+                break
+        if in_section:
+            section_lines.append(line)
+
+    return {
+        "profile": profile,
+        "exists": exists,
+        "error": "" if exists else f"Profile `{profile}` was not found in {config_path}.",
+        "values": values,
+        "section_text": "\n".join(section_lines).strip(),
+    }
 
 
 def build_oci_config_status(config):

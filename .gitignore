@@ -28,6 +28,7 @@ profiles.json
 object_storage.json
 tls/
 profile_ssh_keys/
+oci_config/
 oci_private_keys/
 
 # Credentials, keys, certificates, and security-sensitive local files

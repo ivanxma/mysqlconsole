@@ -127,6 +127,7 @@ APP_VERSION_FILE = ROOT_DIR / "appver.json"
 FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
 PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
 OCI_PRIVATE_KEY_DIR = ROOT_DIR / "oci_private_keys"
+OCI_CONFIG_DIR = ROOT_DIR / "oci_config"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
@@ -637,6 +638,14 @@ def build_oci_config_status(payload):
     return oci_util.build_oci_config_status(payload)
 
 
+def read_oci_config_profile(config_file, profile_name):
+    return oci_util.read_oci_config_profile(config_file, profile_name)
+
+
+def oci_app_config_dir():
+    return str(OCI_CONFIG_DIR)
+
+
 def normalize_object_storage(payload):
     return object_storage_util.normalize_object_storage(payload)
 
@@ -1033,6 +1042,8 @@ register_admin_routes(
         "test_oci_config": test_oci_config,
         "write_user_folder_oci_config": write_user_folder_oci_config,
         "build_oci_config_status": build_oci_config_status,
+        "read_oci_config_profile": read_oci_config_profile,
+        "oci_app_config_dir": oci_app_config_dir,
         "load_object_storage_config": load_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,

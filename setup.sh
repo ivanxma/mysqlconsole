@@ -1455,6 +1455,15 @@ harden_local_file_permissions() {
     done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
   fi
 
+  for dir_path in "$SCRIPT_DIR/oci_config" "$SCRIPT_DIR/oci_private_keys"; do
+    if [[ -d "$dir_path" ]]; then
+      chmod 700 "$dir_path" 2>/dev/null || true
+      while IFS= read -r -d '' file_path; do
+        chmod 600 "$file_path" 2>/dev/null || true
+      done < <(find "$dir_path" -type f -print0 2>/dev/null)
+    fi
+  done
+
   if [[ -d "$SCRIPT_DIR/.data" ]]; then
     chmod 700 "$SCRIPT_DIR/.data" 2>/dev/null || true
   fi
