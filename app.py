@@ -633,6 +633,10 @@ def write_user_folder_oci_config(payload):
     return oci_util.write_user_folder_oci_config(payload)
 
 
+def build_oci_config_status(payload):
+    return oci_util.build_oci_config_status(payload)
+
+
 def normalize_object_storage(payload):
     return object_storage_util.normalize_object_storage(payload)
 
@@ -1028,6 +1032,7 @@ register_admin_routes(
         "save_uploaded_oci_private_key": save_uploaded_oci_private_key,
         "test_oci_config": test_oci_config,
         "write_user_folder_oci_config": write_user_folder_oci_config,
+        "build_oci_config_status": build_oci_config_status,
         "load_object_storage_config": load_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,

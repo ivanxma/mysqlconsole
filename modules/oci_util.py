@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import re
 from uuid import uuid4
 
@@ -112,10 +113,64 @@ def build_oci_config_text(config):
     return "\n".join(lines) + "\n"
 
 
+def list_oci_config_profiles(config_file):
+    config_path = Path(os.path.expanduser(str(config_file or "").strip()))
+    if not str(config_file or "").strip() or not config_path.exists():
+        return []
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    profiles = []
+    for line in text.splitlines():
+        match = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+        if match:
+            profiles.append(match.group(1).strip())
+    return profiles
+
+
+def build_oci_config_status(config):
+    normalized = normalize_oci_config(config)
+    effective_file = effective_oci_config_file(normalized)
+    expanded_file = os.path.expanduser(effective_file)
+    default_config_file = str(Path("~/.oci/config").expanduser())
+    return {
+        "config_source": normalized["oci_config_source"],
+        "effective_file": effective_file,
+        "expanded_file": expanded_file,
+        "exists": Path(expanded_file).exists(),
+        "profiles": list_oci_config_profiles(effective_file),
+        "default_config_file": "~/.oci/config",
+        "default_profiles": list_oci_config_profiles(default_config_file),
+        "active_profile": normalized["oci_config_profile"],
+        "user_folder": normalized["oci_user_folder"],
+    }
+
+
+def validate_user_folder_oci_config(config):
+    normalized = normalize_oci_config(config)
+    required_fields = {
+        "profile": normalized["oci_config_profile"],
+        "user": normalized["oci_user"],
+        "fingerprint": normalized["oci_fingerprint"],
+        "tenancy": normalized["oci_tenancy"],
+        "region": normalized["oci_region"],
+        "key_file": normalized["oci_key_file"],
+    }
+    missing = [key for key, value in required_fields.items() if not value]
+    if missing:
+        raise ValueError("OCI user-folder config is missing: " + ", ".join(missing))
+    key_file = Path(normalized["oci_key_file"]).expanduser()
+    if not key_file.exists():
+        raise ValueError(f"OCI private key file was not found: {key_file}")
+    return normalized
+
+
 def write_user_folder_oci_config(config):
     normalized = normalize_oci_config(config)
     if normalized["oci_config_source"] != "user_folder":
         return ""
+    normalized = validate_user_folder_oci_config(normalized)
     config_dir = Path(normalized["oci_user_folder"]).expanduser()
     config_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -146,6 +201,7 @@ def build_oci_sdk_config(config):
             ) from error
 
     write_user_folder_oci_config(normalized)
+    normalized = validate_user_folder_oci_config(normalized)
     required_fields = {
         "user": normalized["oci_user"],
         "fingerprint": normalized["oci_fingerprint"],
@@ -153,12 +209,7 @@ def build_oci_sdk_config(config):
         "region": normalized["oci_region"],
         "key_file": normalized["oci_key_file"],
     }
-    missing = [key for key, value in required_fields.items() if not value]
-    if missing:
-        raise ValueError("OCI config is missing: " + ", ".join(missing))
     key_file = Path(required_fields["key_file"]).expanduser()
-    if not key_file.exists():
-        raise ValueError(f"OCI private key file was not found: {key_file}")
     required_fields["key_file"] = str(key_file)
     return required_fields
 

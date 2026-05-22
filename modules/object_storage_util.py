@@ -17,14 +17,16 @@ DEFAULT_OBJECT_STORAGE = {
 def normalize_object_storage(payload):
     payload = payload or {}
     oci_config = normalize_oci_config(payload)
+    region = str(payload.get("region") or oci_config["oci_region"]).strip()
+    namespace = str(payload.get("namespace") or oci_config["oci_namespace"]).strip()
+    config_profile = str(payload.get("config_profile") or oci_config["oci_config_profile"]).strip()
     return {
         **oci_config,
-        "region": str(payload.get("region", oci_config["oci_region"])).strip(),
-        "namespace": str(payload.get("namespace", oci_config["oci_namespace"])).strip(),
+        "region": region,
+        "namespace": namespace,
         "bucket_name": str(payload.get("bucket_name", "")).strip(),
         "bucket_prefix": str(payload.get("bucket_prefix", "")).strip(),
-        "config_profile": str(payload.get("config_profile", oci_config["oci_config_profile"])).strip()
-        or DEFAULT_OBJECT_STORAGE["config_profile"],
+        "config_profile": config_profile or DEFAULT_OBJECT_STORAGE["config_profile"],
         "effective_oci_config_file": effective_oci_config_file(oci_config),
     }
 

@@ -124,43 +124,62 @@ def register_admin_routes(app, deps):
             active_tab = "oci"
         config = deps["load_object_storage_config"]()
         if request.method == "POST":
-            payload = request.form.to_dict()
-            if active_tab == "oci":
-                if payload.get("oci_config_source") == "config_file":
-                    for key in (
-                        "oci_user",
-                        "oci_fingerprint",
-                        "oci_tenancy",
-                        "oci_region",
-                        "oci_key_file",
-                        "oci_compartment",
-                        "oci_namespace",
-                    ):
-                        payload[key] = config.get(key, "")
-                else:
-                    uploaded_key_path = deps["save_uploaded_oci_private_key"](
-                        payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
-                        request.files.get("oci_private_key_file"),
-                    )
-                    payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
-            config = deps["normalize_object_storage"](payload)
-            if active_tab == "oci" and config.get("oci_config_source") == "user_folder":
-                deps["write_user_folder_oci_config"](config)
-            deps["save_object_storage_config"](config)
             action = str(request.form.get("setup_action", "save")).strip()
-            if active_tab == "oci" and action == "test_oci_config":
-                test_result = deps["test_oci_config"](config)
-                flash(test_result["message"], "success" if test_result.get("ok") else "error")
-            elif active_tab == "object-storage":
-                flash("Object Storage configuration saved.", "success")
-            else:
-                flash("OCI configuration saved.", "success")
+            payload = dict(config)
+            payload.update(request.form.to_dict())
+            try:
+                if active_tab == "oci":
+                    if action in {"use_existing_oci_config", "test_existing_oci_config"}:
+                        profile = (
+                            request.form.get("existing_config_profile")
+                            or request.form.get("oci_config_profile")
+                            or config.get("oci_config_profile")
+                            or "DEFAULT"
+                        )
+                        payload.update(
+                            {
+                                "oci_config_source": "config_file",
+                                "oci_config_file": "~/.oci/config",
+                                "oci_config_profile": profile,
+                                "config_profile": profile,
+                            }
+                        )
+                        config = deps["normalize_object_storage"](payload)
+                        deps["save_object_storage_config"](config)
+                        if action == "test_existing_oci_config":
+                            test_result = deps["test_oci_config"](config)
+                            flash(test_result["message"], "success" if test_result.get("ok") else "error")
+                        else:
+                            flash("Updated the OCI config file reference.", "success")
+                    else:
+                        payload["oci_config_source"] = "user_folder"
+                        uploaded_key_path = deps["save_uploaded_oci_private_key"](
+                            payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
+                            request.files.get("oci_private_key_file"),
+                        )
+                        payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
+                        payload["config_profile"] = payload.get("oci_config_profile")
+                        config = deps["normalize_object_storage"](payload)
+                        deps["write_user_folder_oci_config"](config)
+                        deps["save_object_storage_config"](config)
+                        if action == "test_user_oci_config":
+                            test_result = deps["test_oci_config"](config)
+                            flash(test_result["message"], "success" if test_result.get("ok") else "error")
+                        else:
+                            flash("Stored OCI config in the selected user folder.", "success")
+                else:
+                    config = deps["normalize_object_storage"](payload)
+                    deps["save_object_storage_config"](config)
+                    flash("Object Storage configuration saved.", "success")
+            except Exception as error:
+                flash(str(error), "error")
             return redirect(url_for("setup_object_storage_page", config_tab=active_tab))
         return render_dashboard(
             "setup_object_storage.html",
             page_title="Setup OCI Config",
             active_tab=active_tab,
             object_storage_config=config,
+            oci_config_status=deps["build_oci_config_status"](config),
         )
 
     @app.route("/admin/status-variables")

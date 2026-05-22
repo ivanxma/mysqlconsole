@@ -1,10 +1,31 @@
 {% extends "base.html" %}
 
+{% macro object_storage_hidden(config) %}
+<input type="hidden" name="region" value="{{ config.region }}">
+<input type="hidden" name="namespace" value="{{ config.namespace }}">
+<input type="hidden" name="bucket_name" value="{{ config.bucket_name }}">
+<input type="hidden" name="bucket_prefix" value="{{ config.bucket_prefix }}">
+{% endmacro %}
+
+{% macro oci_hidden(config) %}
+<input type="hidden" name="oci_config_source" value="{{ config.oci_config_source }}">
+<input type="hidden" name="oci_user_folder" value="{{ config.oci_user_folder }}">
+<input type="hidden" name="oci_config_file" value="{{ config.oci_config_file }}">
+<input type="hidden" name="oci_config_profile" value="{{ config.oci_config_profile }}">
+<input type="hidden" name="oci_user" value="{{ config.oci_user }}">
+<input type="hidden" name="oci_fingerprint" value="{{ config.oci_fingerprint }}">
+<input type="hidden" name="oci_tenancy" value="{{ config.oci_tenancy }}">
+<input type="hidden" name="oci_region" value="{{ config.oci_region }}">
+<input type="hidden" name="oci_key_file" value="{{ config.oci_key_file }}">
+<input type="hidden" name="oci_compartment" value="{{ config.oci_compartment }}">
+<input type="hidden" name="oci_namespace" value="{{ config.oci_namespace }}">
+{% endmacro %}
+
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">Admin</p>
   <h2>Setup OCI Config</h2>
-  <p>Manage OCI SDK profile settings and Object Storage values used by HeatWave workflows.</p>
+  <p>Manage the OCI SDK profile and Object Storage values used by HeatWave workflows.</p>
 </section>
 
 <section class="tab-shell">
@@ -28,198 +49,173 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Configuration Status</h3>
+      <span class="helper-text">{{ setup_status.summary }}</span>
+    </div>
+  </div>
+  <dl class="detail-list">
+    <div>
+      <dt>OCI Source</dt>
+      <dd>{{ "~/.oci/config" if oci_config_status.config_source == "config_file" else "User folder config" }}</dd>
+    </div>
+    <div>
+      <dt>Effective Config File</dt>
+      <dd>{{ oci_config_status.effective_file }}</dd>
+    </div>
+    <div>
+      <dt>Readable</dt>
+      <dd>{{ "Yes" if oci_config_status.exists else "No" }}</dd>
+    </div>
+    <div>
+      <dt>Profile</dt>
+      <dd>{{ oci_config_status.active_profile or "-" }}</dd>
+    </div>
+    <div>
+      <dt>User Folder</dt>
+      <dd>{{ oci_config_status.user_folder or "-" }}</dd>
+    </div>
+    <div>
+      <dt>Object Storage</dt>
+      <dd>{{ object_storage_config.bucket_name or "-" }}{% if object_storage_config.namespace %}@{{ object_storage_config.namespace }}{% endif %}</dd>
+    </div>
+  </dl>
+</section>
+
+{% if active_tab == 'oci' %}
 <section class="split-layout split-layout-top">
   <article class="panel">
-    <h3>Configuration Status</h3>
-    <dl class="detail-list">
+    <div class="panel-header">
       <div>
-        <dt>Status</dt>
-        <dd>{{ setup_status.summary }}</dd>
+        <h3>Use ~/.oci/config</h3>
+        <span class="helper-text">Select the OCI SDK profile from the service user's config file.</span>
       </div>
-      <div>
-        <dt>OCI Config Source</dt>
-        <dd>{{ "Specific Config File" if object_storage_config.oci_config_source == "config_file" else "User Folder" }}</dd>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="config_tab" value="oci">
+      <input type="hidden" name="oci_config_file" value="~/.oci/config">
+      {{ object_storage_hidden(object_storage_config) }}
+      <label class="full-span">
+        Profile
+        <input
+          name="existing_config_profile"
+          type="text"
+          value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}"
+          list="default-oci-config-profiles"
+        >
+      </label>
+      <datalist id="default-oci-config-profiles">
+        {% for profile in oci_config_status.default_profiles %}
+        <option value="{{ profile }}"></option>
+        {% endfor %}
+      </datalist>
+      <div class="form-actions">
+        <button class="button primary" type="submit" name="setup_action" value="use_existing_oci_config">Use ~/.oci/config</button>
+        <button class="button secondary" type="submit" name="setup_action" value="test_existing_oci_config">Test OCI Config</button>
       </div>
-      <div>
-        <dt>OCI Config File</dt>
-        <dd>
-          {% if object_storage_config.oci_config_source == "config_file" %}
-          {{ object_storage_config.oci_config_file or "-" }}
-          {% else %}
-          {{ object_storage_config.effective_oci_config_file or ((object_storage_config.oci_user_folder or "~/.oci") ~ "/config") }}
-          {% endif %}
-        </dd>
-      </div>
-      <div>
-        <dt>OCI Profile</dt>
-        <dd>{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or "-" }}</dd>
-      </div>
-      <div>
-        <dt>OCI User</dt>
-        <dd>{{ object_storage_config.oci_user or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Tenancy</dt>
-        <dd>{{ object_storage_config.oci_tenancy or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Compartment</dt>
-        <dd>{{ object_storage_config.oci_compartment or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Private Key</dt>
-        <dd>{{ "Uploaded" if object_storage_config.oci_key_file else "-" }}</dd>
-      </div>
-      <div>
-        <dt>Object Storage</dt>
-        <dd>{{ object_storage_config.bucket_name or "-" }}{% if object_storage_config.namespace %}@{{ object_storage_config.namespace }}{% endif %}</dd>
-      </div>
-      <div>
-        <dt>Region</dt>
-        <dd>{{ object_storage_config.region or "-" }}</dd>
-      </div>
-    </dl>
+    </form>
   </article>
 
   <article class="panel">
-    {% if active_tab == 'oci' %}
-    <h3>OCI Config</h3>
+    <div class="panel-header">
+      <div>
+        <h3>User Folder Config</h3>
+        <span class="helper-text">Create an OCI config file from the form and uploaded private key.</span>
+      </div>
+    </div>
     <form method="post" class="form-grid" enctype="multipart/form-data">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="config_tab" value="oci">
-      <input type="hidden" name="region" value="{{ object_storage_config.region }}">
-      <input type="hidden" name="namespace" value="{{ object_storage_config.namespace }}">
-      <input type="hidden" name="bucket_name" value="{{ object_storage_config.bucket_name }}">
-      <input type="hidden" name="bucket_prefix" value="{{ object_storage_config.bucket_prefix }}">
-      <input type="hidden" name="config_profile" value="{{ object_storage_config.config_profile }}">
+      {{ object_storage_hidden(object_storage_config) }}
       <label>
-        Config Source
-        <select name="oci_config_source" data-oci-config-source-select>
-          <option value="user_folder" {% if object_storage_config.oci_config_source != 'config_file' %}selected{% endif %}>User folder</option>
-          <option value="config_file" {% if object_storage_config.oci_config_source == 'config_file' %}selected{% endif %}>Specific config file</option>
-        </select>
-      </label>
-      <label data-oci-user-folder-field>
-        OCI User Folder
+        User Folder
         <input name="oci_user_folder" type="text" value="{{ object_storage_config.oci_user_folder or '~/.oci' }}">
       </label>
-      <label class="full-span" data-oci-config-file-field>
-        OCI Config File
-        <input name="oci_config_file" type="text" value="{{ object_storage_config.oci_config_file or '~/.oci/config' }}">
-      </label>
-      <label class="full-span">
-        OCI Config Profile
+      <label>
+        Profile
         <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
       </label>
-      <label class="full-span" data-oci-user-config-field>
+      <label class="full-span">
         User OCID
         <input name="oci_user" type="text" value="{{ object_storage_config.oci_user }}" placeholder="ocid1.user.oc1..">
       </label>
-      <label data-oci-user-config-field>
+      <label>
         Fingerprint
         <input name="oci_fingerprint" type="text" value="{{ object_storage_config.oci_fingerprint }}" placeholder="31:d7:5f:...">
       </label>
-      <label data-oci-user-config-field>
+      <label>
         Region
         <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
       </label>
-      <label class="full-span" data-oci-user-config-field>
+      <label class="full-span">
         Tenancy OCID
         <input name="oci_tenancy" type="text" value="{{ object_storage_config.oci_tenancy }}" placeholder="ocid1.tenancy.oc1..">
       </label>
-      <label class="full-span" data-oci-user-config-field>
+      <label class="full-span">
         Compartment OCID
         <input name="oci_compartment" type="text" value="{{ object_storage_config.oci_compartment }}" placeholder="ocid1.compartment.oc1..">
       </label>
-      <label data-oci-user-config-field>
+      <label>
         Namespace
         <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
       </label>
-      <label data-oci-user-config-field>
+      <label>
         Private Key
         <input name="oci_private_key_file" type="file" accept=".pem,.key,.txt">
       </label>
-      <p class="helper-text full-span" data-oci-user-config-field>
+      <p class="helper-text full-span">
         {% if object_storage_config.oci_key_file %}
-        A private key is already uploaded for this profile. Saving writes the OCI config to the selected user folder.
+        A private key is already stored for this profile. Upload a new key only when replacing it.
         {% else %}
-        Upload the OCI API private key. Saving writes the OCI config to the selected user folder.
+        Upload the OCI API private key. The key file and generated config are written with owner-only permissions.
         {% endif %}
       </p>
       <div class="form-actions">
-        <button class="button primary" type="submit" name="setup_action" value="save">Save OCI Config</button>
-        <button class="button secondary" type="submit" name="setup_action" value="test_oci_config">Test OCI Config</button>
+        <button class="button primary" type="submit" name="setup_action" value="store_user_oci_config">Save User Config</button>
+        <button class="button secondary" type="submit" name="setup_action" value="test_user_oci_config">Test OCI Config</button>
       </div>
     </form>
-    {% else %}
-    <h3>Object Storage Settings</h3>
-    <form method="post" class="form-grid">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="config_tab" value="object-storage">
-      <input type="hidden" name="oci_config_source" value="{{ object_storage_config.oci_config_source }}">
-      <input type="hidden" name="oci_user_folder" value="{{ object_storage_config.oci_user_folder }}">
-      <input type="hidden" name="oci_config_file" value="{{ object_storage_config.oci_config_file }}">
-      <input type="hidden" name="oci_config_profile" value="{{ object_storage_config.oci_config_profile }}">
-      <input type="hidden" name="oci_user" value="{{ object_storage_config.oci_user }}">
-      <input type="hidden" name="oci_fingerprint" value="{{ object_storage_config.oci_fingerprint }}">
-      <input type="hidden" name="oci_tenancy" value="{{ object_storage_config.oci_tenancy }}">
-      <input type="hidden" name="oci_region" value="{{ object_storage_config.oci_region }}">
-      <input type="hidden" name="oci_key_file" value="{{ object_storage_config.oci_key_file }}">
-      <input type="hidden" name="oci_compartment" value="{{ object_storage_config.oci_compartment }}">
-      <input type="hidden" name="oci_namespace" value="{{ object_storage_config.oci_namespace }}">
-      <label>
-        Region
-        <input name="region" type="text" value="{{ object_storage_config.region }}">
-      </label>
-      <label>
-        Namespace
-        <input name="namespace" type="text" value="{{ object_storage_config.namespace }}">
-      </label>
-      <label>
-        Bucket Name
-        <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
-      </label>
-      <label>
-        Bucket Prefix
-        <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
-      </label>
-      <label class="full-span">
-        OCI Config Profile
-        <input name="config_profile" type="text" value="{{ object_storage_config.config_profile or object_storage_config.oci_config_profile }}">
-      </label>
-      <div class="form-actions">
-        <button class="button primary" type="submit">Save Object Storage Config</button>
-      </div>
-    </form>
-    {% endif %}
   </article>
 </section>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  (() => {
-    const sourceSelect = document.querySelector("[data-oci-config-source-select]");
-    if (!sourceSelect) {
-      return;
-    }
-    const userFolderField = document.querySelector("[data-oci-user-folder-field]");
-    const configFileField = document.querySelector("[data-oci-config-file-field]");
-    const userConfigFields = Array.from(document.querySelectorAll("[data-oci-user-config-field]"));
-    const syncFields = () => {
-      const isConfigFile = sourceSelect.value === "config_file";
-      if (userFolderField) {
-        userFolderField.hidden = isConfigFile;
-      }
-      if (configFileField) {
-        configFileField.hidden = !isConfigFile;
-      }
-      userConfigFields.forEach((field) => {
-        field.hidden = isConfigFile;
-      });
-    };
-    sourceSelect.addEventListener("change", syncFields);
-    syncFields();
-  })();
-</script>
+{% else %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>Object Storage Settings</h3>
+      <span class="helper-text">Bucket values used by HeatWave Lakehouse and dump/load workflows.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="config_tab" value="object-storage">
+    {{ oci_hidden(object_storage_config) }}
+    <label>
+      Region
+      <input name="region" type="text" value="{{ object_storage_config.region or object_storage_config.oci_region }}">
+    </label>
+    <label>
+      Namespace
+      <input name="namespace" type="text" value="{{ object_storage_config.namespace or object_storage_config.oci_namespace }}">
+    </label>
+    <label>
+      Bucket Name
+      <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
+    </label>
+    <label>
+      Bucket Prefix
+      <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
+    </label>
+    <label class="full-span">
+      OCI Config Profile
+      <input name="config_profile" type="text" value="{{ object_storage_config.config_profile or object_storage_config.oci_config_profile }}">
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Save Object Storage Config</button>
+    </div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}
