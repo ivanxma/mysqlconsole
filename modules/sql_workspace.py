@@ -1,3 +1,5 @@
+import json
+import re
 from time import perf_counter
 
 from flask import flash, redirect, render_template, request, session, url_for
@@ -13,6 +15,7 @@ from modules.mysql_pages import (
 
 SQL_WORKSPACE_HISTORY_SESSION_KEY = "sql_workspace_history"
 SQL_WORKSPACE_SECONDARY_ENGINE_OPTIONS = ("OFF", "ON", "FORCED")
+NL_SQL_GENERATED_SQL_MARKER = "Generated SQL statement:"
 
 
 def normalize_sql_workspace_secondary_engine(value):
@@ -33,6 +36,400 @@ def reset_query_session_options(cursor):
         apply_query_session_options(cursor, use_secondary_engine="OFF")
     except Exception:
         pass
+
+
+def _statement_starts_with(statement, keyword):
+    return str(statement or "").lstrip().lower().startswith(keyword)
+
+
+def _has_replacement_header(columns):
+    normalized_columns = [str(column or "").strip() for column in columns or []]
+    if not normalized_columns:
+        return False
+    return any(column and set(column) == {"?"} for column in normalized_columns)
+
+
+def _extract_nl_sql_output_variable(statement):
+    if not _statement_starts_with(statement, "call"):
+        return ""
+    if not re.search(r"\bsys\s*\.\s*nl_sql\b", statement, flags=re.IGNORECASE):
+        return ""
+
+    quote_char = ""
+    in_backtick = False
+    in_line_comment = False
+    in_block_comment = False
+    escaped = False
+    variables = []
+    index = 0
+    text = str(statement or "")
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+
+        if in_line_comment:
+            if char in "\r\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            if char == "*" and next_char == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote_char:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                if next_char == quote_char:
+                    index += 2
+                    continue
+                quote_char = ""
+            index += 1
+            continue
+        if in_backtick:
+            if char == "`":
+                if next_char == "`":
+                    index += 2
+                    continue
+                in_backtick = False
+            index += 1
+            continue
+
+        if char == "-" and next_char == "-" and (index + 2 >= len(text) or text[index + 2].isspace()):
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "#":
+            in_line_comment = True
+            index += 1
+            continue
+        if char == "/" and next_char == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            quote_char = char
+            escaped = False
+            index += 1
+            continue
+        if char == "`":
+            in_backtick = True
+            index += 1
+            continue
+        if char == "@":
+            match = re.match(r"@[A-Za-z0-9_$]+", text[index:])
+            if match:
+                variables.append(match.group(0))
+                index += len(match.group(0))
+                continue
+        index += 1
+
+    return variables[0] if variables else ""
+
+
+def _split_sql_function_arguments(argument_text):
+    arguments = []
+    quote_char = ""
+    in_backtick = False
+    in_line_comment = False
+    in_block_comment = False
+    escaped = False
+    depth = 0
+    argument_start = 0
+    index = 0
+    text = str(argument_text or "")
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+
+        if in_line_comment:
+            if char in "\r\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            if char == "*" and next_char == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote_char:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                if next_char == quote_char:
+                    index += 2
+                    continue
+                quote_char = ""
+            index += 1
+            continue
+        if in_backtick:
+            if char == "`":
+                if next_char == "`":
+                    index += 2
+                    continue
+                in_backtick = False
+            index += 1
+            continue
+
+        if char == "-" and next_char == "-" and (index + 2 >= len(text) or text[index + 2].isspace()):
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "#":
+            in_line_comment = True
+            index += 1
+            continue
+        if char == "/" and next_char == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            quote_char = char
+            escaped = False
+            index += 1
+            continue
+        if char == "`":
+            in_backtick = True
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            depth = max(0, depth - 1)
+            index += 1
+            continue
+        if char == "," and depth == 0:
+            arguments.append((argument_start, index, text[argument_start:index]))
+            argument_start = index + 1
+        index += 1
+
+    arguments.append((argument_start, len(text), text[argument_start:]))
+    return arguments
+
+
+def _find_nl_sql_argument_text_span(statement):
+    match = re.search(r"\bsys\s*\.\s*nl_sql\s*\(", str(statement or ""), flags=re.IGNORECASE)
+    if not match:
+        return None
+    open_index = match.end() - 1
+    quote_char = ""
+    in_backtick = False
+    in_line_comment = False
+    in_block_comment = False
+    escaped = False
+    depth = 0
+    index = open_index
+    text = str(statement or "")
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+
+        if in_line_comment:
+            if char in "\r\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            if char == "*" and next_char == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote_char:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                if next_char == quote_char:
+                    index += 2
+                    continue
+                quote_char = ""
+            index += 1
+            continue
+        if in_backtick:
+            if char == "`":
+                if next_char == "`":
+                    index += 2
+                    continue
+                in_backtick = False
+            index += 1
+            continue
+
+        if char == "-" and next_char == "-" and (index + 2 >= len(text) or text[index + 2].isspace()):
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "#":
+            in_line_comment = True
+            index += 1
+            continue
+        if char == "/" and next_char == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            quote_char = char
+            escaped = False
+            index += 1
+            continue
+        if char == "`":
+            in_backtick = True
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return open_index + 1, index
+        index += 1
+    return None
+
+
+def _force_nl_sql_execute_false(statement):
+    argument_span = _find_nl_sql_argument_text_span(statement)
+    if argument_span is None:
+        return statement
+    argument_start, argument_end = argument_span
+    argument_text = statement[argument_start:argument_end]
+    arguments = _split_sql_function_arguments(argument_text)
+    if len(arguments) < 3:
+        return statement
+
+    option_start, option_end, option_text = arguments[2]
+    updated_option_text = re.sub(
+        r"((?:\"execute\"|'execute')\s*:\s*)true\b",
+        r"\1false",
+        option_text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    updated_option_text = re.sub(
+        r"((?:\"execute\"|'execute')\s*,\s*)true\b",
+        r"\1false",
+        updated_option_text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    if updated_option_text == option_text:
+        return statement
+
+    absolute_option_start = argument_start + option_start
+    absolute_option_end = argument_start + option_end
+    return statement[:absolute_option_start] + updated_option_text + statement[absolute_option_end:]
+
+
+def _find_generated_nl_sql(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            try:
+                return _find_generated_nl_sql(json.loads(stripped))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        if NL_SQL_GENERATED_SQL_MARKER in value:
+            return value.split(NL_SQL_GENERATED_SQL_MARKER, 1)[1].strip()
+        return ""
+    if isinstance(value, dict):
+        message = str(value.get("message") or "")
+        stage = str(value.get("stage") or "").lower()
+        if stage == "validated_sql" and NL_SQL_GENERATED_SQL_MARKER in message:
+            return message.split(NL_SQL_GENERATED_SQL_MARKER, 1)[1].strip()
+        for item in value.values():
+            generated_sql = _find_generated_nl_sql(item)
+            if generated_sql:
+                return generated_sql
+    if isinstance(value, list):
+        for item in value:
+            generated_sql = _find_generated_nl_sql(item)
+            if generated_sql:
+                return generated_sql
+    return ""
+
+
+def _is_read_only_generated_sql(statement):
+    normalized = str(statement or "").lstrip().lower()
+    return normalized.startswith("select") or normalized.startswith("with")
+
+
+def _fetch_nl_sql_generated_statement(cursor, output_variable):
+    if not output_variable:
+        return ""
+    cursor.execute(f"SELECT {output_variable} AS nl_sql_output")
+    rows = cursor.fetchall()
+    while cursor.nextset():
+        pass
+    if not rows:
+        return ""
+    return _find_generated_nl_sql(next(iter(rows[0].values())))
+
+
+def _replay_nl_sql_generated_result(cursor, statement, original_result_set):
+    if not _has_replacement_header(original_result_set.get("columns", [])):
+        return None
+    output_variable = _extract_nl_sql_output_variable(statement)
+    generated_sql = _fetch_nl_sql_generated_statement(cursor, output_variable)
+    if not _is_read_only_generated_sql(generated_sql):
+        return None
+
+    cursor.execute(generated_sql)
+    columns = [item[0] for item in cursor.description] if cursor.description else []
+    rows = cursor.fetchall() if columns else []
+    while cursor.nextset():
+        pass
+    if not columns or _has_replacement_header(columns):
+        return None
+    repaired_result_set = dict(original_result_set)
+    repaired_result_set.update(
+        {
+            "label": f"{original_result_set.get('label', 'Statement')} (validated SQL)",
+            "columns": columns,
+            "rows": rows,
+            "statement": generated_sql,
+        }
+    )
+    return repaired_result_set
+
+
+def _drain_cursor_results(cursor):
+    while True:
+        if cursor.description:
+            cursor.fetchall()
+        if not cursor.nextset():
+            break
+
+
+def _execute_nl_sql_generated_statement(cursor, statement, statement_index):
+    output_variable = _extract_nl_sql_output_variable(statement)
+    if not output_variable:
+        return None
+
+    generation_statement = _force_nl_sql_execute_false(statement)
+    cursor.execute(generation_statement)
+    _drain_cursor_results(cursor)
+    generated_sql = _fetch_nl_sql_generated_statement(cursor, output_variable)
+    if not _is_read_only_generated_sql(generated_sql):
+        raise ValueError("NL_SQL did not return a generated SELECT statement.")
+
+    cursor.execute(generated_sql)
+    result_sets = _collect_sql_workspace_cursor_results(cursor, generated_sql, statement_index)
+    for result_set in result_sets:
+        if result_set.get("kind", "table") == "table":
+            result_set["label"] = f"Statement {statement_index} (generated SQL)"
+    return result_sets
 
 
 def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
@@ -68,6 +465,16 @@ def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
         if not cursor.nextset():
             break
 
+    if any(_has_replacement_header(result_set.get("columns", [])) for result_set in result_sets):
+        repaired_result_sets = []
+        for result_set in result_sets:
+            if result_set.get("kind", "table") == "table":
+                repaired_result_set = _replay_nl_sql_generated_result(cursor, sql, result_set)
+                if repaired_result_set is not None:
+                    result_set = repaired_result_set
+            repaired_result_sets.append(result_set)
+        result_sets = repaired_result_sets
+
     if not result_sets:
         result_sets.append(
             {
@@ -93,8 +500,12 @@ def execute_sql_workspace_statements(
             try:
                 apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
                 for statement_index, statement in enumerate(statements, start=1):
-                    cursor.execute(statement)
-                    result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
+                    nl_sql_result_sets = _execute_nl_sql_generated_statement(cursor, statement, statement_index)
+                    if nl_sql_result_sets is not None:
+                        result_sets.extend(nl_sql_result_sets)
+                    else:
+                        cursor.execute(statement)
+                        result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
             finally:
                 reset_query_session_options(cursor)
     return result_sets

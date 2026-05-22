@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3s</span>
+      <span class="badge">Release 1.0.3t</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3s</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3t</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3t Summary</h2>
+      <p>
+        Version <code>1.0.3t</code> fixes SQL Workspace rendering for HeatWave <code>sys.NL_SQL</code> result sets with non-ASCII generated column aliases.
+      </p>
+      <ul>
+        <li>Treats <code>CALL sys.NL_SQL(...)</code> as SQL generation first by forcing the options payload to <code>execute=false</code> when possible.</li>
+        <li>Reads the generated SQL from the submitted output variable and executes that generated <code>SELECT</code> directly in SQL Workspace.</li>
+        <li>Avoids the <code>NL_SQL execute=true</code> procedure result metadata path that can return replacement headers such as <code>??</code> for Japanese aliases.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3s Summary</h2>

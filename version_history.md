@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3s`.
+Version summary from `1.0.2a` to `1.0.3t`.
+
+## 1.0.3t Summary
+
+Version `1.0.3t` fixes SQL Workspace rendering for HeatWave `sys.NL_SQL` result sets with non-ASCII generated column aliases.
+
+- Treats `CALL sys.NL_SQL(...)` as SQL generation first by forcing the options payload to `execute=false` when possible.
+- Reads the generated SQL from the submitted output variable and executes that generated `SELECT` directly in SQL Workspace.
+- Avoids the `NL_SQL execute=true` procedure result metadata path that can return replacement headers such as `??` for Japanese aliases.
 
 ## 1.0.3s Summary
 
