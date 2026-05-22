@@ -344,6 +344,10 @@ def _find_generated_nl_sql(value):
             return value.split(NL_SQL_GENERATED_SQL_MARKER, 1)[1].strip()
         return ""
     if isinstance(value, dict):
+        for key in ("sql_query", "query", "sql", "generated_sql", "statement"):
+            generated_sql = str(value.get(key) or "").strip()
+            if generated_sql:
+                return generated_sql
         message = str(value.get("message") or "")
         stage = str(value.get("stage") or "").lower()
         if stage == "validated_sql" and NL_SQL_GENERATED_SQL_MARKER in message:
@@ -360,6 +364,19 @@ def _find_generated_nl_sql(value):
     return ""
 
 
+def _summarize_nl_sql_output(value, max_length=500):
+    if value is None:
+        return ""
+    try:
+        text = json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        text = str(value)
+    collapsed = " ".join(str(text or "").split())
+    if len(collapsed) <= max_length:
+        return collapsed
+    return collapsed[: max_length - 3] + "..."
+
+
 def _is_read_only_generated_sql(statement):
     normalized = str(statement or "").lstrip().lower()
     return normalized.startswith("select") or normalized.startswith("with")
@@ -367,21 +384,22 @@ def _is_read_only_generated_sql(statement):
 
 def _fetch_nl_sql_generated_statement(cursor, output_variable):
     if not output_variable:
-        return ""
+        return "", ""
     cursor.execute(f"SELECT {output_variable} AS nl_sql_output")
     rows = cursor.fetchall()
     while cursor.nextset():
         pass
     if not rows:
-        return ""
-    return _find_generated_nl_sql(next(iter(rows[0].values())))
+        return "", ""
+    raw_output = next(iter(rows[0].values()))
+    return _find_generated_nl_sql(raw_output), _summarize_nl_sql_output(raw_output)
 
 
 def _replay_nl_sql_generated_result(cursor, statement, original_result_set):
     if not _has_replacement_header(original_result_set.get("columns", [])):
         return None
     output_variable = _extract_nl_sql_output_variable(statement)
-    generated_sql = _fetch_nl_sql_generated_statement(cursor, output_variable)
+    generated_sql, _output_summary = _fetch_nl_sql_generated_statement(cursor, output_variable)
     if not _is_read_only_generated_sql(generated_sql):
         return None
 
@@ -420,9 +438,10 @@ def _execute_nl_sql_generated_statement(cursor, statement, statement_index):
     generation_statement = _force_nl_sql_execute_false(statement)
     cursor.execute(generation_statement)
     _drain_cursor_results(cursor)
-    generated_sql = _fetch_nl_sql_generated_statement(cursor, output_variable)
+    generated_sql, output_summary = _fetch_nl_sql_generated_statement(cursor, output_variable)
     if not _is_read_only_generated_sql(generated_sql):
-        raise ValueError("NL_SQL did not return a generated SELECT statement.")
+        detail = f" Output: {output_summary}" if output_summary else ""
+        raise ValueError(f"NL_SQL did not return a generated SELECT statement.{detail}")
 
     cursor.execute(generated_sql)
     result_sets = _collect_sql_workspace_cursor_results(cursor, generated_sql, statement_index)

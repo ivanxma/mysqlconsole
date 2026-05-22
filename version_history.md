@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3t`.
+Version summary from `1.0.2a` to `1.0.3u`.
+
+## 1.0.3u Summary
+
+Version `1.0.3u` fixes generated SQL extraction from HeatWave `sys.NL_SQL` output.
+
+- Reads the generated statement from the `sql_query` field returned in the `NL_SQL` output JSON.
+- Keeps the existing verbose-log fallback for outputs that include `Generated SQL statement:`.
+- Includes a short `NL_SQL` output excerpt in the SQL Workspace error when no executable generated `SELECT` can be found.
 
 ## 1.0.3t Summary
 

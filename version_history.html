@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3t</span>
+      <span class="badge">Release 1.0.3u</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3t</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3u</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3u Summary</h2>
+      <p>
+        Version <code>1.0.3u</code> fixes generated SQL extraction from HeatWave <code>sys.NL_SQL</code> output.
+      </p>
+      <ul>
+        <li>Reads the generated statement from the <code>sql_query</code> field returned in the <code>NL_SQL</code> output JSON.</li>
+        <li>Keeps the existing verbose-log fallback for outputs that include <code>Generated SQL statement:</code>.</li>
+        <li>Includes a short <code>NL_SQL</code> output excerpt in the SQL Workspace error when no executable generated <code>SELECT</code> can be found.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3t Summary</h2>
