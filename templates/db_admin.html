@@ -314,54 +314,112 @@
   {% if routine_error %}
   <p class="helper-text error-text">{{ routine_error }}</p>
   {% endif %}
-  <div
-    class="table-wrap db-admin-routine-table-wrap"
-    data-table-layout-id="db-admin-routines"
-    data-table-reorder="true"
-    data-table-cell-dialog="true"
-  >
-    <table class="db-admin-routine-table data-grid-constant-rows">
-      <thead>
-        <tr>
-          <th>Database</th>
-          <th>Type</th>
-          <th>Name</th>
-          <th>Returns</th>
-          <th>Security</th>
-          <th>Created</th>
-          <th>Last Altered</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in routine_rows %}
-        <tr class="{% if row.database_name == selected_routine_database and row.routine_name == selected_routine_name and row.routine_type == selected_routine_type %}active-table-row{% endif %}">
-          <td>{{ row.database_name }}</td>
-          <td>{{ row.routine_type }}</td>
-          <td>
-            <a
-              class="table-select-link"
-              href="{{ url_for('db_admin_page', db_admin_tab='routine', routine_database=row.database_name, routine_name=row.routine_name, routine_type=row.routine_type) }}"
-            >
-              {{ row.routine_name }}
-            </a>
-          </td>
-          <td>{{ row.data_type }}</td>
-          <td>{{ row.security_type }}</td>
-          <td>{{ row.created }}</td>
-          <td>{{ row.last_altered }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7">No stored procedures or functions were returned.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <form method="post" data-routine-selection-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="db_admin_tab" value="routine">
+    <input type="hidden" name="database_name" value="{{ selected_database }}">
+    <div
+      class="table-wrap db-admin-routine-table-wrap"
+      data-table-layout-id="db-admin-routines"
+      data-table-reorder="true"
+      data-table-cell-dialog="true"
+    >
+      <div class="table-layout-toolbar db-admin-routine-toolbar">
+        <div class="db-admin-charset-left-actions">
+          <label class="checkbox-field db-admin-table-delete-select-all">
+            <input type="checkbox" data-routine-select-all {% if not routine_rows %}disabled{% endif %}>
+            <span>Select all</span>
+          </label>
+        </div>
+        <div class="db-admin-charset-right-actions">
+          <button class="button secondary db-admin-routine-export-action" type="submit" name="db_action" value="download_routines" data-routine-selection-action {% if not routine_rows %}disabled{% endif %} title="Export selected procedures/functions">
+            Export Selected
+          </button>
+          <span class="helper-text" data-routine-selection-count>0 selected</span>
+        </div>
+      </div>
+      <table class="db-admin-routine-table data-grid-constant-rows">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Database</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Returns</th>
+            <th>Security</th>
+            <th>Charset</th>
+            <th>Connection Collation</th>
+            <th>Database Collation</th>
+            <th>Created</th>
+            <th>Last Altered</th>
+            <th>Export</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in routine_rows %}
+          <tr class="{% if row.database_name == selected_routine_database and row.routine_name == selected_routine_name and row.routine_type == selected_routine_type %}active-table-row{% endif %}">
+            <td>
+              <input
+                type="checkbox"
+                name="selected_routine"
+                value="{{ {'database': row.database_name, 'type': row.routine_type, 'name': row.routine_name}|tojson|forceescape }}"
+                aria-label="Select {{ row.routine_type }} {{ row.database_name }}.{{ row.routine_name }}"
+                data-routine-row
+              >
+            </td>
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.routine_type }}</td>
+            <td>
+              <a
+                class="table-select-link"
+                href="{{ url_for('db_admin_page', db_admin_tab='routine', routine_database=row.database_name, routine_name=row.routine_name, routine_type=row.routine_type) }}"
+              >
+                {{ row.routine_name }}
+              </a>
+            </td>
+            <td>{{ row.data_type }}</td>
+            <td>{{ row.security_type }}</td>
+            <td>{{ row.character_set_client }}</td>
+            <td>{{ row.collation_connection }}</td>
+            <td>{{ row.database_collation }}</td>
+            <td>{{ row.created }}</td>
+            <td>{{ row.last_altered }}</td>
+            <td class="table-action-cell">
+              <a class="icon-link" href="{{ url_for('db_admin_routine_download', routine_database=row.database_name, routine_name=row.routine_name, routine_type=row.routine_type) }}" title="Export {{ row.routine_type }}" aria-label="Export {{ row.routine_type }} {{ row.routine_name }}">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <path d="M7 10l5 5 5-5"></path>
+                  <path d="M12 15V3"></path>
+                </svg>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="12">No stored procedures or functions were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
   {% if routine_detail %}
   <section class="db-admin-charset-preview">
-    <h4>{{ routine_detail.routine_type }} {{ routine_detail.database_name }}.{{ routine_detail.routine_name }}</h4>
-    <dl class="detail-list">
+    <div class="panel-header panel-header-tight">
+      <div>
+        <h4>{{ routine_detail.routine_type }} {{ routine_detail.database_name }}.{{ routine_detail.routine_name }}</h4>
+      </div>
+      <div class="panel-actions">
+        <a class="icon-link" href="{{ url_for('db_admin_routine_download', routine_database=routine_detail.database_name, routine_name=routine_detail.routine_name, routine_type=routine_detail.routine_type) }}" title="Export routine SQL" aria-label="Export routine SQL">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <path d="M7 10l5 5 5-5"></path>
+            <path d="M12 15V3"></path>
+          </svg>
+        </a>
+      </div>
+    </div>
+    <dl class="detail-list db-admin-routine-overview-row">
       <div>
         <dt>Definer</dt>
         <dd>{{ routine_detail.definer }}</dd>
@@ -377,6 +435,18 @@
       <div>
         <dt>Deterministic</dt>
         <dd>{{ routine_detail.is_deterministic }}</dd>
+      </div>
+      <div>
+        <dt>Charset</dt>
+        <dd>{{ routine_detail.character_set_client }}</dd>
+      </div>
+      <div>
+        <dt>Connection Collation</dt>
+        <dd>{{ routine_detail.collation_connection }}</dd>
+      </div>
+      <div>
+        <dt>Database Collation</dt>
+        <dd>{{ routine_detail.database_collation }}</dd>
       </div>
       <div>
         <dt>Created</dt>
@@ -1309,6 +1379,39 @@
       }
       syncCollationOptions();
       syncCharsetCollationSelectionState();
+    }
+
+    const routineSelectionForm = document.querySelector("[data-routine-selection-form]");
+    if (routineSelectionForm) {
+      const selectAllCheckbox = routineSelectionForm.querySelector("[data-routine-select-all]");
+      const rowCheckboxes = Array.from(routineSelectionForm.querySelectorAll("[data-routine-row]"));
+      const actionButtons = Array.from(routineSelectionForm.querySelectorAll("[data-routine-selection-action]"));
+      const countLabel = routineSelectionForm.querySelector("[data-routine-selection-count]");
+      const syncRoutineSelectionState = () => {
+        const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectAllCheckbox) {
+          selectAllCheckbox.checked = rowCheckboxes.length > 0 && checkedCount === rowCheckboxes.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+        }
+        actionButtons.forEach((button) => {
+          button.disabled = checkedCount === 0;
+        });
+        if (countLabel) {
+          countLabel.textContent = `${checkedCount} selected`;
+        }
+      };
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          rowCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selectAllCheckbox.checked;
+          });
+          syncRoutineSelectionState();
+        });
+      }
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncRoutineSelectionState);
+      });
+      syncRoutineSelectionState();
     }
 
     const tableDeleteForm = document.querySelector("[data-table-delete-form]");

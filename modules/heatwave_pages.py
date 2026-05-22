@@ -1118,6 +1118,7 @@ def build_heatwave_management_context(
     fetch_create_table_statement,
     fetch_heatwave_inventory_report,
     fetch_heatwave_defined_secondary_engine_tables,
+    fetch_lakehouse_engine_tables,
     execute_query,
 ):
     normalized_database = str(selected_database or "").strip()
@@ -1133,18 +1134,38 @@ def build_heatwave_management_context(
         normalized_table = ""
 
     database_status = _empty_management_database_status(normalized_database)
+    lakehouse_status = {
+        "rows": [],
+        "table_count": 0,
+        "loaded_count": 0,
+        "partial_count": 0,
+        "not_loaded_count": 0,
+        "error": "",
+    }
+    inventory_report = _safe_report(
+        fetch_heatwave_inventory_report,
+        {"columns": [], "rows": [], "table_id_columns": [], "tables_columns": []},
+    )
+    inventory_rows = _build_heatwave_inventory_rows(inventory_report)
     if normalized_database:
-        inventory_report = _safe_report(
-            fetch_heatwave_inventory_report,
-            {"columns": [], "rows": [], "table_id_columns": [], "tables_columns": []},
-        )
         configured_tables, configured_error = _safe_items(fetch_heatwave_defined_secondary_engine_tables)
         configured_tables, _ = _build_secondary_engine_lookup(configured_tables)
-        inventory_rows = _build_heatwave_inventory_rows(inventory_report)
         database_status = _build_management_database_status(normalized_database, configured_tables, inventory_rows)
         database_status["error"] = " | ".join(
             error_message for error_message in (configured_error, inventory_report.get("error", "")) if error_message
         )
+
+    lakehouse_tables, lakehouse_error = _safe_items(fetch_lakehouse_engine_tables)
+    lakehouse_tables, _ = _build_lakehouse_lookup(lakehouse_tables)
+    lakehouse_rows = _build_lakehouse_rows(lakehouse_tables, inventory_rows)
+    lakehouse_status["rows"] = lakehouse_rows
+    lakehouse_status["table_count"] = len(lakehouse_rows)
+    lakehouse_status["loaded_count"] = sum(1 for row in lakehouse_rows if row["load_state"] == "loaded")
+    lakehouse_status["partial_count"] = sum(1 for row in lakehouse_rows if row["load_state"] == "partial")
+    lakehouse_status["not_loaded_count"] = sum(1 for row in lakehouse_rows if row["load_state"] == "not_loaded")
+    lakehouse_status["error"] = " | ".join(
+        error_message for error_message in (lakehouse_error, inventory_report.get("error", "")) if error_message
+    )
 
     table_status_lookup = {
         str(row["table_name"]).lower(): row
@@ -1186,12 +1207,15 @@ def build_heatwave_management_context(
             table_action_summary["column_error"] = str(error)
 
     return {
-        "active_tab": "table" if str(active_tab or "").strip().lower() == "table" else "db",
+        "active_tab": str(active_tab or "").strip().lower()
+        if str(active_tab or "").strip().lower() in {"db", "table", "lakehouse"}
+        else "db",
         "database_inventory": database_inventory,
         "selected_database": normalized_database,
         "selected_table": normalized_table,
         "tables": tables,
         "database_status": database_status,
         "table_action_summary": table_action_summary,
+        "lakehouse_status": lakehouse_status,
         "management_summary": fetch_heatwave_management_summary(execute_query=execute_query),
     }

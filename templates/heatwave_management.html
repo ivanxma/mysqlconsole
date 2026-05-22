@@ -56,6 +56,15 @@
     >
       Table
     </button>
+    <button
+      class="tab-link {% if active_tab == 'lakehouse' %}active{% endif %}"
+      type="button"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'lakehouse' else 'false' }}"
+      data-management-tab-button="lakehouse"
+    >
+      Lakehouse
+    </button>
   </div>
 </section>
 
@@ -159,6 +168,60 @@
     {% if table_action_summary.column_error %}
     <p class="helper-text error-text">{{ table_action_summary.column_error }}</p>
     {% endif %}
+    </section>
+
+    <section
+      class="management-main-panel {% if active_tab == 'lakehouse' %}active{% endif %}"
+      role="tabpanel"
+      data-management-tab-panel="lakehouse"
+      {% if active_tab != 'lakehouse' %}hidden{% endif %}
+    >
+    <div class="panel-header">
+      <div>
+        <h3>Lakehouse Tables</h3>
+        <span class="helper-text">{{ lakehouse_status.table_count }} table(s), {{ lakehouse_status.loaded_count }} loaded, {{ lakehouse_status.partial_count }} partial, {{ lakehouse_status.not_loaded_count }} not loaded.</span>
+      </div>
+    </div>
+    {% if lakehouse_status.error %}
+    <p class="helper-text error-text">{{ lakehouse_status.error }}</p>
+    {% endif %}
+    <div
+      class="table-wrap sql-workspace-result-wrap"
+      data-table-layout-id="hw-admin-lakehouse"
+      data-table-reorder="true"
+      data-table-cell-dialog="true"
+    >
+      <table class="sql-workspace-result-table data-grid-constant-rows">
+        <thead>
+          <tr>
+            <th>Database</th>
+            <th>Table</th>
+            <th>Definition</th>
+            <th>Loaded</th>
+            <th>Progress</th>
+            <th>Load Status</th>
+            <th>Recovery Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in lakehouse_status.rows %}
+          <tr class="hw-row-{{ row.health_class }}">
+            <td>{{ row.database_name }}</td>
+            <td>{{ row.table_name }}</td>
+            <td>{{ row.definition_label }}</td>
+            <td>{{ row.load_state_label }}</td>
+            <td><span class="hw-load-badge hw-load-{{ row.health_class }}">{{ row.load_progress_label }}</span></td>
+            <td>{{ row.load_status_value }}</td>
+            <td>{{ row.recovery_source_label }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7">No Lakehouse tables were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     </section>
 </section>
 

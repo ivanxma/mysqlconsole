@@ -50,14 +50,18 @@ def register_heatwave_routes(app, deps):
     @app.route("/heatwave/management", methods=["GET", "POST"])
     @login_required
     def heatwave_management_page():
-        active_tab = "table" if str(request.values.get("tab", "")).strip().lower() == "table" else "db"
+        active_tab = str(request.values.get("tab", "db")).strip().lower()
+        if active_tab not in {"db", "table", "lakehouse"}:
+            active_tab = "db"
         selected_database = str(request.values.get("database", "")).strip()
         selected_table = str(request.values.get("table", "")).strip()
         management_open_dialog = ""
         management_popup_result = None
 
         if request.method == "POST":
-            active_tab = "table" if str(request.form.get("tab", "")).strip().lower() == "table" else "db"
+            active_tab = str(request.form.get("tab", active_tab)).strip().lower()
+            if active_tab not in {"db", "table", "lakehouse"}:
+                active_tab = "db"
             action = str(request.form.get("management_action", "")).strip()
             selected_database = str(request.form.get("database", "")).strip()
             selected_table = str(request.form.get("table", "")).strip()
@@ -76,7 +80,9 @@ def register_heatwave_routes(app, deps):
                 flash(action_result["flash_message"], action_result["flash_category"])
                 selected_database = str(action_result["redirect_values"].get("database", selected_database)).strip()
                 selected_table = str(action_result["redirect_values"].get("table", selected_table)).strip()
-                active_tab = "table" if str(action_result["redirect_values"].get("tab", active_tab)).strip().lower() == "table" else "db"
+                active_tab = str(action_result["redirect_values"].get("tab", active_tab)).strip().lower()
+                if active_tab not in {"db", "table", "lakehouse"}:
+                    active_tab = "db"
                 if action_result.get("render_popup"):
                     management_open_dialog = str(action_result.get("open_dialog", "")).strip()
                     management_popup_result = action_result.get("popup_result")
@@ -97,6 +103,7 @@ def register_heatwave_routes(app, deps):
             fetch_create_table_statement=deps["fetch_create_table_statement"],
             fetch_heatwave_inventory_report=deps["fetch_heatwave_inventory_report"],
             fetch_heatwave_defined_secondary_engine_tables=deps["fetch_heatwave_defined_secondary_engine_tables"],
+            fetch_lakehouse_engine_tables=deps["fetch_lakehouse_engine_tables"],
             execute_query=deps["execute_query"],
         )
         return render_dashboard(

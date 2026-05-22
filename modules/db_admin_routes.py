@@ -1,6 +1,56 @@
+import json
 import re
 
-from flask import Response, flash, redirect, request, session, url_for
+from flask import Response, abort, flash, redirect, request, session, url_for
+
+
+def _safe_download_name(value, fallback="routines"):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip()).strip("._") or fallback
+
+
+def _parse_routine_selection(raw_value):
+    try:
+        payload = json.loads(str(raw_value or ""))
+    except json.JSONDecodeError as error:
+        raise ValueError("Invalid routine export selection.") from error
+    database_name = str(payload.get("database") or "").strip()
+    routine_type = str(payload.get("type") or "").strip().upper()
+    routine_name = str(payload.get("name") or "").strip()
+    if not database_name or not routine_name or routine_type not in {"PROCEDURE", "FUNCTION"}:
+        raise ValueError("Invalid routine export selection.")
+    return {
+        "database": database_name,
+        "type": routine_type,
+        "name": routine_name,
+    }
+
+
+def _build_routine_export_response(selections, fetch_routine_detail):
+    if not selections:
+        raise ValueError("Select at least one procedure or function to export.")
+    script_parts = [
+        "-- DBConsole stored procedure/function export",
+        "DELIMITER $$",
+    ]
+    filename_parts = []
+    for selection in selections:
+        detail = fetch_routine_detail(selection["database"], selection["name"], selection["type"])
+        label = f"{selection['database']}.{selection['name']}"
+        filename_parts.append(f"{selection['database']}-{selection['name']}")
+        script_parts.append("")
+        script_parts.append(f"-- {selection['type']} {label}")
+        if detail.get("create_error"):
+            script_parts.append(f"-- SHOW CREATE failed: {detail['create_error']}")
+        create_statement = str(detail.get("create_statement") or "").strip()
+        if create_statement:
+            script_parts.append(f"{create_statement}$$")
+        else:
+            script_parts.append("-- Routine definition is unavailable for this account.$$")
+    script_parts.extend(["", "DELIMITER ;", ""])
+    filename_stem = _safe_download_name(filename_parts[0] if len(filename_parts) == 1 else "selected-routines")
+    response = Response("\n".join(script_parts), mimetype="application/sql")
+    response.headers["Content-Disposition"] = f"attachment; filename={filename_stem}.sql"
+    return response
 
 
 def register_db_admin_routes(app, deps):
@@ -58,6 +108,12 @@ def register_db_admin_routes(app, deps):
                         )
                     )
             try:
+                if action == "download_routines":
+                    selections = [
+                        _parse_routine_selection(value)
+                        for value in request.form.getlist("selected_routine")
+                    ]
+                    return _build_routine_export_response(selections, deps["fetch_db_admin_routine_detail"])
                 action_result = deps["handle_db_admin_action"](
                     action,
                     request.form.get("database_name", ""),
@@ -168,3 +224,15 @@ def register_db_admin_routes(app, deps):
             fetch_missing_primary_key_rows=deps["fetch_tables_without_primary_key"],
         )
         return deps["build_csv_response"](export_payload["filename"], export_payload["columns"], export_payload["rows"])
+
+    @app.route("/mysql/db-admin/routine-download")
+    @login_required
+    def db_admin_routine_download():
+        selection = {
+            "database": str(request.args.get("routine_database", "")).strip(),
+            "type": str(request.args.get("routine_type", "")).strip().upper(),
+            "name": str(request.args.get("routine_name", "")).strip(),
+        }
+        if selection["type"] not in {"PROCEDURE", "FUNCTION"}:
+            abort(400, "Routine type must be PROCEDURE or FUNCTION.")
+        return _build_routine_export_response([selection], deps["fetch_db_admin_routine_detail"])

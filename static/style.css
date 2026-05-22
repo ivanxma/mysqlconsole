@@ -852,18 +852,30 @@ dialog.management-dialog::backdrop {
 
 .db-admin-routine-table th:nth-child(1),
 .db-admin-routine-table td:nth-child(1),
-.db-admin-routine-table th:nth-child(3),
-.db-admin-routine-table td:nth-child(3) {
+.db-admin-routine-table th:last-child,
+.db-admin-routine-table td:last-child {
+  min-width: 72px;
+  max-width: 96px;
+}
+
+.db-admin-routine-table th:nth-child(2),
+.db-admin-routine-table td:nth-child(2),
+.db-admin-routine-table th:nth-child(4),
+.db-admin-routine-table td:nth-child(4) {
   min-width: 180px;
   max-width: 560px;
 }
 
-.db-admin-routine-table th:nth-child(6),
-.db-admin-routine-table td:nth-child(6),
-.db-admin-routine-table th:nth-child(7),
-.db-admin-routine-table td:nth-child(7) {
+.db-admin-routine-table th:nth-last-child(3),
+.db-admin-routine-table td:nth-last-child(3),
+.db-admin-routine-table th:nth-last-child(2),
+.db-admin-routine-table td:nth-last-child(2) {
   min-width: 210px;
   max-width: 320px;
+}
+
+.db-admin-routine-overview-row {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .db-admin-charset-preview {
