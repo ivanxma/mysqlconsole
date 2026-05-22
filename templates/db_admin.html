@@ -34,6 +34,14 @@
       Event
     </a>
     <a
+      class="tab-link {% if db_admin_tab == 'routine' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if db_admin_tab == 'routine' else 'false' }}"
+      href="{{ url_for('db_admin_page', db_admin_tab='routine', routine_database=selected_routine_database or selected_database) }}"
+    >
+      SP/Function
+    </a>
+    <a
       class="tab-link {% if db_admin_tab == 'charset-collation' %}active{% endif %}"
       role="tab"
       aria-selected="{{ 'true' if db_admin_tab == 'charset-collation' else 'false' }}"
@@ -281,6 +289,115 @@
       </table>
     </div>
   </form>
+  {% endif %}
+  {% elif db_admin_tab == 'routine' %}
+  <div class="panel-header">
+    <div>
+      <h3>Stored Procedures / Functions</h3>
+      <span class="helper-text">Review stored procedures and functions, then select one to inspect its definition.</span>
+    </div>
+  </div>
+  <form method="get" class="form-grid compact-form">
+    <input type="hidden" name="db_admin_tab" value="routine">
+    <label>
+      Database
+      <select name="routine_database" onchange="this.form.submit()">
+        <option value="">All user databases</option>
+        {% for row in database_inventory %}
+        {% if not row.is_system %}
+        <option value="{{ row.database_name }}" {% if row.database_name == selected_routine_database %}selected{% endif %}>
+          {{ row.database_name }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% if routine_error %}
+  <p class="helper-text error-text">{{ routine_error }}</p>
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Database</th>
+          <th>Type</th>
+          <th>Name</th>
+          <th>Returns</th>
+          <th>Security</th>
+          <th>Created</th>
+          <th>Last Altered</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in routine_rows %}
+        <tr class="{% if row.database_name == selected_routine_database and row.routine_name == selected_routine_name and row.routine_type == selected_routine_type %}active-table-row{% endif %}">
+          <td>{{ row.database_name }}</td>
+          <td>{{ row.routine_type }}</td>
+          <td>
+            <a
+              class="table-select-link"
+              href="{{ url_for('db_admin_page', db_admin_tab='routine', routine_database=row.database_name, routine_name=row.routine_name, routine_type=row.routine_type) }}"
+            >
+              {{ row.routine_name }}
+            </a>
+          </td>
+          <td>{{ row.data_type }}</td>
+          <td>{{ row.security_type }}</td>
+          <td>{{ row.created }}</td>
+          <td>{{ row.last_altered }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">No stored procedures or functions were returned.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if routine_detail %}
+  <section class="db-admin-charset-preview">
+    <h4>{{ routine_detail.routine_type }} {{ routine_detail.database_name }}.{{ routine_detail.routine_name }}</h4>
+    <dl class="detail-list">
+      <div>
+        <dt>Definer</dt>
+        <dd>{{ routine_detail.definer }}</dd>
+      </div>
+      <div>
+        <dt>Security</dt>
+        <dd>{{ routine_detail.security_type }}</dd>
+      </div>
+      <div>
+        <dt>SQL Data Access</dt>
+        <dd>{{ routine_detail.sql_data_access }}</dd>
+      </div>
+      <div>
+        <dt>Deterministic</dt>
+        <dd>{{ routine_detail.is_deterministic }}</dd>
+      </div>
+      <div>
+        <dt>Created</dt>
+        <dd>{{ routine_detail.created }}</dd>
+      </div>
+      <div>
+        <dt>Last Altered</dt>
+        <dd>{{ routine_detail.last_altered }}</dd>
+      </div>
+    </dl>
+    {% if routine_detail.routine_comment %}
+    <p class="helper-text">{{ routine_detail.routine_comment }}</p>
+    {% endif %}
+    {% if routine_detail.create_error %}
+    <p class="helper-text error-text">SHOW CREATE failed: {{ routine_detail.create_error }}</p>
+    {% endif %}
+    {% if routine_detail.create_statement %}
+    <pre class="sql-block">{{ routine_detail.create_statement }}</pre>
+    {% elif routine_detail.routine_definition %}
+    <pre class="sql-block">{{ routine_detail.routine_definition }}</pre>
+    {% else %}
+    <p class="helper-text">The routine definition is unavailable for this account.</p>
+    {% endif %}
+  </section>
   {% endif %}
   {% elif db_admin_tab == 'charset-collation' %}
   <div class="panel-header">
@@ -698,6 +815,7 @@
         <tr>
           <th>Select</th>
           <th>Table</th>
+          <th>Type</th>
           <th>Table Comment</th>
           <th>Engine</th>
           <th>Rows</th>
@@ -725,6 +843,7 @@
               {{ row.table_name }}
             </a>
           </td>
+          <td>{{ "View" if row.is_view else "Base Table" }}</td>
           <td>{{ row.table_comment or "-" }}</td>
           <td>{{ row.engine }}</td>
           <td>{{ row.row_count }}</td>
@@ -732,7 +851,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6">Choose a database to list its tables.</td>
+          <td colspan="7">Choose a database to list its tables.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -794,11 +913,11 @@
     </table>
   </div>
   {% elif table_info_tab == 'ddl' %}
-  <h3>CREATE TABLE</h3>
+  <h3>{{ "CREATE VIEW" if selected_table_is_view else "CREATE TABLE" }}</h3>
   {% if ddl_statement %}
   <pre class="sql-block">{{ ddl_statement }}</pre>
   {% else %}
-  <p class="helper-text">The table definition is unavailable.</p>
+  <p class="helper-text">The {{ "view" if selected_table_is_view else "table" }} definition is unavailable.</p>
   {% endif %}
   {% elif table_info_tab == 'indexes' %}
   <h3>Indexes</h3>
@@ -901,7 +1020,7 @@
   {% endif %}
   {% elif table_info_tab == 'preview' %}
   <div class="panel-header">
-    <h3>Table Preview</h3>
+    <h3>{{ "View Preview" if selected_table_is_view else "Table Preview" }}</h3>
     {% if preview.total_rows %}
     <span class="helper-text">{{ preview.total_rows }} total rows</span>
     {% endif %}

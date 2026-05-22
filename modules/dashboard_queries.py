@@ -296,6 +296,7 @@ def fetch_tables_for_database(database_name):
         """
         SELECT
           table_name AS table_name_value,
+          table_type AS table_type_value,
           engine AS engine_value,
           table_rows AS table_rows_value,
           table_comment AS table_comment_value,
@@ -313,6 +314,8 @@ def fetch_tables_for_database(database_name):
         tables.append(
             {
                 "table_name": row["table_name_value"],
+                "table_type": row["table_type_value"] or "",
+                "is_view": row["table_type_value"] == "VIEW",
                 "engine": row["engine_value"] or "-",
                 "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
                 "table_comment": row["table_comment_value"] or "",

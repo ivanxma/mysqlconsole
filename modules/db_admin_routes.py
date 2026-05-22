@@ -14,6 +14,9 @@ def register_db_admin_routes(app, deps):
         db_admin_tab = deps["normalize_db_admin_tab"](request.values.get("db_admin_tab", default_tab))
         selected_database = str(request.values.get("database", "")).strip()
         selected_table = str(request.values.get("table", "")).strip()
+        selected_routine_database = str(request.values.get("routine_database", selected_database)).strip()
+        selected_routine_name = str(request.values.get("routine_name", "")).strip()
+        selected_routine_type = str(request.values.get("routine_type", "")).strip()
         focus_event_database = str(request.args.get("focus_event_database", "")).strip()
         focus_event_name = str(request.args.get("focus_event_name", "")).strip()
         preview_page = deps["normalize_page_number"](request.args.get("page", "1"))
@@ -127,6 +130,11 @@ def register_db_admin_routes(app, deps):
             event_schedule_options=deps["event_schedule_options"],
             focused_event_database=focus_event_database,
             focused_event_name=focus_event_name,
+            selected_routine_database=selected_routine_database,
+            selected_routine_name=selected_routine_name,
+            selected_routine_type=selected_routine_type,
+            fetch_routine_rows=deps["fetch_db_admin_routine_rows"],
+            fetch_routine_detail=deps["fetch_db_admin_routine_detail"],
             fetch_charset_collation_report=deps["fetch_db_admin_charset_collation_report"],
             fetch_charset_collation_options=deps["fetch_charset_collation_options"],
             charset_collation_payload=db_admin_charset_collation_payload,

@@ -864,6 +864,11 @@ def build_db_admin_context(
     event_schedule_options=(),
     focused_event_database="",
     focused_event_name="",
+    selected_routine_database="",
+    selected_routine_name="",
+    selected_routine_type="",
+    fetch_routine_rows=None,
+    fetch_routine_detail=None,
     fetch_charset_collation_report=None,
     fetch_charset_collation_options=None,
     charset_collation_payload=None,
@@ -906,12 +911,20 @@ def build_db_admin_context(
     indexes = []
     partitions = _empty_partition_state()
     selected_table_row = {}
+    selected_table_type = ""
+    selected_table_is_view = False
     table_edit_comment = ""
     column_edit_rows = []
     column_edit_unsupported_columns = []
     selected_table_error = ""
     event_rows = []
     event_error = ""
+    routine_rows = []
+    routine_error = ""
+    routine_detail = {}
+    normalized_routine_database = str(selected_routine_database or normalized_database or "").strip()
+    normalized_routine_name = str(selected_routine_name or "").strip()
+    normalized_routine_type = str(selected_routine_type or "").strip().upper()
     charset_collation_report = {
         "rows": [],
         "error": "",
@@ -959,6 +972,24 @@ def build_db_admin_context(
         except Exception as error:  # pragma: no cover - depends on server features
             event_rows = []
             event_error = str(error)
+
+    if db_admin_tab == "routine":
+        try:
+            routine_rows = fetch_routine_rows(normalized_routine_database) if fetch_routine_rows is not None else []
+            if normalized_routine_name:
+                routine_detail = (
+                    fetch_routine_detail(
+                        normalized_routine_database,
+                        normalized_routine_name,
+                        normalized_routine_type,
+                    )
+                    if fetch_routine_detail is not None
+                    else {}
+                )
+        except Exception as error:  # pragma: no cover - depends on server metadata and privileges
+            routine_rows = []
+            routine_detail = {}
+            routine_error = str(error)
 
     if db_admin_tab == "charset-collation":
         try:
@@ -1016,6 +1047,8 @@ def build_db_admin_context(
                 ),
                 {},
             )
+            selected_table_type = str(selected_table_row.get("table_type") or "").strip()
+            selected_table_is_view = selected_table_type.upper() == "VIEW"
             table_edit_comment = _normalize_db_admin_comment_text(selected_table_row.get("table_comment"))
             if column_edit_payload is not None:
                 table_edit_comment = _normalize_db_admin_comment_text(
@@ -1120,6 +1153,8 @@ def build_db_admin_context(
         "ddl_statement": ddl_statement,
         "columns": columns,
         "selected_table_row": selected_table_row,
+        "selected_table_type": selected_table_type,
+        "selected_table_is_view": selected_table_is_view,
         "selected_table_error": selected_table_error,
         "table_edit_comment": table_edit_comment,
         "column_edit_rows": column_edit_rows,
@@ -1130,6 +1165,12 @@ def build_db_admin_context(
         "event_rows": event_rows,
         "event_error": event_error,
         "event_form": event_form,
+        "routine_rows": routine_rows,
+        "routine_error": routine_error,
+        "routine_detail": routine_detail,
+        "selected_routine_database": normalized_routine_database,
+        "selected_routine_name": normalized_routine_name,
+        "selected_routine_type": normalized_routine_type,
         "charset_collation_report": charset_collation_report,
         "charset_collation_options": charset_collation_options,
         "charset_collation_form": charset_collation_form,
@@ -1180,6 +1221,7 @@ def build_db_admin_export(
     export_rows = [
         {
             "table_name": row["table_name"],
+            "table_type": row.get("table_type", ""),
             "engine": row["engine"],
             "row_count": row["row_count"],
             "table_comment": row.get("table_comment", ""),
@@ -1190,7 +1232,15 @@ def build_db_admin_export(
     ]
     return {
         "filename": f"{normalized_database or 'database'}-tables.csv",
-        "columns": ["table_name", "engine", "row_count", "table_comment", "heatwave_configured", "create_options"],
+        "columns": [
+            "table_name",
+            "table_type",
+            "engine",
+            "row_count",
+            "table_comment",
+            "heatwave_configured",
+            "create_options",
+        ],
         "rows": export_rows,
     }
 

@@ -49,6 +49,8 @@ from modules.db_admin_queries import (
     fetch_create_table_statement,
     fetch_db_admin_charset_collation_report,
     fetch_db_admin_event_rows,
+    fetch_db_admin_routine_detail,
+    fetch_db_admin_routine_rows,
     fetch_full_table_report,
     fetch_table_columns,
     fetch_table_indexes,
@@ -155,7 +157,7 @@ DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAM
 DBCONSOLE_SESSION_COOKIE_SECURE_VALUE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower()
 DBCONSOLE_SESSION_COOKIE_SECURE = DBCONSOLE_SESSION_COOKIE_SECURE_VALUE in {"1", "true", "yes", "on"}
 
-DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "charset-collation"}
+DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "routine", "charset-collation"}
 DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_TABLE_INFO_TABS = {"columns", "ddl", "indexes", "partitions", "preview", "modify-columns"}
 DB_ADMIN_TABLE_INFO_DEFAULT_TAB = "columns"
@@ -1128,6 +1130,8 @@ register_db_admin_routes(
         "fetch_tables_without_primary_key": fetch_tables_without_primary_key,
         "fix_table_without_primary_key": fix_table_without_primary_key,
         "fetch_db_admin_event_rows": fetch_db_admin_event_rows,
+        "fetch_db_admin_routine_rows": fetch_db_admin_routine_rows,
+        "fetch_db_admin_routine_detail": fetch_db_admin_routine_detail,
         "create_db_admin_event": create_db_admin_event,
         "set_db_admin_events_enabled": set_db_admin_events_enabled,
         "delete_db_admin_events": delete_db_admin_events,

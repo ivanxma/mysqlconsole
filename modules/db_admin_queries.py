@@ -383,6 +383,127 @@ def fetch_db_admin_charset_collation_report(database_name):
     return report
 
 
+def fetch_db_admin_routine_rows(database_name=""):
+    normalized_database = str(database_name or "").strip()
+    params = []
+    database_filter = ""
+    if normalized_database:
+        database_filter = "AND routine_schema = %s"
+        params.append(normalized_database)
+    rows = execute_query(
+        f"""
+        SELECT
+          routine_schema AS database_name_value,
+          routine_name AS routine_name_value,
+          routine_type AS routine_type_value,
+          data_type AS data_type_value,
+          security_type AS security_type_value,
+          definer AS definer_value,
+          created AS created_value,
+          last_altered AS last_altered_value,
+          routine_comment AS routine_comment_value
+        FROM information_schema.routines
+        WHERE routine_type IN ('PROCEDURE', 'FUNCTION')
+          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+          {database_filter}
+        ORDER BY routine_schema, routine_type, routine_name
+        """,
+        params,
+    )
+    return [
+        {
+            "database_name": row["database_name_value"],
+            "routine_name": row["routine_name_value"],
+            "routine_type": row["routine_type_value"] or "-",
+            "data_type": row["data_type_value"] or "-",
+            "security_type": row["security_type_value"] or "-",
+            "definer": row["definer_value"] or "-",
+            "created": row["created_value"] or "-",
+            "last_altered": row["last_altered_value"] or "-",
+            "routine_comment": row["routine_comment_value"] or "",
+        }
+        for row in rows
+    ]
+
+
+def _fetch_db_admin_routine_metadata(database_name, routine_name, routine_type):
+    rows = execute_query(
+        """
+        SELECT
+          routine_schema AS database_name_value,
+          routine_name AS routine_name_value,
+          routine_type AS routine_type_value,
+          data_type AS data_type_value,
+          security_type AS security_type_value,
+          definer AS definer_value,
+          sql_data_access AS sql_data_access_value,
+          is_deterministic AS is_deterministic_value,
+          created AS created_value,
+          last_altered AS last_altered_value,
+          routine_comment AS routine_comment_value,
+          routine_definition AS routine_definition_value
+        FROM information_schema.routines
+        WHERE routine_schema = %s
+          AND routine_name = %s
+          AND routine_type = %s
+        LIMIT 1
+        """,
+        [database_name, routine_name, routine_type],
+    )
+    return rows[0] if rows else {}
+
+
+def fetch_db_admin_routine_detail(database_name, routine_name, routine_type):
+    normalized_database = str(database_name or "").strip()
+    normalized_routine = str(routine_name or "").strip()
+    normalized_type = str(routine_type or "").strip().upper()
+    if not normalized_database or not normalized_routine:
+        return {}
+    if normalized_type not in {"PROCEDURE", "FUNCTION"}:
+        raise ValueError("Routine type must be PROCEDURE or FUNCTION.")
+
+    metadata = _fetch_db_admin_routine_metadata(normalized_database, normalized_routine, normalized_type)
+    if not metadata:
+        raise ValueError(f"{normalized_type.title()} `{normalized_database}.{normalized_routine}` was not found.")
+
+    create_statement = ""
+    create_error = ""
+    safe_routine = _quote_existing_mysql_identifier(normalized_routine)
+    try:
+        with mysql_connection(database_override=normalized_database) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW CREATE {normalized_type} {safe_routine}")
+                row = cursor.fetchone() or {}
+        expected_key = f"Create {normalized_type.title()}"
+        if expected_key in row:
+            create_statement = row[expected_key] or ""
+        else:
+            for key, value in row.items():
+                if str(key or "").lower().startswith("create "):
+                    create_statement = value or ""
+                    break
+    except Exception as error:  # pragma: no cover - depends on routine privileges
+        create_error = str(error)
+
+    return {
+        "database_name": metadata["database_name_value"],
+        "routine_name": metadata["routine_name_value"],
+        "routine_type": metadata["routine_type_value"] or normalized_type,
+        "data_type": metadata["data_type_value"] or "-",
+        "security_type": metadata["security_type_value"] or "-",
+        "definer": metadata["definer_value"] or "-",
+        "sql_data_access": metadata["sql_data_access_value"] or "-",
+        "is_deterministic": metadata["is_deterministic_value"] or "-",
+        "created": metadata["created_value"] or "-",
+        "last_altered": metadata["last_altered_value"] or "-",
+        "routine_comment": metadata["routine_comment_value"] or "",
+        "routine_definition": metadata["routine_definition_value"] or "",
+        "create_statement": create_statement,
+        "create_error": create_error,
+    }
+
+
 def _validate_charset_collation_pair(charset_name, collation_name):
     normalized_charset = str(charset_name or "").strip()
     normalized_collation = str(collation_name or "").strip()
@@ -1327,13 +1448,21 @@ def _normalize_mysql_base_type(column_type):
     return normalized.split("(", 1)[0].split()[0]
 
 
+def _normalize_preview_page_number(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, number)
+
+
 def _build_table_preview_select_list(column_definitions):
     select_clauses = []
     masked_columns = []
     for column in column_definitions or []:
         column_name = column["column_name"]
         column_type = column.get("column_type", "")
-        safe_column_name = quote_identifier(column_name)
+        safe_column_name = _quote_existing_mysql_identifier(column_name)
         base_type = _normalize_mysql_base_type(column_type)
         if base_type in DB_ADMIN_PREVIEW_MASKED_BASE_TYPES:
             placeholder = f"[{base_type.upper()}]"
@@ -1356,9 +1485,9 @@ def fetch_table_preview(database_name, table_name, page=1, page_size=25):
             "has_next": False,
             "masked_columns": [],
         }
-    safe_database = quote_identifier(database_name)
-    safe_table = quote_identifier(table_name)
-    page = normalize_page_number(page)
+    safe_database = _quote_existing_mysql_identifier(database_name)
+    safe_table = _quote_existing_mysql_identifier(table_name)
+    page = _normalize_preview_page_number(page)
     offset = (page - 1) * page_size
     total_rows = fetch_scalar(f"SELECT COUNT(*) FROM {safe_database}.{safe_table}", default=0)
     column_definitions = fetch_table_columns(database_name, table_name)
@@ -1387,12 +1516,19 @@ def fetch_table_preview(database_name, table_name, page=1, page_size=25):
 def fetch_create_table_statement(database_name, table_name):
     if not database_name or not table_name:
         return ""
-    safe_table = quote_identifier(table_name)
+    safe_table = _quote_existing_mysql_identifier(table_name)
     with mysql_connection(database_override=database_name) as connection:
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW CREATE TABLE {safe_table}")
             row = cursor.fetchone() or {}
-    return row.get("Create Table", "")
+    if "Create Table" in row:
+        return row["Create Table"] or ""
+    if "Create View" in row:
+        return row["Create View"] or ""
+    for key, value in row.items():
+        if str(key or "").lower().startswith("create "):
+            return value or ""
+    return ""
 
 
 def empty_table_preview(page_size=25):
