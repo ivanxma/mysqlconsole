@@ -829,6 +829,43 @@ dialog.management-dialog::backdrop {
   max-width: 640px;
 }
 
+.db-admin-routine-table-wrap {
+  max-width: 100%;
+}
+
+.table-wrap .db-admin-routine-table,
+.table-wrap .db-admin-routine-table[data-enhanced-table] {
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+
+.db-admin-routine-table th,
+.db-admin-routine-table td {
+  min-width: 132px;
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.db-admin-routine-table th:nth-child(1),
+.db-admin-routine-table td:nth-child(1),
+.db-admin-routine-table th:nth-child(3),
+.db-admin-routine-table td:nth-child(3) {
+  min-width: 180px;
+  max-width: 560px;
+}
+
+.db-admin-routine-table th:nth-child(6),
+.db-admin-routine-table td:nth-child(6),
+.db-admin-routine-table th:nth-child(7),
+.db-admin-routine-table td:nth-child(7) {
+  min-width: 210px;
+  max-width: 320px;
+}
+
 .db-admin-charset-preview {
   display: grid;
   gap: 12px;

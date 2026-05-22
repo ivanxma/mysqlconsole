@@ -1,9 +1,11 @@
 import json
 
 from modules.core_util import chmod_private_file
+from modules.oci_util import DEFAULT_OCI_CONFIG, effective_oci_config_file, normalize_oci_config
 
 
 DEFAULT_OBJECT_STORAGE = {
+    **DEFAULT_OCI_CONFIG,
     "region": "",
     "namespace": "",
     "bucket_name": "",
@@ -14,12 +16,16 @@ DEFAULT_OBJECT_STORAGE = {
 
 def normalize_object_storage(payload):
     payload = payload or {}
+    oci_config = normalize_oci_config(payload)
     return {
+        **oci_config,
         "region": str(payload.get("region", "")).strip(),
         "namespace": str(payload.get("namespace", "")).strip(),
         "bucket_name": str(payload.get("bucket_name", "")).strip(),
         "bucket_prefix": str(payload.get("bucket_prefix", "")).strip(),
-        "config_profile": str(payload.get("config_profile", "")).strip() or DEFAULT_OBJECT_STORAGE["config_profile"],
+        "config_profile": str(payload.get("config_profile", oci_config["oci_config_profile"])).strip()
+        or DEFAULT_OBJECT_STORAGE["config_profile"],
+        "effective_oci_config_file": effective_oci_config_file(oci_config),
     }
 
 
@@ -51,8 +57,14 @@ def save_object_storage_config(store_path, payload):
 def fetch_setup_status(store_path):
     config = load_object_storage_config(store_path)
     missing = [key for key in ("region", "namespace", "bucket_name") if not config.get(key)]
+    oci_missing = []
+    if config.get("oci_config_source") == "config_file" and not config.get("oci_config_file"):
+        oci_missing.append("oci_config_file")
+    if not config.get("oci_config_profile"):
+        oci_missing.append("oci_config_profile")
     return {
-        "configured": not missing,
+        "configured": not missing and not oci_missing,
         "missing_fields": missing,
-        "summary": "Configured" if not missing else f"Missing {', '.join(missing)}",
+        "oci_missing_fields": oci_missing,
+        "summary": "Configured" if not missing and not oci_missing else f"Missing {', '.join(missing + oci_missing)}",
     }

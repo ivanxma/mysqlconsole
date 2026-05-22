@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+
+{% macro render_result_table(columns, rows, empty_text="No rows returned.", layout_id="lakehouse-result") %}
+<div
+  class="table-wrap sql-workspace-result-wrap"
+  data-table-layout-id="heatwave-lakehouse-{{ layout_id }}"
+  data-table-reorder="true"
+  data-table-cell-dialog="true"
+>
+  <table class="sql-workspace-result-table data-grid-constant-rows">
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column }}</th>
+        {% else %}
+        <th>No columns returned</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td>{% if row[column] is not none and row[column] != "" %}{{ row[column] }}{% else %}-{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="{{ columns|length if columns else 1 }}">{{ empty_text }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">HeatWave</p>
+  <h2>External Table/Lakehouse</h2>
+  <p>Create Lakehouse external table load SQL, execute HeatWave load calls, and run incremental refresh actions.</p>
+</section>
+
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="Lakehouse tabs">
+    <a
+      class="tab-link {% if active_tab == 'load' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'load' else 'false' }}"
+      href="{{ url_for('heatwave_external_table_page', tab='load') }}"
+    >
+      HeatWave Load
+    </a>
+    <a
+      class="tab-link {% if active_tab == 'refresh' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'refresh' else 'false' }}"
+      href="{{ url_for('heatwave_external_table_page', tab='refresh') }}"
+    >
+      Incremental Refresh
+    </a>
+  </div>
+</section>
+
+{% if active_tab == 'load' %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>External Table Load</h3>
+      <span class="helper-text">Build the JSON input for <code>sys.HEATWAVE_LOAD</code>.</span>
+    </div>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="tab" value="load">
+    <label>
+      Database
+      <select name="database_name">
+        {% for row in database_inventory %}
+        <option value="{{ row.database_name }}" {% if row.database_name == form.database_name %}selected{% endif %}>{{ row.database_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Table Name
+      <input name="table_name" type="text" value="{{ form.table_name }}" placeholder="external_sales">
+    </label>
+    <label class="full-span">
+      OCI URI
+      <input name="oci_uri" type="text" value="{{ form.oci_uri }}" placeholder="oci://bucket@namespace/path/">
+    </label>
+    <label>
+      Format
+      <select name="file_format">
+        {% for value in ["csv", "json", "parquet", "avro", "delta"] %}
+        <option value="{{ value }}" {% if form.file_format == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Mode
+      <select name="load_mode">
+        {% for value in ["normal", "dryrun", "validation"] %}
+        <option value="{{ value }}" {% if form.load_mode == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Output
+      <select name="output">
+        <option value="" {% if not form.output %}selected{% endif %}>Default</option>
+        {% for value in ["normal", "compact", "silent"] %}
+        <option value="{{ value }}" {% if form.output == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Match Columns By
+      <select name="match_columns_by">
+        <option value="" {% if not form.match_columns_by %}selected{% endif %}>Default</option>
+        {% for value in ["order", "name_case_sensitive", "name_case_insensitive"] %}
+        <option value="{{ value }}" {% if form.match_columns_by == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Sampling
+      <select name="sampling">
+        <option value="" {% if not form.sampling %}selected{% endif %}>Default</option>
+        <option value="true" {% if form.sampling == "true" %}selected{% endif %}>true</option>
+        <option value="false" {% if form.sampling == "false" %}selected{% endif %}>false</option>
+      </select>
+    </label>
+    <label>
+      Allow Missing Columns
+      <select name="allow_missing_columns">
+        <option value="" {% if not form.allow_missing_columns %}selected{% endif %}>Default</option>
+        <option value="true" {% if form.allow_missing_columns == "true" %}selected{% endif %}>true</option>
+        <option value="false" {% if form.allow_missing_columns == "false" %}selected{% endif %}>false</option>
+      </select>
+    </label>
+    <label>
+      Allow Missing Files
+      <select name="allow_missing_files">
+        <option value="" {% if not form.allow_missing_files %}selected{% endif %}>Default</option>
+        <option value="true" {% if form.allow_missing_files == "true" %}selected{% endif %}>true</option>
+        <option value="false" {% if form.allow_missing_files == "false" %}selected{% endif %}>false</option>
+      </select>
+    </label>
+    <label>
+      Strict Mode
+      <select name="strict_mode">
+        <option value="" {% if not form.strict_mode %}selected{% endif %}>Default</option>
+        <option value="true" {% if form.strict_mode == "true" %}selected{% endif %}>true</option>
+        <option value="false" {% if form.strict_mode == "false" %}selected{% endif %}>false</option>
+      </select>
+    </label>
+    <label>
+      Skip Rows
+      <input name="skip_rows" type="number" min="0" value="{{ form.skip_rows }}">
+    </label>
+    <label class="checkbox-field">
+      <input name="has_header" type="checkbox" value="1" {% if form.has_header %}checked{% endif %}>
+      <span>CSV has header</span>
+    </label>
+    <label class="checkbox-field">
+      <input name="refresh_external_tables" type="checkbox" value="1" {% if form.refresh_external_tables %}checked{% endif %}>
+      <span>Refresh external tables</span>
+    </label>
+    <label class="full-span">
+      SQL
+      <textarea name="load_sql" rows="10" class="sql-workspace-editor">{{ form.load_sql }}</textarea>
+    </label>
+    <div class="form-actions">
+      <button class="button secondary" type="submit" name="lakehouse_action" value="generate_load_sql">Generate SQL</button>
+      <button class="button primary" type="submit" name="lakehouse_action" value="execute_load_sql">Execute</button>
+    </div>
+  </form>
+</section>
+{% else %}
+<section class="split-layout split-layout-top">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <h3>Lakehouse Tables</h3>
+        <span class="helper-text">Tables with engine <code>LAKEHOUSE</code>.</span>
+      </div>
+    </div>
+    <form method="get" class="form-grid compact-form">
+      <input type="hidden" name="tab" value="refresh">
+      <label>
+        Database
+        <select name="refresh_database" onchange="this.form.submit()">
+          {% for database_name in lakehouse_databases %}
+          <option value="{{ database_name }}" {% if database_name == form.refresh_database %}selected{% endif %}>{{ database_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    <div
+      class="table-wrap sql-workspace-result-wrap"
+      data-table-layout-id="heatwave-lakehouse-tables"
+      data-table-reorder="true"
+      data-table-cell-dialog="true"
+    >
+      <table class="sql-workspace-result-table data-grid-constant-rows">
+        <thead>
+          <tr>
+            <th>Table</th>
+            <th>Engine</th>
+            <th>Rows</th>
+            <th>Created</th>
+            <th>Updated</th>
+            <th>Comment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in lakehouse_tables %}
+          <tr class="{% if row.table_name == form.refresh_table %}active-table-row{% endif %}">
+            <td>
+              <a class="table-select-link" href="{{ url_for('heatwave_external_table_page', tab='refresh', refresh_database=form.refresh_database, refresh_table=row.table_name) }}">
+                {{ row.table_name }}
+              </a>
+            </td>
+            <td>{{ row.engine }}</td>
+            <td>{{ row.row_count }}</td>
+            <td>{{ row.create_time }}</td>
+            <td>{{ row.update_time }}</td>
+            <td>{{ row.table_comment or "-" }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">No Lakehouse tables were returned.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <h3>Refresh Action</h3>
+        <span class="helper-text">{{ form.refresh_database }}{% if form.refresh_table %}.{{ form.refresh_table }}{% endif %}</span>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="tab" value="refresh">
+      <input type="hidden" name="refresh_database" value="{{ form.refresh_database }}">
+      <label>
+        Table
+        <select name="refresh_table">
+          {% for row in lakehouse_tables %}
+          <option value="{{ row.table_name }}" {% if row.table_name == form.refresh_table %}selected{% endif %}>{{ row.table_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        AUTO_REFRESH_SOURCE
+        <input name="refresh_source" type="text" value="{{ form.refresh_source }}">
+      </label>
+      <label class="full-span">
+        SQL
+        <textarea name="refresh_sql" rows="8" class="sql-workspace-editor">{{ form.refresh_sql }}</textarea>
+      </label>
+      <div class="form-actions">
+        <button class="button secondary" type="submit" name="lakehouse_action" value="generate_refresh_sql">Generate Refresh SQL</button>
+        <button class="button primary" type="submit" name="lakehouse_action" value="execute_refresh_sql">Execute Refresh</button>
+        <button class="button secondary" type="submit" name="lakehouse_action" value="update_refresh_source">Update Source</button>
+      </div>
+    </form>
+  </article>
+</section>
+
+{% if table_definition.create_statement %}
+<section class="panel">
+  <div class="panel-header">
+    <h3>Table Definition</h3>
+    <span class="helper-text">AUTO_REFRESH_SOURCE: {{ table_definition.auto_refresh_source or "NONE" }}</span>
+  </div>
+  <pre class="sql-block">{{ table_definition.create_statement }}</pre>
+</section>
+{% endif %}
+{% endif %}
+
+{% if result_sets %}
+<section class="panel">
+  <div class="panel-header">
+    <h3>Execution Output</h3>
+    <span class="helper-text">{{ result_sets|length }} result set(s)</span>
+  </div>
+  {% for result in result_sets %}
+  <h4>{{ result.label or ("Result " ~ loop.index) }}</h4>
+  {{ render_result_table(result.columns, result.rows, "No rows returned.", "result-" ~ loop.index) }}
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

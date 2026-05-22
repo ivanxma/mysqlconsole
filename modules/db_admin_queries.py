@@ -386,9 +386,12 @@ def fetch_db_admin_charset_collation_report(database_name):
 def fetch_db_admin_routine_rows(database_name=""):
     normalized_database = str(database_name or "").strip()
     params = []
-    database_filter = ""
+    schema_filter = """
+          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
+    """
     if normalized_database:
-        database_filter = "AND routine_schema = %s"
+        schema_filter = "AND routine_schema = %s"
         params.append(normalized_database)
     rows = execute_query(
         f"""
@@ -404,9 +407,7 @@ def fetch_db_admin_routine_rows(database_name=""):
           routine_comment AS routine_comment_value
         FROM information_schema.routines
         WHERE routine_type IN ('PROCEDURE', 'FUNCTION')
-          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-          AND routine_schema NOT LIKE 'mysql@_%' ESCAPE '@'
-          {database_filter}
+          {schema_filter}
         ORDER BY routine_schema, routine_type, routine_name
         """,
         params,

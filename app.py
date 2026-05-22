@@ -246,7 +246,7 @@ NAV_GROUPS = [
             {"endpoint": "mysql_dashboard_page", "label": "Dashboard"},
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "admin_status_variables_page", "label": "Status and Variables"},
-            {"endpoint": "setup_object_storage_page", "label": "Setup Object Storage"},
+            {"endpoint": "setup_object_storage_page", "label": "Setup OCI Config"},
             {"endpoint": "update_dbconsole_page", "label": "Auto-Update"},
         ],
     },
@@ -263,6 +263,7 @@ NAV_GROUPS = [
         "items": [
             {"endpoint": "hw_table_page", "label": "HW Table"},
             {"endpoint": "heatwave_management_page", "label": "HW Admin"},
+            {"endpoint": "heatwave_external_table_page", "label": "External Table/Lakehouse"},
             {"endpoint": "monitoring_performance_page", "label": "Performance Query"},
             {"endpoint": "monitoring_ml_page", "label": "ML Query"},
             {"endpoint": "monitoring_load_recovery_page", "label": "Table Load Recovery"},
@@ -1014,6 +1015,7 @@ register_admin_routes(
         "load_object_storage_config": load_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,
+        "fetch_setup_status": fetch_setup_status,
         "build_empty_status_variable_page": module_build_empty_status_variable_page,
         "fetch_grouped_status_variables": module_fetch_grouped_status_variables,
         "execute_query": execute_query,
@@ -1163,6 +1165,7 @@ register_heatwave_routes(
         "fetch_database_inventory": fetch_database_inventory,
         "fetch_tables_for_database": fetch_tables_for_database,
         "execute_query": execute_query,
+        "load_object_storage_config": load_object_storage_config,
     },
 )
 

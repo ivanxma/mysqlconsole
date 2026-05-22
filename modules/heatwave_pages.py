@@ -1,5 +1,14 @@
 import re
 
+from modules.heatwave_lakehouse_util import (
+    build_auto_refresh_source_sql,
+    build_heatwave_external_load_sql,
+    build_incremental_refresh_sql,
+    fetch_lakehouse_database_names,
+    fetch_lakehouse_table_definition,
+    fetch_lakehouse_table_rows,
+)
+
 
 def _empty_report():
     return {"columns": [], "rows": [], "error": ""}
@@ -19,6 +28,93 @@ def _empty_dashboard_summary():
         },
         "error": "",
     }
+
+
+def build_heatwave_external_context(
+    form,
+    *,
+    active_tab,
+    fetch_database_inventory,
+    execute_query,
+    quote_identifier,
+):
+    database_inventory = [row for row in fetch_database_inventory() if not row.get("is_system")]
+    database_names = [row["database_name"] for row in database_inventory]
+    if not form["database_name"] and database_names:
+        form["database_name"] = database_names[0]
+
+    lakehouse_databases = fetch_lakehouse_database_names(execute_query)
+    if not form["refresh_database"] and lakehouse_databases:
+        form["refresh_database"] = lakehouse_databases[0]
+    lakehouse_tables = fetch_lakehouse_table_rows(execute_query, form["refresh_database"])
+    available_lakehouse_table_names = {row["table_name"] for row in lakehouse_tables}
+    if not form["refresh_table"] and lakehouse_tables:
+        form["refresh_table"] = lakehouse_tables[0]["table_name"]
+    if form["refresh_table"] and form["refresh_table"] not in available_lakehouse_table_names:
+        form["refresh_table"] = ""
+
+    table_definition = {"create_statement": "", "auto_refresh_source": ""}
+    if form["refresh_database"] and form["refresh_table"]:
+        table_definition = fetch_lakehouse_table_definition(
+            execute_query,
+            quote_identifier,
+            form["refresh_database"],
+            form["refresh_table"],
+        )
+        if not form["refresh_source"]:
+            form["refresh_source"] = table_definition["auto_refresh_source"]
+
+    return {
+        "active_tab": active_tab,
+        "form": form,
+        "database_inventory": database_inventory,
+        "lakehouse_databases": lakehouse_databases,
+        "lakehouse_tables": lakehouse_tables,
+        "table_definition": table_definition,
+    }
+
+
+def handle_heatwave_external_action(
+    action,
+    form,
+    *,
+    execute_multi_result_query,
+    execute_statement,
+    quote_identifier,
+):
+    result_sets = []
+    generated_sql = ""
+    normalized_action = str(action or "").strip()
+    if normalized_action in {"generate_load_sql", "execute_load_sql"}:
+        generated_sql = form.get("load_sql") if normalized_action == "execute_load_sql" else ""
+        generated_sql = str(generated_sql or "").strip() or build_heatwave_external_load_sql(form)
+        form["load_sql"] = generated_sql
+        if normalized_action == "execute_load_sql":
+            result_sets = execute_multi_result_query(generated_sql)
+            return "HeatWave load executed.", "success", generated_sql, result_sets
+        return "HeatWave load SQL generated.", "success", generated_sql, result_sets
+    if normalized_action in {"generate_refresh_sql", "execute_refresh_sql"}:
+        generated_sql = form.get("refresh_sql") if normalized_action == "execute_refresh_sql" else ""
+        generated_sql = str(generated_sql or "").strip() or build_incremental_refresh_sql(
+            form.get("refresh_database"),
+            form.get("refresh_table"),
+        )
+        form["refresh_sql"] = generated_sql
+        if normalized_action == "execute_refresh_sql":
+            result_sets = execute_multi_result_query(generated_sql)
+            return "Incremental refresh executed.", "success", generated_sql, result_sets
+        return "Incremental refresh SQL generated.", "success", generated_sql, result_sets
+    if normalized_action == "update_refresh_source":
+        generated_sql = build_auto_refresh_source_sql(
+            quote_identifier,
+            form.get("refresh_database"),
+            form.get("refresh_table"),
+            form.get("refresh_source"),
+        )
+        execute_statement(generated_sql)
+        form["refresh_sql"] = generated_sql
+        return "AUTO_REFRESH_SOURCE updated.", "success", generated_sql, result_sets
+    raise ValueError("Unsupported Lakehouse action.")
 
 
 NORMAL_LOAD_STATUSES = {

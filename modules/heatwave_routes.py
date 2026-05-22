@@ -1,11 +1,14 @@
 from flask import flash, redirect, request, url_for
 
 from modules.heatwave_pages import (
+    build_heatwave_external_context,
     build_heatwave_management_context,
     build_heatwave_tables_context,
     build_heatwave_tables_export,
+    handle_heatwave_external_action,
     handle_heatwave_management_action,
 )
+from modules.heatwave_lakehouse_util import normalize_external_form
 
 
 def register_heatwave_routes(app, deps):
@@ -101,5 +104,47 @@ def register_heatwave_routes(app, deps):
             page_title="HW Admin",
             management_open_dialog=management_open_dialog,
             management_popup_result=management_popup_result,
+            **page_context,
+        )
+
+    @app.route("/heatwave/external-table-lakehouse", methods=["GET", "POST"])
+    @login_required
+    def heatwave_external_table_page():
+        active_tab = str(request.values.get("tab", "load")).strip().lower()
+        if active_tab not in {"load", "refresh"}:
+            active_tab = "load"
+        form = normalize_external_form(
+            request.form if request.method == "POST" else request.args,
+            deps["load_object_storage_config"](),
+        )
+        result_sets = []
+        if request.method == "POST":
+            action = str(request.form.get("lakehouse_action", "")).strip()
+            try:
+                message, category, generated_sql, result_sets = handle_heatwave_external_action(
+                    action,
+                    form,
+                    execute_multi_result_query=deps["execute_multi_result_query"],
+                    execute_statement=deps["execute_statement"],
+                    quote_identifier=deps["quote_identifier"],
+                )
+                if active_tab == "load":
+                    form["load_sql"] = generated_sql
+                else:
+                    form["refresh_sql"] = generated_sql
+                flash(message, category)
+            except Exception as error:
+                flash(str(error), "error")
+        page_context = build_heatwave_external_context(
+            form,
+            active_tab=active_tab,
+            fetch_database_inventory=deps["fetch_database_inventory"],
+            execute_query=deps["execute_query"],
+            quote_identifier=deps["quote_identifier"],
+        )
+        return render_dashboard(
+            "heatwave_external_lakehouse.html",
+            page_title="External Table/Lakehouse",
+            result_sets=result_sets,
             **page_context,
         )

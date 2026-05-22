@@ -3,11 +3,32 @@
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">Admin</p>
-  <h2>Setup Object Storage</h2>
-  <p>Store the OCI Object Storage values used by HeatWave management workflows in this console.</p>
+  <h2>Setup OCI Config</h2>
+  <p>Manage OCI SDK profile settings and Object Storage values used by HeatWave workflows.</p>
 </section>
 
-<section class="split-layout">
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="OCI setup tabs">
+    <a
+      class="tab-link {% if active_tab == 'oci' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'oci' else 'false' }}"
+      href="{{ url_for('setup_object_storage_page', config_tab='oci') }}"
+    >
+      OCI Config
+    </a>
+    <a
+      class="tab-link {% if active_tab == 'object-storage' %}active{% endif %}"
+      role="tab"
+      aria-selected="{{ 'true' if active_tab == 'object-storage' else 'false' }}"
+      href="{{ url_for('setup_object_storage_page', config_tab='object-storage') }}"
+    >
+      Object Storage Config
+    </a>
+  </div>
+</section>
+
+<section class="split-layout split-layout-top">
   <article class="panel">
     <h3>Configuration Status</h3>
     <dl class="detail-list">
@@ -16,32 +37,77 @@
         <dd>{{ setup_status.summary }}</dd>
       </div>
       <div>
-        <dt>Region</dt>
-        <dd>{{ object_storage_config.region or "-" }}</dd>
+        <dt>OCI Config Source</dt>
+        <dd>{{ "Specific Config File" if object_storage_config.oci_config_source == "config_file" else "User Folder" }}</dd>
       </div>
       <div>
-        <dt>Namespace</dt>
-        <dd>{{ object_storage_config.namespace or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Bucket</dt>
-        <dd>{{ object_storage_config.bucket_name or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Prefix</dt>
-        <dd>{{ object_storage_config.bucket_prefix or "-" }}</dd>
+        <dt>OCI Config File</dt>
+        <dd>
+          {% if object_storage_config.oci_config_source == "config_file" %}
+          {{ object_storage_config.oci_config_file or "-" }}
+          {% else %}
+          {{ object_storage_config.effective_oci_config_file or ((object_storage_config.oci_user_folder or "~/.oci") ~ "/config") }}
+          {% endif %}
+        </dd>
       </div>
       <div>
         <dt>OCI Profile</dt>
-        <dd>{{ object_storage_config.config_profile or "-" }}</dd>
+        <dd>{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Object Storage</dt>
+        <dd>{{ object_storage_config.bucket_name or "-" }}{% if object_storage_config.namespace %}@{{ object_storage_config.namespace }}{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Region</dt>
+        <dd>{{ object_storage_config.region or "-" }}</dd>
       </div>
     </dl>
   </article>
 
   <article class="panel">
+    {% if active_tab == 'oci' %}
+    <h3>OCI Config</h3>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="config_tab" value="oci">
+      <input type="hidden" name="region" value="{{ object_storage_config.region }}">
+      <input type="hidden" name="namespace" value="{{ object_storage_config.namespace }}">
+      <input type="hidden" name="bucket_name" value="{{ object_storage_config.bucket_name }}">
+      <input type="hidden" name="bucket_prefix" value="{{ object_storage_config.bucket_prefix }}">
+      <input type="hidden" name="config_profile" value="{{ object_storage_config.config_profile }}">
+      <label>
+        Config Source
+        <select name="oci_config_source">
+          <option value="user_folder" {% if object_storage_config.oci_config_source != 'config_file' %}selected{% endif %}>User folder</option>
+          <option value="config_file" {% if object_storage_config.oci_config_source == 'config_file' %}selected{% endif %}>Specific config file</option>
+        </select>
+      </label>
+      <label>
+        OCI User Folder
+        <input name="oci_user_folder" type="text" value="{{ object_storage_config.oci_user_folder or '~/.oci' }}">
+      </label>
+      <label class="full-span">
+        OCI Config File
+        <input name="oci_config_file" type="text" value="{{ object_storage_config.oci_config_file or '~/.oci/config' }}">
+      </label>
+      <label class="full-span">
+        OCI Config Profile
+        <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit">Save OCI Config</button>
+      </div>
+    </form>
+    {% else %}
     <h3>Object Storage Settings</h3>
     <form method="post" class="form-grid">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="config_tab" value="object-storage">
+      <input type="hidden" name="oci_config_source" value="{{ object_storage_config.oci_config_source }}">
+      <input type="hidden" name="oci_user_folder" value="{{ object_storage_config.oci_user_folder }}">
+      <input type="hidden" name="oci_config_file" value="{{ object_storage_config.oci_config_file }}">
+      <input type="hidden" name="oci_config_profile" value="{{ object_storage_config.oci_config_profile }}">
       <label>
         Region
         <input name="region" type="text" value="{{ object_storage_config.region }}">
@@ -60,12 +126,13 @@
       </label>
       <label class="full-span">
         OCI Config Profile
-        <input name="config_profile" type="text" value="{{ object_storage_config.config_profile }}">
+        <input name="config_profile" type="text" value="{{ object_storage_config.config_profile or object_storage_config.oci_config_profile }}">
       </label>
       <div class="form-actions">
         <button class="button primary" type="submit">Save Object Storage Config</button>
       </div>
     </form>
+    {% endif %}
   </article>
 </section>
 {% endblock %}

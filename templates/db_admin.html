@@ -304,11 +304,9 @@
       <select name="routine_database" onchange="this.form.submit()">
         <option value="">All user databases</option>
         {% for row in database_inventory %}
-        {% if not row.is_system %}
         <option value="{{ row.database_name }}" {% if row.database_name == selected_routine_database %}selected{% endif %}>
-          {{ row.database_name }}
+          {{ row.database_name }}{% if row.is_system %} (system){% endif %}
         </option>
-        {% endif %}
         {% endfor %}
       </select>
     </label>
@@ -316,8 +314,13 @@
   {% if routine_error %}
   <p class="helper-text error-text">{{ routine_error }}</p>
   {% endif %}
-  <div class="table-wrap">
-    <table>
+  <div
+    class="table-wrap db-admin-routine-table-wrap"
+    data-table-layout-id="db-admin-routines"
+    data-table-reorder="true"
+    data-table-cell-dialog="true"
+  >
+    <table class="db-admin-routine-table data-grid-constant-rows">
       <thead>
         <tr>
           <th>Database</th>

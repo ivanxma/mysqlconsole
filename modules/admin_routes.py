@@ -119,16 +119,24 @@ def register_admin_routes(app, deps):
     @app.route("/admin/setup-object-storage", methods=["GET", "POST"])
     @login_required
     def setup_object_storage_page():
+        active_tab = str(request.values.get("config_tab", "oci")).strip().lower()
+        if active_tab not in {"oci", "object-storage"}:
+            active_tab = "oci"
         config = deps["load_object_storage_config"]()
         if request.method == "POST":
             config = deps["normalize_object_storage"](request.form)
             deps["save_object_storage_config"](config)
-            flash("Object Storage configuration saved.", "success")
-            return redirect(url_for("setup_object_storage_page"))
+            if active_tab == "object-storage":
+                flash("Object Storage configuration saved.", "success")
+            else:
+                flash("OCI configuration saved.", "success")
+            return redirect(url_for("setup_object_storage_page", config_tab=active_tab))
         return render_dashboard(
             "setup_object_storage.html",
-            page_title="Setup Object Storage",
+            page_title="Setup OCI Config",
+            active_tab=active_tab,
             object_storage_config=config,
+            setup_status=deps["fetch_setup_status"](),
         )
 
     @app.route("/admin/status-variables")
