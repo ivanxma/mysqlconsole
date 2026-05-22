@@ -190,7 +190,8 @@ def fetch_database_inventory():
         ) AS routine_stats
           ON routine_stats.routine_schema = s.schema_name
         ORDER BY s.schema_name
-        """
+        """,
+        use_secondary_engine="OFF",
     )
     inventory = []
     for row in rows:

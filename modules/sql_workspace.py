@@ -28,6 +28,13 @@ def apply_query_session_options(cursor, *, use_secondary_engine=""):
         cursor.execute(f"SET SESSION use_secondary_engine = {normalized_secondary_engine}")
 
 
+def reset_query_session_options(cursor):
+    try:
+        apply_query_session_options(cursor, use_secondary_engine="OFF")
+    except Exception:
+        pass
+
+
 def _collect_sql_workspace_cursor_results(cursor, sql, statement_index):
     result_sets = []
     result_index = 1
@@ -83,10 +90,13 @@ def execute_sql_workspace_statements(
     result_sets = []
     with mysql_connection(database_override=database) as connection:
         with connection.cursor() as cursor:
-            apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
-            for statement_index, statement in enumerate(statements, start=1):
-                cursor.execute(statement)
-                result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
+            try:
+                apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
+                for statement_index, statement in enumerate(statements, start=1):
+                    cursor.execute(statement)
+                    result_sets.extend(_collect_sql_workspace_cursor_results(cursor, statement, statement_index))
+            finally:
+                reset_query_session_options(cursor)
     return result_sets
 
 

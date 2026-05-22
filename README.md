@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3r`
+Current version: `1.0.3s`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -13,6 +13,7 @@ It provides:
 - `Admin > Dashboard` for server, object, security, diagnostics, and HeatWave summary views
 - `MySQL > DB Admin` for schema/table browsing, event management, DDL preview, indexes, partitions, row preview, and column-definition changes
 - `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, session history, and flexible result tables with sortable, resizable, and reorderable columns
+- SQL Workspace resets HeatWave secondary-engine session state after user statements, and DBConsole metadata inventory queries force `use_secondary_engine=OFF` so internal `information_schema` reads do not fail when HeatWave mode is enabled
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory and `HW Admin` management actions
 - HW Table reports use horizontally scrollable, flexible-width tables so wide HeatWave metadata such as `rpd_nodes` and table inventory does not collapse into unreadable columns

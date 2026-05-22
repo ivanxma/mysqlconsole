@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3r`.
+Version summary from `1.0.2a` to `1.0.3s`.
+
+## 1.0.3s Summary
+
+Version `1.0.3s` fixes SQL Workspace failures caused by HeatWave secondary-engine session state leaking into DBConsole metadata queries.
+
+- Forced DBConsole database inventory queries against `information_schema` to run with `use_secondary_engine=OFF`.
+- Reset SQL Workspace secondary-engine session state after executing user statements so cached MySQL connections do not carry `ON` or `FORCED` into later application queries.
+- Prevents `3889 (HY000): Secondary engine operation failed` errors when SQL Workspace refreshes the page after HeatWave-enabled execution.
 
 ## 1.0.3r Summary
 

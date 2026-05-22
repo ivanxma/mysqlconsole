@@ -128,10 +128,22 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3r</span>
+      <span class="badge">Release 1.0.3s</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3r</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3s</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3s Summary</h2>
+      <p>
+        Version <code>1.0.3s</code> fixes SQL Workspace failures caused by HeatWave secondary-engine session state leaking into DBConsole metadata queries.
+      </p>
+      <ul>
+        <li>Forced DBConsole database inventory queries against <code>information_schema</code> to run with <code>use_secondary_engine=OFF</code>.</li>
+        <li>Reset SQL Workspace secondary-engine session state after executing user statements so cached MySQL connections do not carry <code>ON</code> or <code>FORCED</code> into later application queries.</li>
+        <li>Prevents <code>3889 (HY000): Secondary engine operation failed</code> errors when SQL Workspace refreshes the page after HeatWave-enabled execution.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3r Summary</h2>
