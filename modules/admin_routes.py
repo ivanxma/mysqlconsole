@@ -133,7 +133,11 @@ def register_admin_routes(app, deps):
                 payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
             config = deps["normalize_object_storage"](payload)
             deps["save_object_storage_config"](config)
-            if active_tab == "object-storage":
+            action = str(request.form.get("setup_action", "save")).strip()
+            if active_tab == "oci" and action == "test_oci_config":
+                test_result = deps["test_oci_config"](config)
+                flash(test_result["message"], "success" if test_result.get("ok") else "error")
+            elif active_tab == "object-storage":
                 flash("Object Storage configuration saved.", "success")
             else:
                 flash("OCI configuration saved.", "success")

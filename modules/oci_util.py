@@ -110,3 +110,63 @@ def build_oci_config_text(config):
     if normalized["oci_namespace"]:
         lines.append(f"namespace={normalized['oci_namespace']}")
     return "\n".join(lines) + "\n"
+
+
+def build_oci_sdk_config(config):
+    normalized = normalize_oci_config(config)
+    required_fields = {
+        "user": normalized["oci_user"],
+        "fingerprint": normalized["oci_fingerprint"],
+        "tenancy": normalized["oci_tenancy"],
+        "region": normalized["oci_region"],
+        "key_file": normalized["oci_key_file"],
+    }
+    missing = [key for key, value in required_fields.items() if not value]
+    if missing:
+        raise ValueError("OCI config is missing: " + ", ".join(missing))
+    key_file = Path(required_fields["key_file"]).expanduser()
+    if not key_file.exists():
+        raise ValueError(f"OCI private key file was not found: {key_file}")
+    required_fields["key_file"] = str(key_file)
+    return required_fields
+
+
+def test_oci_config(config):
+    normalized = normalize_oci_config(config)
+    try:
+        import oci
+    except Exception as error:
+        raise RuntimeError("The OCI SDK is not installed. Run setup to install current requirements.") from error
+
+    sdk_config = build_oci_sdk_config(normalized)
+    try:
+        identity_client = oci.identity.IdentityClient(sdk_config)
+        user_response = identity_client.get_user(sdk_config["user"])
+        tenancy_response = identity_client.get_tenancy(sdk_config["tenancy"])
+        namespace_status = ""
+        namespace = normalized.get("oci_namespace", "")
+        if namespace:
+            try:
+                object_storage_client = oci.object_storage.ObjectStorageClient(sdk_config)
+                namespace_response = object_storage_client.get_namespace()
+                returned_namespace = str(namespace_response.data or "").strip()
+                if returned_namespace and returned_namespace != namespace:
+                    namespace_status = f"; namespace returned `{returned_namespace}`"
+                else:
+                    namespace_status = f"; namespace `{namespace}` verified"
+            except Exception as error:
+                namespace_status = f"; namespace check skipped: {error}"
+        user_name = getattr(user_response.data, "name", "") or sdk_config["user"]
+        tenancy_name = getattr(tenancy_response.data, "name", "") or sdk_config["tenancy"]
+        return {
+            "ok": True,
+            "message": (
+                f"OCI config test succeeded for user `{user_name}` in tenancy `{tenancy_name}` "
+                f"using region `{sdk_config['region']}`{namespace_status}."
+            ),
+        }
+    except Exception as error:
+        return {
+            "ok": False,
+            "message": f"OCI config test failed: {error}",
+        }

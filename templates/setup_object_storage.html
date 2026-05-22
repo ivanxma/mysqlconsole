@@ -147,7 +147,8 @@
         {% endif %}
       </p>
       <div class="form-actions">
-        <button class="button primary" type="submit">Save OCI Config</button>
+        <button class="button primary" type="submit" name="setup_action" value="save">Save OCI Config</button>
+        <button class="button secondary" type="submit" name="setup_action" value="test_oci_config">Test OCI Config</button>
       </div>
     </form>
     {% else %}
