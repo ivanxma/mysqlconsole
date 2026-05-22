@@ -19,8 +19,8 @@ def normalize_object_storage(payload):
     oci_config = normalize_oci_config(payload)
     return {
         **oci_config,
-        "region": str(payload.get("region", "")).strip(),
-        "namespace": str(payload.get("namespace", "")).strip(),
+        "region": str(payload.get("region", oci_config["oci_region"])).strip(),
+        "namespace": str(payload.get("namespace", oci_config["oci_namespace"])).strip(),
         "bucket_name": str(payload.get("bucket_name", "")).strip(),
         "bucket_prefix": str(payload.get("bucket_prefix", "")).strip(),
         "config_profile": str(payload.get("config_profile", oci_config["oci_config_profile"])).strip()
@@ -60,8 +60,9 @@ def fetch_setup_status(store_path):
     oci_missing = []
     if config.get("oci_config_source") == "config_file" and not config.get("oci_config_file"):
         oci_missing.append("oci_config_file")
-    if not config.get("oci_config_profile"):
-        oci_missing.append("oci_config_profile")
+    for key in ("oci_config_profile", "oci_user", "oci_fingerprint", "oci_tenancy", "oci_region", "oci_key_file"):
+        if not config.get(key):
+            oci_missing.append(key)
     return {
         "configured": not missing and not oci_missing,
         "missing_fields": missing,

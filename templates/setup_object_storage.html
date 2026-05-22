@@ -55,6 +55,22 @@
         <dd>{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or "-" }}</dd>
       </div>
       <div>
+        <dt>OCI User</dt>
+        <dd>{{ object_storage_config.oci_user or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Tenancy</dt>
+        <dd>{{ object_storage_config.oci_tenancy or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Compartment</dt>
+        <dd>{{ object_storage_config.oci_compartment or "-" }}</dd>
+      </div>
+      <div>
+        <dt>Private Key</dt>
+        <dd>{{ "Uploaded" if object_storage_config.oci_key_file else "-" }}</dd>
+      </div>
+      <div>
         <dt>Object Storage</dt>
         <dd>{{ object_storage_config.bucket_name or "-" }}{% if object_storage_config.namespace %}@{{ object_storage_config.namespace }}{% endif %}</dd>
       </div>
@@ -68,7 +84,7 @@
   <article class="panel">
     {% if active_tab == 'oci' %}
     <h3>OCI Config</h3>
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" enctype="multipart/form-data">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="config_tab" value="oci">
       <input type="hidden" name="region" value="{{ object_storage_config.region }}">
@@ -95,6 +111,41 @@
         OCI Config Profile
         <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
       </label>
+      <label class="full-span">
+        User OCID
+        <input name="oci_user" type="text" value="{{ object_storage_config.oci_user }}" placeholder="ocid1.user.oc1..">
+      </label>
+      <label>
+        Fingerprint
+        <input name="oci_fingerprint" type="text" value="{{ object_storage_config.oci_fingerprint }}" placeholder="31:d7:5f:...">
+      </label>
+      <label>
+        Region
+        <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
+      </label>
+      <label class="full-span">
+        Tenancy OCID
+        <input name="oci_tenancy" type="text" value="{{ object_storage_config.oci_tenancy }}" placeholder="ocid1.tenancy.oc1..">
+      </label>
+      <label class="full-span">
+        Compartment OCID
+        <input name="oci_compartment" type="text" value="{{ object_storage_config.oci_compartment }}" placeholder="ocid1.compartment.oc1..">
+      </label>
+      <label>
+        Namespace
+        <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
+      </label>
+      <label>
+        Private Key
+        <input name="oci_private_key_file" type="file" accept=".pem,.key,.txt">
+      </label>
+      <p class="helper-text full-span">
+        {% if object_storage_config.oci_key_file %}
+        A private key is already uploaded for this profile. Uploading a new key replaces it.
+        {% else %}
+        Upload the OCI API private key for this profile.
+        {% endif %}
+      </p>
       <div class="form-actions">
         <button class="button primary" type="submit">Save OCI Config</button>
       </div>
@@ -108,6 +159,13 @@
       <input type="hidden" name="oci_user_folder" value="{{ object_storage_config.oci_user_folder }}">
       <input type="hidden" name="oci_config_file" value="{{ object_storage_config.oci_config_file }}">
       <input type="hidden" name="oci_config_profile" value="{{ object_storage_config.oci_config_profile }}">
+      <input type="hidden" name="oci_user" value="{{ object_storage_config.oci_user }}">
+      <input type="hidden" name="oci_fingerprint" value="{{ object_storage_config.oci_fingerprint }}">
+      <input type="hidden" name="oci_tenancy" value="{{ object_storage_config.oci_tenancy }}">
+      <input type="hidden" name="oci_region" value="{{ object_storage_config.oci_region }}">
+      <input type="hidden" name="oci_key_file" value="{{ object_storage_config.oci_key_file }}">
+      <input type="hidden" name="oci_compartment" value="{{ object_storage_config.oci_compartment }}">
+      <input type="hidden" name="oci_namespace" value="{{ object_storage_config.oci_namespace }}">
       <label>
         Region
         <input name="region" type="text" value="{{ object_storage_config.region }}">

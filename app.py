@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
-from modules import object_storage_util, profile_store, update_util
+from modules import object_storage_util, oci_util, profile_store, update_util
 from modules.admin_routes import register_admin_routes
 from modules.auth_routes import register_auth_routes
 from modules.core_util import chmod_private_file, parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
@@ -126,6 +126,7 @@ OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
 FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
 PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
+OCI_PRIVATE_KEY_DIR = ROOT_DIR / "oci_private_keys"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
@@ -620,6 +621,10 @@ def save_uploaded_profile_ssh_key(profile_name, upload_storage):
     return profile_store.save_uploaded_profile_ssh_key(PROFILE_SSH_KEY_DIR, profile_name, upload_storage)
 
 
+def save_uploaded_oci_private_key(profile_name, upload_storage):
+    return oci_util.save_uploaded_oci_private_key(OCI_PRIVATE_KEY_DIR, profile_name, upload_storage)
+
+
 def normalize_object_storage(payload):
     return object_storage_util.normalize_object_storage(payload)
 
@@ -1012,6 +1017,7 @@ register_admin_routes(
         "change_local_admin_profile_password": change_local_admin_profile_password,
         "clear_local_admin_password_change_required": clear_local_admin_password_change_required,
         "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
+        "save_uploaded_oci_private_key": save_uploaded_oci_private_key,
         "load_object_storage_config": load_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,

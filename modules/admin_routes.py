@@ -124,7 +124,14 @@ def register_admin_routes(app, deps):
             active_tab = "oci"
         config = deps["load_object_storage_config"]()
         if request.method == "POST":
-            config = deps["normalize_object_storage"](request.form)
+            payload = request.form.to_dict()
+            if active_tab == "oci":
+                uploaded_key_path = deps["save_uploaded_oci_private_key"](
+                    payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
+                    request.files.get("oci_private_key_file"),
+                )
+                payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
+            config = deps["normalize_object_storage"](payload)
             deps["save_object_storage_config"](config)
             if active_tab == "object-storage":
                 flash("Object Storage configuration saved.", "success")
