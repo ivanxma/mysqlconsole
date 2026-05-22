@@ -126,12 +126,26 @@ def register_admin_routes(app, deps):
         if request.method == "POST":
             payload = request.form.to_dict()
             if active_tab == "oci":
-                uploaded_key_path = deps["save_uploaded_oci_private_key"](
-                    payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
-                    request.files.get("oci_private_key_file"),
-                )
-                payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
+                if payload.get("oci_config_source") == "config_file":
+                    for key in (
+                        "oci_user",
+                        "oci_fingerprint",
+                        "oci_tenancy",
+                        "oci_region",
+                        "oci_key_file",
+                        "oci_compartment",
+                        "oci_namespace",
+                    ):
+                        payload[key] = config.get(key, "")
+                else:
+                    uploaded_key_path = deps["save_uploaded_oci_private_key"](
+                        payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
+                        request.files.get("oci_private_key_file"),
+                    )
+                    payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
             config = deps["normalize_object_storage"](payload)
+            if active_tab == "oci" and config.get("oci_config_source") == "user_folder":
+                deps["write_user_folder_oci_config"](config)
             deps["save_object_storage_config"](config)
             action = str(request.form.get("setup_action", "save")).strip()
             if active_tab == "oci" and action == "test_oci_config":

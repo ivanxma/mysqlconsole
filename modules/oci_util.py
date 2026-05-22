@@ -112,8 +112,40 @@ def build_oci_config_text(config):
     return "\n".join(lines) + "\n"
 
 
+def write_user_folder_oci_config(config):
+    normalized = normalize_oci_config(config)
+    if normalized["oci_config_source"] != "user_folder":
+        return ""
+    config_dir = Path(normalized["oci_user_folder"]).expanduser()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        config_dir.chmod(0o700)
+    except OSError:
+        pass
+    config_path = config_dir / "config"
+    config_path.write_text(build_oci_config_text(normalized), encoding="utf-8")
+    chmod_private_file(config_path)
+    return str(config_path)
+
+
 def build_oci_sdk_config(config):
     normalized = normalize_oci_config(config)
+    if normalized["oci_config_source"] == "config_file":
+        try:
+            import oci
+        except Exception as error:
+            raise RuntimeError("The OCI SDK is not installed. Run setup to install current requirements.") from error
+        config_path = Path(effective_oci_config_file(normalized)).expanduser()
+        if not config_path.exists():
+            raise ValueError(f"OCI config file was not found: {config_path}")
+        try:
+            return oci.config.from_file(file_location=str(config_path), profile_name=normalized["oci_config_profile"])
+        except Exception as error:
+            raise ValueError(
+                f"Unable to read OCI profile `{normalized['oci_config_profile']}` from `{config_path}`: {error}"
+            ) from error
+
+    write_user_folder_oci_config(normalized)
     required_fields = {
         "user": normalized["oci_user"],
         "fingerprint": normalized["oci_fingerprint"],

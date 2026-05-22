@@ -60,7 +60,10 @@ def fetch_setup_status(store_path):
     oci_missing = []
     if config.get("oci_config_source") == "config_file" and not config.get("oci_config_file"):
         oci_missing.append("oci_config_file")
-    for key in ("oci_config_profile", "oci_user", "oci_fingerprint", "oci_tenancy", "oci_region", "oci_key_file"):
+    required_oci_keys = ["oci_config_profile"]
+    if config.get("oci_config_source") != "config_file":
+        required_oci_keys.extend(["oci_user", "oci_fingerprint", "oci_tenancy", "oci_region", "oci_key_file"])
+    for key in required_oci_keys:
         if not config.get(key):
             oci_missing.append(key)
     return {

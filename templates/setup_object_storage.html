@@ -94,16 +94,16 @@
       <input type="hidden" name="config_profile" value="{{ object_storage_config.config_profile }}">
       <label>
         Config Source
-        <select name="oci_config_source">
+        <select name="oci_config_source" data-oci-config-source-select>
           <option value="user_folder" {% if object_storage_config.oci_config_source != 'config_file' %}selected{% endif %}>User folder</option>
           <option value="config_file" {% if object_storage_config.oci_config_source == 'config_file' %}selected{% endif %}>Specific config file</option>
         </select>
       </label>
-      <label>
+      <label data-oci-user-folder-field>
         OCI User Folder
         <input name="oci_user_folder" type="text" value="{{ object_storage_config.oci_user_folder or '~/.oci' }}">
       </label>
-      <label class="full-span">
+      <label class="full-span" data-oci-config-file-field>
         OCI Config File
         <input name="oci_config_file" type="text" value="{{ object_storage_config.oci_config_file or '~/.oci/config' }}">
       </label>
@@ -111,39 +111,39 @@
         OCI Config Profile
         <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
       </label>
-      <label class="full-span">
+      <label class="full-span" data-oci-user-config-field>
         User OCID
         <input name="oci_user" type="text" value="{{ object_storage_config.oci_user }}" placeholder="ocid1.user.oc1..">
       </label>
-      <label>
+      <label data-oci-user-config-field>
         Fingerprint
         <input name="oci_fingerprint" type="text" value="{{ object_storage_config.oci_fingerprint }}" placeholder="31:d7:5f:...">
       </label>
-      <label>
+      <label data-oci-user-config-field>
         Region
         <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
       </label>
-      <label class="full-span">
+      <label class="full-span" data-oci-user-config-field>
         Tenancy OCID
         <input name="oci_tenancy" type="text" value="{{ object_storage_config.oci_tenancy }}" placeholder="ocid1.tenancy.oc1..">
       </label>
-      <label class="full-span">
+      <label class="full-span" data-oci-user-config-field>
         Compartment OCID
         <input name="oci_compartment" type="text" value="{{ object_storage_config.oci_compartment }}" placeholder="ocid1.compartment.oc1..">
       </label>
-      <label>
+      <label data-oci-user-config-field>
         Namespace
         <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
       </label>
-      <label>
+      <label data-oci-user-config-field>
         Private Key
         <input name="oci_private_key_file" type="file" accept=".pem,.key,.txt">
       </label>
-      <p class="helper-text full-span">
+      <p class="helper-text full-span" data-oci-user-config-field>
         {% if object_storage_config.oci_key_file %}
-        A private key is already uploaded for this profile. Uploading a new key replaces it.
+        A private key is already uploaded for this profile. Saving writes the OCI config to the selected user folder.
         {% else %}
-        Upload the OCI API private key for this profile.
+        Upload the OCI API private key. Saving writes the OCI config to the selected user folder.
         {% endif %}
       </p>
       <div class="form-actions">
@@ -194,4 +194,32 @@
     {% endif %}
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const sourceSelect = document.querySelector("[data-oci-config-source-select]");
+    if (!sourceSelect) {
+      return;
+    }
+    const userFolderField = document.querySelector("[data-oci-user-folder-field]");
+    const configFileField = document.querySelector("[data-oci-config-file-field]");
+    const userConfigFields = Array.from(document.querySelectorAll("[data-oci-user-config-field]"));
+    const syncFields = () => {
+      const isConfigFile = sourceSelect.value === "config_file";
+      if (userFolderField) {
+        userFolderField.hidden = isConfigFile;
+      }
+      if (configFileField) {
+        configFileField.hidden = !isConfigFile;
+      }
+      userConfigFields.forEach((field) => {
+        field.hidden = isConfigFile;
+      });
+    };
+    sourceSelect.addEventListener("change", syncFields);
+    syncFields();
+  })();
+</script>
 {% endblock %}
