@@ -27,6 +27,13 @@ def bool_option_to_value(value):
     return None
 
 
+def infer_external_file_format(object_name):
+    suffix = str(object_name or "").rsplit(".", 1)
+    if len(suffix) == 2 and suffix[1].lower() in HEATWAVE_EXTERNAL_FORMATS:
+        return suffix[1].lower()
+    return ""
+
+
 def normalize_external_form(source, object_storage_config=None):
     source = source or {}
     object_storage_config = object_storage_config or {}
@@ -39,7 +46,16 @@ def normalize_external_form(source, object_storage_config=None):
         if bucket_prefix:
             default_uri += f"{bucket_prefix}/"
 
-    file_format = str(source.get("file_format", "csv")).strip().lower()
+    load_folder = str(source.get("load_folder", source.get("upload_folder", bucket_prefix))).strip().strip("/")
+    load_file = str(source.get("load_file", "")).strip().strip("/")
+    explicit_oci_uri = str(source.get("oci_uri", "")).strip()
+    selected_file_uri = ""
+    if bucket_name and namespace and load_file:
+        selected_file_uri = f"oci://{bucket_name}@{namespace}/{load_file}"
+
+    file_format = str(source.get("file_format", "")).strip().lower()
+    if not file_format:
+        file_format = infer_external_file_format(load_file) or "csv"
     if file_format not in HEATWAVE_EXTERNAL_FORMATS:
         file_format = "csv"
     load_mode = str(source.get("load_mode", "normal")).strip().lower()
@@ -54,12 +70,14 @@ def normalize_external_form(source, object_storage_config=None):
 
     return {
         "upload_folder": str(source.get("upload_folder", bucket_prefix)).strip().strip("/"),
+        "load_folder": load_folder,
+        "load_file": load_file,
         "create_folder": str(source.get("create_folder", "")).strip().lower() in {"1", "true", "yes", "on"},
         "new_folder_name": str(source.get("new_folder_name", "")).strip(),
         "uploaded_oci_uri": str(source.get("uploaded_oci_uri", "")).strip(),
         "database_name": str(source.get("database_name", "")).strip(),
         "table_name": str(source.get("table_name", "")).strip(),
-        "oci_uri": str(source.get("oci_uri", default_uri)).strip(),
+        "oci_uri": explicit_oci_uri or selected_file_uri or default_uri,
         "file_format": file_format,
         "has_header": str(source.get("has_header", "1")).strip().lower() in {"1", "true", "yes", "on"},
         "load_mode": load_mode,

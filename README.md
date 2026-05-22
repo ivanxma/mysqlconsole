@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3s`
+Current version: `1.0.3x`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -11,11 +11,11 @@ It provides:
 - login/profile-based MySQL access with optional SSH tunnel settings
 - `Admin > Status and Variables` with grouped status and variable views
 - `Admin > Dashboard` for server, object, security, diagnostics, and HeatWave summary views
-- `MySQL > DB Admin` for schema/table browsing, event management, DDL preview, indexes, partitions, row preview, and column-definition changes
+- `MySQL > DB Admin` for schema/table browsing, event management, stored procedure/function inspection and export, DDL preview, indexes, partitions, row preview, and column-definition changes
 - `MySQL > SQL Workspace` with Execute and Explain actions, `use_secondary_engine` selection, tabbed result output, session history, and flexible result tables with sortable, resizable, and reorderable columns
 - SQL Workspace resets HeatWave secondary-engine session state after user statements, and DBConsole metadata inventory queries force `use_secondary_engine=OFF` so internal `information_schema` reads do not fail when HeatWave mode is enabled
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
-- `HeatWave` pages for HW table inventory and `HW Admin` management actions
+- `HeatWave` pages for HW table inventory, `HW Admin` management actions, and External Table/Lakehouse upload/load/refresh workflows
 - HW Table reports use horizontally scrollable, flexible-width tables so wide HeatWave metadata such as `rpd_nodes` and table inventory does not collapse into unreadable columns
 - `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
 - authenticated top-right user icon with app version, update status, user, profile, connection summary, and logout
@@ -533,6 +533,9 @@ For `start_http.sh` and `start_https.sh`:
 - enable, disable, or delete selected events
 - create events with database selection, event name, schedule selection, and event body SQL
 - refresh the event list after create or bulk actions and surface event action output in the page
+- list stored procedures and functions with charset, connection collation, database collation, and last-altered metadata
+- select multiple stored procedures/functions and export their `SHOW CREATE` definitions as a `.sql` file
+- export an individual stored procedure/function from the row action or routine detail header
 - inspect table charset/collation defaults and character columns that differ from the table default
 - inspect outgoing and referenced-by foreign key definitions in the charset/collation table list
 - bulk-change selected table charset/collation with `ALTER TABLE ... CONVERT TO CHARACTER SET`
@@ -565,13 +568,26 @@ For `start_http.sh` and `start_https.sh`:
 
 `HW Admin` supports:
 
-- tabbed `DB` and `Table` actions
+- tabbed `DB`, `Table`, and `Lakehouse` actions
 - database-level HeatWave load and unload actions
 - table-level full load and unload actions
+- Lakehouse table inventory with load state, progress, load status, recovery source, and error highlighting
 - consistent red-gradient enabled action buttons across DB and Table actions
 - database status popup with HeatWave load details
 - exclude-column popup with selectable and de-selectable exclusion state
 - multi-result-set procedure output displayed in popup tabs
+
+## External Table/Lakehouse
+
+`External Table/Lakehouse` supports:
+
+- upload CSV, JSON, Parquet, Delta, and Avro files to the configured Object Storage bucket
+- list Object Storage folders from the configured bucket/prefix
+- optionally create a folder before upload
+- choose an External Folder and file in HeatWave Load to fill the editable `oci://bucket@namespace/path/file` URI
+- infer the HeatWave Load format from the selected file extension while still allowing manual URI and format edits
+- generate and execute `sys.HEATWAVE_LOAD` SQL for external tables
+- run incremental refresh SQL and update `AUTO_REFRESH_SOURCE`
 
 ## Import
 

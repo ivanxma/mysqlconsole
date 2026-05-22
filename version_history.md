@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3v`.
+Version summary from `1.0.2a` to `1.0.3x`.
+
+## 1.0.3x Summary
+
+Version `1.0.3x` adds the OCI/Lakehouse administration workflow, stored routine export improvements, and Object Storage file selection for HeatWave Load.
+
+- Reworked `Admin > Setup OCI Config` with a one-row overview, source selection for app-local user config or `~/.oci/config`, profile inspection, app-local git-ignored config storage, and OCI config testing.
+- Added `HeatWave > External Table/Lakehouse` upload support for CSV, JSON, Parquet, Delta, and Avro files, with Object Storage folder listing and optional folder creation.
+- Added `HeatWave Load` Object Storage folder and file selectors that fill the editable `oci://bucket@namespace/path/file` URI and infer the file format from the selected file extension.
+- Extended `HW Admin` with a `Lakehouse` tab that lists Lakehouse tables and shows load state, progress, load status, recovery source, and errors.
+- Enhanced `MySQL > DB Admin > SP/Function` with checkbox selection, individual and bulk `.sql` export, row-style routine overview, and charset/collation metadata.
 
 ## 1.0.3v Summary
 

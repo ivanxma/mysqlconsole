@@ -109,18 +109,6 @@
         Upload File
         <input name="lakehouse_upload_file" type="file" accept=".csv,.json,.parquet,.delta,.avro">
       </label>
-      <label>
-        Format
-        <select name="file_format">
-          {% for value in ["csv", "json", "parquet", "delta", "avro"] %}
-          <option value="{{ value }}" {% if form.file_format == value %}selected{% endif %}>{{ value }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="full-span">
-        OCI URI File Attribute
-        <input name="uploaded_oci_uri" type="text" value="{{ form.uploaded_oci_uri or form.oci_uri }}" readonly>
-      </label>
       <div class="form-actions">
         <button class="button primary" type="submit" name="lakehouse_action" value="upload_file">Upload File</button>
       </div>
@@ -151,16 +139,7 @@
         <dt>Base Prefix</dt>
         <dd>{{ object_storage_config.bucket_prefix or "/" }}</dd>
       </div>
-      <div>
-        <dt>Uploaded OCI URI</dt>
-        <dd>{{ form.uploaded_oci_uri or "-" }}</dd>
-      </div>
     </dl>
-    {% if form.uploaded_oci_uri %}
-    <div class="form-actions">
-      <a class="button secondary" href="{{ url_for('heatwave_external_table_page', tab='load', oci_uri=form.uploaded_oci_uri, file_format=form.file_format) }}">Use in HeatWave Load</a>
-    </div>
-    {% endif %}
   </article>
 </section>
 {% elif active_tab == 'load' %}
@@ -186,13 +165,47 @@
       Table Name
       <input name="table_name" type="text" value="{{ form.table_name }}" placeholder="external_sales">
     </label>
+    <label>
+      External Folder
+      <select name="load_folder" data-lakehouse-load-folder>
+        {% for folder in object_storage_folders %}
+        <option value="{{ folder.strip('/') }}" {% if folder.strip('/') == form.load_folder.strip('/') %}selected{% endif %}>
+          {{ folder or "/" }}
+        </option>
+        {% else %}
+        <option value="{{ form.load_folder }}">{{ form.load_folder or "/" }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      File
+      <select name="load_file" data-lakehouse-load-file>
+        <option value="">Choose file</option>
+        {% for file in object_storage_files %}
+        <option
+          value="{{ file.object_name }}"
+          data-oci-uri="{{ file.oci_uri }}"
+          data-format="{{ file.file_name.rsplit('.', 1)[1].lower() if '.' in file.file_name else '' }}"
+          {% if file.object_name == form.load_file %}selected{% endif %}
+        >
+          {{ file.file_name }}
+        </option>
+        {% endfor %}
+        {% if form.load_file and form.load_file not in object_storage_files|map(attribute='object_name')|list %}
+        <option value="{{ form.load_file }}" selected>{{ form.load_file }}</option>
+        {% endif %}
+      </select>
+    </label>
+    {% if object_storage_error or object_storage_files_error %}
+    <p class="helper-text error-text full-span">{{ object_storage_error or object_storage_files_error }}</p>
+    {% endif %}
     <label class="full-span">
       OCI URI
-      <input name="oci_uri" type="text" value="{{ form.oci_uri }}" placeholder="oci://bucket@namespace/path/">
+      <input name="oci_uri" type="text" value="{{ form.oci_uri }}" placeholder="oci://bucket@namespace/path/" data-lakehouse-oci-uri>
     </label>
     <label>
       Format
-      <select name="file_format">
+      <select name="file_format" data-lakehouse-file-format>
         {% for value in ["csv", "json", "parquet", "avro", "delta"] %}
         <option value="{{ value }}" {% if form.file_format == value %}selected{% endif %}>{{ value }}</option>
         {% endfor %}
@@ -413,6 +426,38 @@
     };
     toggle.addEventListener("change", syncFolderName);
     syncFolderName();
+  })();
+
+  (() => {
+    const folderSelect = document.querySelector("[data-lakehouse-load-folder]");
+    const fileSelect = document.querySelector("[data-lakehouse-load-file]");
+    const uriInput = document.querySelector("[data-lakehouse-oci-uri]");
+    const formatSelect = document.querySelector("[data-lakehouse-file-format]");
+    if (!folderSelect || !fileSelect || !uriInput) {
+      return;
+    }
+    folderSelect.addEventListener("change", () => {
+      fileSelect.value = "";
+      const params = new URLSearchParams(new FormData(folderSelect.form));
+      params.delete("_csrf_token");
+      params.delete("lakehouse_action");
+      params.delete("load_sql");
+      window.location.href = `${folderSelect.form.action || window.location.pathname}?${params.toString()}`;
+    });
+    fileSelect.addEventListener("change", () => {
+      const selected = fileSelect.selectedOptions[0];
+      if (!selected) {
+        return;
+      }
+      const uri = selected.dataset.ociUri || "";
+      if (uri) {
+        uriInput.value = uri;
+      }
+      const fileFormat = selected.dataset.format || "";
+      if (formatSelect && fileFormat && Array.from(formatSelect.options).some((option) => option.value === fileFormat)) {
+        formatSelect.value = fileFormat;
+      }
+    });
   })();
 </script>
 {% endblock %}

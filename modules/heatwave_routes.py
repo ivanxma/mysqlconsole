@@ -163,11 +163,21 @@ def register_heatwave_routes(app, deps):
             except Exception as error:
                 flash(str(error), "error")
         object_storage_folders = []
+        object_storage_files = []
         object_storage_error = ""
+        object_storage_files_error = ""
         try:
             object_storage_folders = deps["list_object_storage_folders"](object_storage_config)
         except Exception as error:
             object_storage_error = str(error)
+        if active_tab == "load":
+            try:
+                object_storage_files = deps["list_object_storage_files"](
+                    object_storage_config,
+                    form["load_folder"],
+                )
+            except Exception as error:
+                object_storage_files_error = str(error)
         page_context = build_heatwave_external_context(
             form,
             active_tab=active_tab,
@@ -182,6 +192,8 @@ def register_heatwave_routes(app, deps):
             upload_result=upload_result,
             object_storage_config=object_storage_config,
             object_storage_folders=object_storage_folders,
+            object_storage_files=object_storage_files,
             object_storage_error=object_storage_error,
+            object_storage_files_error=object_storage_files_error,
             **page_context,
         )

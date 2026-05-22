@@ -651,6 +651,15 @@ def list_object_storage_folders(payload):
     )
 
 
+def list_object_storage_files(payload, folder_prefix):
+    return oci_util.list_object_storage_files(
+        payload,
+        namespace=payload.get("namespace"),
+        bucket_name=payload.get("bucket_name"),
+        folder_prefix=folder_prefix,
+    )
+
+
 def create_object_storage_folder(payload, parent_prefix, folder_name):
     return oci_util.create_object_storage_folder(
         payload,
@@ -1228,6 +1237,7 @@ register_heatwave_routes(
         "execute_query": execute_query,
         "load_object_storage_config": load_object_storage_config,
         "list_object_storage_folders": list_object_storage_folders,
+        "list_object_storage_files": list_object_storage_files,
         "create_object_storage_folder": create_object_storage_folder,
         "upload_object_storage_file": upload_object_storage_file,
     },

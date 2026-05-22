@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3v</span>
+      <span class="badge">Release 1.0.3x</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3v</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3x</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3x Summary</h2>
+      <p>
+        Version <code>1.0.3x</code> adds the OCI/Lakehouse administration workflow, stored routine export improvements, and Object Storage file selection for HeatWave Load.
+      </p>
+      <ul>
+        <li>Reworked <code>Admin &gt; Setup OCI Config</code> with a one-row overview, source selection for app-local user config or <code>~/.oci/config</code>, profile inspection, app-local git-ignored config storage, and OCI config testing.</li>
+        <li>Added <code>HeatWave &gt; External Table/Lakehouse</code> upload support for CSV, JSON, Parquet, Delta, and Avro files, with Object Storage folder listing and optional folder creation.</li>
+        <li>Added <code>HeatWave Load</code> Object Storage folder and file selectors that fill the editable <code>oci://bucket@namespace/path/file</code> URI and infer the file format from the selected file extension.</li>
+        <li>Extended <code>HW Admin</code> with a <code>Lakehouse</code> tab that lists Lakehouse tables and shows load state, progress, load status, recovery source, and errors.</li>
+        <li>Enhanced <code>MySQL &gt; DB Admin &gt; SP/Function</code> with checkbox selection, individual and bulk <code>.sql</code> export, row-style routine overview, and charset/collation metadata.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3v Summary</h2>

@@ -337,6 +337,45 @@ def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="
     return sorted(folders, key=lambda value: (value.count("/"), value.lower()))
 
 
+def list_object_storage_files(config, *, namespace, bucket_name, folder_prefix="", limit=1000):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    if not namespace_value or not bucket_value:
+        return []
+    prefix = normalize_object_prefix(folder_prefix)
+    client = build_object_storage_client(config)
+    files = []
+    start = None
+    while True:
+        kwargs = {
+            "prefix": prefix,
+            "delimiter": "/",
+            "limit": limit,
+        }
+        if start:
+            kwargs["start"] = start
+        response = client.list_objects(namespace_value, bucket_value, **kwargs)
+        data = response.data
+        for item in getattr(data, "objects", []) or []:
+            object_name = str(getattr(item, "name", "") or "").strip()
+            if not object_name or object_name.endswith("/") or object_name == prefix:
+                continue
+            file_name = object_name[len(prefix) :] if prefix and object_name.startswith(prefix) else Path(object_name).name
+            files.append(
+                {
+                    "object_name": object_name,
+                    "file_name": file_name or object_name,
+                    "size": getattr(item, "size", ""),
+                    "time_modified": getattr(item, "time_modified", ""),
+                    "oci_uri": build_object_storage_uri(namespace_value, bucket_value, object_name),
+                }
+            )
+        start = getattr(data, "next_start_with", None)
+        if not start:
+            break
+    return sorted(files, key=lambda item: str(item["file_name"]).lower())
+
+
 def create_object_storage_folder(config, *, namespace, bucket_name, parent_prefix="", folder_name=""):
     namespace_value = str(namespace or "").strip()
     bucket_value = str(bucket_name or "").strip()
