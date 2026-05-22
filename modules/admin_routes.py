@@ -136,7 +136,6 @@ def register_admin_routes(app, deps):
             page_title="Setup OCI Config",
             active_tab=active_tab,
             object_storage_config=config,
-            setup_status=deps["fetch_setup_status"](),
         )
 
     @app.route("/admin/status-variables")
