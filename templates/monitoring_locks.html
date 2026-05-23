@@ -140,6 +140,18 @@
     {% else %}
     {{ render_report_table(row_lock_source_process, "No blocking connection detail loaded.") }}
     {% endif %}
+    <h4>Locked Resource</h4>
+    {% if row_lock_resource.error %}
+    <p class="helper-text">{{ row_lock_resource.error }}</p>
+    {% else %}
+    {{ render_report_table(row_lock_resource, "No locked resource detail loaded.") }}
+    {% endif %}
+    <h4>Locked Rows</h4>
+    {% if row_lock_locked_rows.error %}
+    <p class="helper-text">{{ row_lock_locked_rows.error }}</p>
+    {% else %}
+    {{ render_report_table(row_lock_locked_rows, "No row sample available. Record locks are shown by index and lock data above.") }}
+    {% endif %}
     <h4>Held Locks on Object</h4>
     {% if row_lock_source.error %}
     <p class="helper-text">{{ row_lock_source.error }}</p>
@@ -197,9 +209,9 @@
       </thead>
       <tbody>
         {% for row in metadata_locks.rows %}
-        <tr class="{% if selected_mdl_schema == row.object_schema and selected_mdl_name == row.object_name and selected_mdl_owner_connection_id == row.owner_connection_id %}active-table-row{% endif %}">
+        <tr class="{% if selected_mdl_type == row.object_type and selected_mdl_schema == row.object_schema and selected_mdl_name == (row.object_name or '') and selected_mdl_owner_connection_id == row.owner_connection_id %}active-table-row{% endif %}">
           <td>
-            <a href="{{ url_for('monitoring_locks_page', lock_focus='meta', mdl_schema=row.object_schema, mdl_name=row.object_name, mdl_owner_connection_id=row.owner_connection_id) }}">
+            <a href="{{ url_for('monitoring_locks_page', lock_focus='meta', mdl_type=row.object_type, mdl_schema=row.object_schema, mdl_name=row.object_name or '', mdl_owner_connection_id=row.owner_connection_id) }}">
               {{ row.object_type }}
             </a>
           </td>
@@ -227,8 +239,8 @@
   <article class="panel">
     <div class="panel-header">
       <h3>Source of the Lock</h3>
-      {% if selected_mdl_schema and selected_mdl_name and selected_mdl_owner_connection_id %}
-      <span class="helper-text">{{ selected_mdl_schema }}.{{ selected_mdl_name }} / owner {{ selected_mdl_owner_connection_id }}</span>
+      {% if selected_mdl_schema and selected_mdl_owner_connection_id %}
+      <span class="helper-text">{{ selected_mdl_type or "OBJECT" }} {{ selected_mdl_schema }}{% if selected_mdl_name %}.{{ selected_mdl_name }}{% endif %} / owner {{ selected_mdl_owner_connection_id }}</span>
       {% else %}
       <span class="helper-text">Click a metadata lock above.</span>
       {% endif %}
@@ -250,8 +262,8 @@
   <article class="panel">
     <div class="panel-header">
       <h3>Impacted Queries / Connections</h3>
-      {% if selected_mdl_schema and selected_mdl_name %}
-      <span class="helper-text">{{ selected_mdl_schema }}.{{ selected_mdl_name }}</span>
+      {% if selected_mdl_schema %}
+      <span class="helper-text">{{ selected_mdl_type or "OBJECT" }} {{ selected_mdl_schema }}{% if selected_mdl_name %}.{{ selected_mdl_name }}{% endif %}</span>
       {% else %}
       <span class="helper-text">Click a metadata lock above.</span>
       {% endif %}
@@ -259,7 +271,7 @@
     {% if metadata_lock_impacted.error %}
     <p class="helper-text">{{ metadata_lock_impacted.error }}</p>
     {% else %}
-    {{ render_report_table(metadata_lock_impacted, "No pending metadata waits loaded.") }}
+    {{ render_report_table(metadata_lock_impacted, "No pending metadata waits or processlist metadata-lock waits loaded.") }}
     {% endif %}
   </article>
 </section>

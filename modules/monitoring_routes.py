@@ -66,6 +66,7 @@ def register_monitoring_routes(app, deps):
                     "row_waiting_connection_id": request.args.get("row_waiting_connection_id", ""),
                     "mdl_schema": request.args.get("mdl_schema", ""),
                     "mdl_name": request.args.get("mdl_name", ""),
+                    "mdl_type": request.args.get("mdl_type", ""),
                     "mdl_owner_connection_id": request.args.get("mdl_owner_connection_id", ""),
                     "lock_focus": request.args.get("lock_focus", "row"),
                 },

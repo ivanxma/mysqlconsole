@@ -657,9 +657,109 @@ def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, blocking_
     )
 
 
-def fetch_monitoring_metadata_source_detail(lock_schema, lock_name, owner_connection_id):
-    return run_report_query(
+def _row_lock_resource_label(lock_schema, lock_table, row):
+    lock_type = str(row.get("held_lock_type") or row.get("blocking_lock_type") or "").strip().upper()
+    index_name = str(row.get("index_name") or "").strip()
+    lock_data = str(row.get("lock_data") or "").strip()
+    if lock_type == "TABLE":
+        return "Table", f"{lock_schema}.{lock_table}"
+    if lock_type == "RECORD":
+        if index_name and lock_data:
+            return "Row", f"{lock_schema}.{lock_table} / {index_name} = {lock_data}"
+        if index_name:
+            return "Row", f"{lock_schema}.{lock_table} / {index_name}"
+        return "Row", f"{lock_schema}.{lock_table}"
+    return lock_type.title() or "Lock", f"{lock_schema}.{lock_table}"
+
+
+def build_monitoring_row_lock_resource_report(lock_schema, lock_table, source_report):
+    rows = []
+    seen = set()
+    for row in source_report.get("rows", []) or []:
+        resource_type, resource_name = _row_lock_resource_label(lock_schema, lock_table, row)
+        output_row = {
+            "resource_type": resource_type,
+            "resource": resource_name,
+            "index_name": row.get("index_name") or "-",
+            "lock_mode": row.get("held_lock_mode") or row.get("blocking_lock_mode") or "-",
+            "lock_status": row.get("held_lock_status") or "-",
+            "lock_data": row.get("lock_data") or "-",
+        }
+        row_key = tuple(output_row.items())
+        if row_key not in seen:
+            seen.add(row_key)
+            rows.append(output_row)
+    return {
+        "columns": ["resource_type", "resource", "index_name", "lock_mode", "lock_status", "lock_data"],
+        "rows": rows,
+        "error": "",
+    }
+
+
+def _fetch_single_primary_key_column(lock_schema, lock_table):
+    rows = execute_query(
         """
+        SELECT column_name AS column_name_value
+        FROM information_schema.statistics
+        WHERE table_schema = %s
+          AND table_name = %s
+          AND index_name = 'PRIMARY'
+        ORDER BY seq_in_index
+        """,
+        [lock_schema, lock_table],
+    )
+    if len(rows) != 1:
+        return ""
+    return rows[0]["column_name_value"]
+
+
+def fetch_monitoring_row_lock_locked_rows(lock_schema, lock_table, source_report):
+    primary_key_values = []
+    seen = set()
+    for row in source_report.get("rows", []) or []:
+        if str(row.get("held_lock_type") or "").strip().upper() != "RECORD":
+            continue
+        if str(row.get("index_name") or "").strip().upper() != "PRIMARY":
+            continue
+        lock_data = str(row.get("lock_data") or "").strip()
+        if not lock_data or lock_data.lower() == "supremum pseudo-record" or "," in lock_data:
+            continue
+        if lock_data not in seen:
+            seen.add(lock_data)
+            primary_key_values.append(lock_data)
+    if not primary_key_values:
+        return _empty_report()
+
+    primary_key_column = _fetch_single_primary_key_column(lock_schema, lock_table)
+    if not primary_key_column:
+        return {
+            "columns": ["message"],
+            "rows": [{"message": "Row sample requires a single-column PRIMARY key."}],
+            "error": "",
+        }
+
+    safe_table = f"{quote_identifier(lock_schema)}.{quote_identifier(lock_table)}"
+    safe_pk = quote_identifier(primary_key_column)
+    placeholders = ", ".join(["%s"] * len(primary_key_values))
+    report = run_report_query(
+        f"SELECT * FROM {safe_table} WHERE {safe_pk} IN ({placeholders}) LIMIT 25",
+        primary_key_values,
+    )
+    return report
+
+
+def _metadata_object_filter_sql():
+    return """
+          AND (%s = '' OR locks.object_type = %s)
+          AND ((%s = '' AND locks.object_name IS NULL) OR locks.object_name = %s)
+    """
+
+
+def fetch_monitoring_metadata_source_detail(lock_schema, lock_name, owner_connection_id, lock_type=""):
+    normalized_name = str(lock_name or "").strip()
+    normalized_type = str(lock_type or "").strip()
+    return run_report_query(
+        f"""
         SELECT
           locks.object_type,
           locks.object_schema,
@@ -677,19 +777,22 @@ def fetch_monitoring_metadata_source_detail(lock_schema, lock_name, owner_connec
         LEFT JOIN performance_schema.threads AS thread
           ON locks.owner_thread_id = thread.thread_id
         WHERE locks.object_schema = %s
-          AND locks.object_name = %s
+          {_metadata_object_filter_sql()}
           AND thread.processlist_id = %s
         ORDER BY locks.lock_status, locks.lock_type
         LIMIT 200
         """,
-        [lock_schema, lock_name, owner_connection_id],
+        [lock_schema, normalized_type, normalized_type, normalized_name, normalized_name, owner_connection_id],
     )
 
 
-def fetch_monitoring_metadata_impacted_detail(lock_schema, lock_name):
+def fetch_monitoring_metadata_impacted_detail(lock_schema, lock_name, lock_type=""):
+    normalized_name = str(lock_name or "").strip()
+    normalized_type = str(lock_type or "").strip()
     return run_report_query(
-        """
+        f"""
         SELECT
+          'metadata_lock' AS source_type,
           locks.object_type,
           locks.object_schema,
           locks.object_name,
@@ -709,13 +812,50 @@ def fetch_monitoring_metadata_impacted_detail(lock_schema, lock_name):
         LEFT JOIN performance_schema.processlist AS process
           ON thread.processlist_id = process.id
         WHERE locks.object_schema = %s
-          AND locks.object_name = %s
+          {_metadata_object_filter_sql()}
           AND locks.lock_status = 'PENDING'
         ORDER BY elapsed_seconds DESC, connection_id
         LIMIT 200
         """,
-        [lock_schema, lock_name],
+        [lock_schema, normalized_type, normalized_type, normalized_name, normalized_name],
     )
+
+
+def fetch_monitoring_metadata_waiting_processes(lock_schema, lock_name=""):
+    normalized_schema = str(lock_schema or "").strip()
+    normalized_name = str(lock_name or "").strip()
+    object_like = f"%{normalized_name}%" if normalized_name else "%"
+    return run_report_query(
+        """
+        SELECT
+          'processlist_wait' AS source_type,
+          id AS connection_id,
+          user AS user_name,
+          host AS host_name,
+          db AS database_name,
+          command AS command_name,
+          time AS elapsed_seconds,
+          state AS state_name,
+          LEFT(info, 500) AS current_sql
+        FROM performance_schema.processlist
+        WHERE state LIKE '%metadata lock%'
+          AND (%s = '' OR db = %s)
+          AND (%s = '%' OR info LIKE %s OR info IS NULL)
+        ORDER BY elapsed_seconds DESC, connection_id
+        LIMIT 200
+        """,
+        [normalized_schema, normalized_schema, object_like, object_like],
+    )
+
+
+def build_monitoring_metadata_impacted_report(lock_schema, lock_name, lock_type=""):
+    pending_report = fetch_monitoring_metadata_impacted_detail(lock_schema, lock_name, lock_type)
+    if pending_report.get("rows"):
+        return pending_report
+    waiting_processes = fetch_monitoring_metadata_waiting_processes(lock_schema, lock_name)
+    if waiting_processes.get("rows"):
+        return waiting_processes
+    return pending_report
 
 
 def fetch_monitoring_innodb_storage_usage():
@@ -2142,6 +2282,7 @@ def build_monitoring_locks_context(
     row_waiting_connection_id=None,
     mdl_schema="",
     mdl_name="",
+    mdl_type="",
     mdl_owner_connection_id=None,
     lock_focus="row",
 ):
@@ -2151,6 +2292,7 @@ def build_monitoring_locks_context(
     row_waiting_connection_id = _coerce_int(row_waiting_connection_id)
     mdl_schema = str(mdl_schema or "").strip()
     mdl_name = str(mdl_name or "").strip()
+    mdl_type = str(mdl_type or "").strip()
     mdl_owner_connection_id = _coerce_int(mdl_owner_connection_id)
     lock_focus = str(lock_focus or "row").strip().lower()
     if lock_focus not in {"row", "meta"}:
@@ -2160,6 +2302,8 @@ def build_monitoring_locks_context(
     metadata_locks = _safe_report(fetch_monitoring_metadata_locks)
     row_lock_source = _empty_report()
     row_lock_source_process = _empty_report()
+    row_lock_resource = _empty_report()
+    row_lock_locked_rows = _empty_report()
     row_lock_impacted = _empty_report()
     row_lock_impacted_process = _empty_report()
     metadata_lock_source = _empty_report()
@@ -2174,6 +2318,18 @@ def build_monitoring_locks_context(
             row_blocking_connection_id,
         )
         row_lock_source_process = _safe_report(fetch_monitoring_process_connection_detail, row_blocking_connection_id)
+        if not row_lock_source.get("error"):
+            row_lock_resource = build_monitoring_row_lock_resource_report(
+                row_lock_schema,
+                row_lock_table,
+                row_lock_source,
+            )
+            row_lock_locked_rows = _safe_report(
+                fetch_monitoring_row_lock_locked_rows,
+                row_lock_schema,
+                row_lock_table,
+                row_lock_source,
+            )
 
     if row_lock_schema and row_lock_table and row_blocking_connection_id is not None:
         row_lock_impacted = _safe_report(
@@ -2186,17 +2342,18 @@ def build_monitoring_locks_context(
     if row_waiting_connection_id is not None:
         row_lock_impacted_process = _safe_report(fetch_monitoring_process_connection_detail, row_waiting_connection_id)
 
-    if mdl_schema and mdl_name and mdl_owner_connection_id is not None:
+    if mdl_schema and mdl_owner_connection_id is not None:
         metadata_lock_source = _safe_report(
             fetch_monitoring_metadata_source_detail,
             mdl_schema,
             mdl_name,
             mdl_owner_connection_id,
+            mdl_type,
         )
         metadata_lock_source_process = _safe_report(fetch_monitoring_process_connection_detail, mdl_owner_connection_id)
 
-    if mdl_schema and mdl_name:
-        metadata_lock_impacted = _safe_report(fetch_monitoring_metadata_impacted_detail, mdl_schema, mdl_name)
+    if mdl_schema:
+        metadata_lock_impacted = _safe_report(build_monitoring_metadata_impacted_report, mdl_schema, mdl_name, mdl_type)
 
     return {
         "lock_focus": lock_focus,
@@ -2204,6 +2361,8 @@ def build_monitoring_locks_context(
         "metadata_locks": metadata_locks,
         "row_lock_source": row_lock_source,
         "row_lock_source_process": row_lock_source_process,
+        "row_lock_resource": row_lock_resource,
+        "row_lock_locked_rows": row_lock_locked_rows,
         "row_lock_impacted": row_lock_impacted,
         "row_lock_impacted_process": row_lock_impacted_process,
         "metadata_lock_source": metadata_lock_source,
@@ -2215,5 +2374,6 @@ def build_monitoring_locks_context(
         "selected_row_waiting_connection_id": row_waiting_connection_id,
         "selected_mdl_schema": mdl_schema,
         "selected_mdl_name": mdl_name,
+        "selected_mdl_type": mdl_type,
         "selected_mdl_owner_connection_id": mdl_owner_connection_id,
     }
