@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3x`.
+Version summary from `1.0.2a` to `1.0.3y`.
+
+## 1.0.3y Summary
+
+Version `1.0.3y` tightens DBConsole modularity and makes Monitoring Locks refresh behavior consistent across all lock views.
+
+- Refactored app-level session, profile/config, update, and generic query helpers out of `app.py` into reusable service modules.
+- Added `modules/session_services.py`, `modules/update_service.py`, `modules/config_services.py`, and `modules/query_service.py` so `app.py` focuses on Flask setup, service instantiation, dependency wiring, and route registration.
+- Revalidated all local modules with direct imports and confirmed the Flask app still registers the expected routes after the service extraction.
+- Updated `Monitoring > Locks > Connection` to reuse the shared Auto Refresh toolbar used by Row Locks and Meta Locks.
+- Removed the Connection tab's separate `connection_refresh` URL parameter and per-tab reload script so refresh period behavior is controlled consistently from the shared Monitoring auto-refresh UI.
 
 ## 1.0.3x Summary
 

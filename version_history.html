@@ -128,10 +128,24 @@
 <body>
   <main>
     <header>
-      <span class="badge">Release 1.0.3x</span>
+      <span class="badge">Release 1.0.3y</span>
       <h1>DBConsole Version History</h1>
-      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3x</code>.</p>
+      <p class="meta">Version summary from <code>1.0.2a</code> to <code>1.0.3y</code>.</p>
     </header>
+
+    <section class="panel">
+      <h2>1.0.3y Summary</h2>
+      <p>
+        Version <code>1.0.3y</code> tightens DBConsole modularity and makes Monitoring Locks refresh behavior consistent across all lock views.
+      </p>
+      <ul>
+        <li>Refactored app-level session, profile/config, update, and generic query helpers out of <code>app.py</code> into reusable service modules.</li>
+        <li>Added <code>modules/session_services.py</code>, <code>modules/update_service.py</code>, <code>modules/config_services.py</code>, and <code>modules/query_service.py</code> so <code>app.py</code> focuses on Flask setup, service instantiation, dependency wiring, and route registration.</li>
+        <li>Revalidated all local modules with direct imports and confirmed the Flask app still registers the expected routes after the service extraction.</li>
+        <li>Updated <code>Monitoring &gt; Locks &gt; Connection</code> to reuse the shared Auto Refresh toolbar used by Row Locks and Meta Locks.</li>
+        <li>Removed the Connection tab's separate <code>connection_refresh</code> URL parameter and per-tab reload script so refresh period behavior is controlled consistently from the shared Monitoring auto-refresh UI.</li>
+      </ul>
+    </section>
 
     <section class="panel">
       <h2>1.0.3x Summary</h2>

@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3x`
+Current version: `1.0.3y`
 
 Version history: `version_history.md` for GitHub viewing, or `version_history.html` for standalone browser viewing.
 
@@ -17,7 +17,7 @@ It provides:
 - `MySQL > Import` for CSV and JSON uploads into MySQL tables
 - `HeatWave` pages for HW table inventory, `HW Admin` management actions, and External Table/Lakehouse upload/load/refresh workflows
 - HW Table reports use horizontally scrollable, flexible-width tables so wide HeatWave metadata such as `rpd_nodes` and table inventory does not collapse into unreadable columns
-- `Monitoring` dashboards, locks, report pages, and live charts with refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
+- `Monitoring` dashboards, locks, report pages, and live charts with shared auto-refresh, reorder, hide, popup, download, browser-local time labels on the chart axis, and tabbed chart groups
 - authenticated top-right user icon with app version, update status, user, profile, connection summary, and logout
 - shared interactive table styling with sortable headers, resizable columns, saved column widths and column order where enabled, reset-layout controls, and compact download/action icons
 
@@ -33,8 +33,8 @@ The `Admin > Auto-Update` status page uses a job-scoped polling token for status
 
 Key files:
 
-- `app.py`: Flask app creation, shared session handling, profile persistence, route registration
-- `modules/`: feature modules for page orchestration and extracted logic
+- `app.py`: Flask app creation, service instantiation, dependency wiring, and route registration
+- `modules/`: feature modules, reusable services, and external-service utilities
 - `templates/`: Jinja templates
 - `static/style.css`: shared styling
 - `setup.sh`: environment setup and MySQL Shell Innovation install
@@ -45,6 +45,10 @@ Key files:
 
 Current feature modules:
 
+- `modules/config_services.py`: profile, OCI config, and Object Storage config service wrappers
+- `modules/query_service.py`: generic MySQL query execution helpers, SQL quoting, table existence checks, and CSV responses
+- `modules/session_services.py`: Flask session policy, CSRF helpers, login state, local-admin profile state, and navigation filtering
+- `modules/update_service.py`: Auto-Update status, poll-token, repository-version, and local-admin bootstrap helpers
 - `modules/mysql_import.py`
 - `modules/mysql_util.py`: MySQL Connector/Python boundary for profile normalization, TLS options, cached connections, health checks, transactions, and SQL literal escaping
 - `modules/status_variables.py`
@@ -508,7 +512,7 @@ For `start_http.sh` and `start_https.sh`:
 
 - `Dashboard`
 - `Charts`
-- `Locks`
+- `Locks`, including Row Locks, Meta Locks, and Connection tabs with the same shared auto-refresh toolbar
 
 ## Admin Dashboard
 
@@ -621,5 +625,5 @@ Charts support:
 Useful verification command:
 
 ```bash
-python3 -m py_compile app.py modules/__init__.py modules/mysql_import.py modules/status_variables.py modules/mysql_pages.py modules/heatwave_pages.py modules/monitoring_pages.py
+python3 -m py_compile app.py modules/*.py
 ```
