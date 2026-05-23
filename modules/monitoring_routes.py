@@ -73,7 +73,6 @@ def register_monitoring_routes(app, deps):
                     "connection_not_idle": request.args.get("connection_not_idle", ""),
                     "connection_host": request.args.get("connection_host", ""),
                     "connection_command": request.args.get("connection_command", ""),
-                    "connection_refresh": request.args.get("connection_refresh", ""),
                     "lock_focus": request.args.get("lock_focus", "row"),
                 },
             ),

@@ -2467,7 +2467,6 @@ def build_monitoring_locks_context(
     connection_not_idle="",
     connection_host="",
     connection_command="",
-    connection_refresh="",
     lock_focus="row",
 ):
     row_lock_schema = str(row_lock_schema or "").strip()
@@ -2483,9 +2482,6 @@ def build_monitoring_locks_context(
     connection_not_idle_value = _coerce_bool(connection_not_idle)
     connection_host_value = str(connection_host or "").strip()
     connection_command_value = str(connection_command or "").strip()
-    connection_refresh_value = str(connection_refresh or "").strip()
-    if connection_refresh_value not in {"", "0", "2", "5", "15", "30", "40"}:
-        connection_refresh_value = ""
     lock_focus = str(lock_focus or "row").strip().lower()
     if lock_focus not in {"row", "meta", "connection"}:
         lock_focus = "row"
@@ -2506,7 +2502,6 @@ def build_monitoring_locks_context(
         "connection_not_idle": connection_not_idle_value,
         "connection_host": connection_host_value,
         "connection_command": connection_command_value,
-        "connection_refresh": connection_refresh_value,
     }
     lock_connections = _empty_report()
     selected_connection_thread = _empty_report()
