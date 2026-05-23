@@ -1,7 +1,16 @@
 import json
 
 from modules.core_util import chmod_private_file
-from modules.oci_util import DEFAULT_OCI_CONFIG, effective_oci_config_file, normalize_oci_config
+from modules.oci_util import (
+    DEFAULT_OCI_CONFIG,
+    build_object_storage_uri,
+    create_object_storage_folder as oci_create_object_storage_folder,
+    effective_oci_config_file,
+    list_object_storage_files as oci_list_object_storage_files,
+    list_object_storage_folders as oci_list_object_storage_folders,
+    normalize_oci_config,
+    upload_object_storage_file as oci_upload_object_storage_file,
+)
 
 
 DEFAULT_OBJECT_STORAGE = {
@@ -74,3 +83,52 @@ def fetch_setup_status(store_path):
         "oci_missing_fields": oci_missing,
         "summary": "Configured" if not missing and not oci_missing else f"Missing {', '.join(missing + oci_missing)}",
     }
+
+
+def build_object_storage_prefix_uri(namespace, bucket_name, prefix=""):
+    namespace_value = str(namespace or "").strip()
+    bucket_value = str(bucket_name or "").strip()
+    if not namespace_value or not bucket_value:
+        return ""
+    prefix_value = str(prefix or "").strip().strip("/")
+    if prefix_value:
+        return build_object_storage_uri(namespace_value, bucket_value, f"{prefix_value}/")
+    return f"oci://{bucket_value}@{namespace_value}/"
+
+
+def list_object_storage_folders(config):
+    return oci_list_object_storage_folders(
+        config,
+        namespace=config.get("namespace"),
+        bucket_name=config.get("bucket_name"),
+        base_prefix=config.get("bucket_prefix"),
+    )
+
+
+def list_object_storage_files(config, folder_prefix):
+    return oci_list_object_storage_files(
+        config,
+        namespace=config.get("namespace"),
+        bucket_name=config.get("bucket_name"),
+        folder_prefix=folder_prefix,
+    )
+
+
+def create_object_storage_folder(config, parent_prefix, folder_name):
+    return oci_create_object_storage_folder(
+        config,
+        namespace=config.get("namespace"),
+        bucket_name=config.get("bucket_name"),
+        parent_prefix=parent_prefix,
+        folder_name=folder_name,
+    )
+
+
+def upload_object_storage_file(config, folder_prefix, upload_storage):
+    return oci_upload_object_storage_file(
+        config,
+        namespace=config.get("namespace"),
+        bucket_name=config.get("bucket_name"),
+        folder_prefix=folder_prefix,
+        upload_storage=upload_storage,
+    )

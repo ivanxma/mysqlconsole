@@ -1,6 +1,8 @@
 import json
 import re
 
+from modules.object_storage_util import build_object_storage_prefix_uri, build_object_storage_uri
+
 
 HEATWAVE_EXTERNAL_FORMATS = ("csv", "json", "parquet", "avro", "delta")
 HEATWAVE_EXTERNAL_LOAD_MODES = ("normal", "dryrun", "validation")
@@ -42,16 +44,14 @@ def normalize_external_form(source, object_storage_config=None):
     bucket_prefix = str(object_storage_config.get("bucket_prefix") or "").strip().strip("/")
     default_uri = ""
     if bucket_name and namespace:
-        default_uri = f"oci://{bucket_name}@{namespace}/"
-        if bucket_prefix:
-            default_uri += f"{bucket_prefix}/"
+        default_uri = build_object_storage_prefix_uri(namespace, bucket_name, bucket_prefix)
 
     load_folder = str(source.get("load_folder", source.get("upload_folder", bucket_prefix))).strip().strip("/")
     load_file = str(source.get("load_file", "")).strip().strip("/")
     explicit_oci_uri = str(source.get("oci_uri", "")).strip()
     selected_file_uri = ""
     if bucket_name and namespace and load_file:
-        selected_file_uri = f"oci://{bucket_name}@{namespace}/{load_file}"
+        selected_file_uri = build_object_storage_uri(namespace, bucket_name, load_file)
 
     file_format = str(source.get("file_format", "")).strip().lower()
     if not file_format:

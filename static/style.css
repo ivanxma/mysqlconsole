@@ -1232,8 +1232,6 @@ dialog.management-dialog::backdrop {
 }
 
 .workspace-toolbar-check {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
   min-height: 42px;
   color: var(--ink);
@@ -1243,9 +1241,6 @@ dialog.management-dialog::backdrop {
 }
 
 .workspace-toolbar-check input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
   accent-color: var(--accent);
 }
 

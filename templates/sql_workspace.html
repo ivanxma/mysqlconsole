@@ -61,10 +61,6 @@
           {% endfor %}
         </select>
       </div>
-      <label class="workspace-toolbar-check">
-        <input type="checkbox" name="generated_nl_sql" value="1" {% if generated_nl_sql %}checked{% endif %}>
-        <span>Generated SQL for NL_SQL</span>
-      </label>
       <div class="workspace-toolbar-group">
         <span class="workspace-toolbar-tag">DB</span>
         <select name="database" class="workspace-toolbar-select workspace-db-select">
@@ -74,6 +70,10 @@
           {% endfor %}
         </select>
       </div>
+      <label class="checkbox-field workspace-toolbar-check">
+        <input type="checkbox" name="generated_nl_sql" value="1" {% if generated_nl_sql %}checked{% endif %}>
+        <span>Generated SQL for NL_SQL</span>
+      </label>
       <div class="workspace-toolbar-actions">
         <button
           class="panel-icon-button workspace-action-button primary"

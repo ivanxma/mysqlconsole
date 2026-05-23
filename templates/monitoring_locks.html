@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 
 {% macro render_report_table(report, empty_text="No rows returned.") %}
-<div class="table-wrap">
-  <table>
+<div
+  class="table-wrap sql-workspace-result-wrap"
+  data-table-reorder="true"
+  data-table-cell-dialog="true"
+>
+  <table class="sql-workspace-result-table data-grid-constant-rows">
     <thead>
       <tr>
         {% for column in report.columns %}
@@ -68,10 +72,16 @@
   {% if row_locks.error %}
   <p class="helper-text">{{ row_locks.error }}</p>
   {% else %}
-  <div class="table-wrap">
-    <table>
+  <div
+    class="table-wrap sql-workspace-result-wrap"
+    data-table-layout-id="monitoring-row-locks"
+    data-table-reorder="true"
+    data-table-cell-dialog="true"
+  >
+    <table class="sql-workspace-result-table data-grid-constant-rows">
       <thead>
         <tr>
+          <th>Details</th>
           <th>Schema</th>
           <th>Table</th>
           <th>Waiting Conn</th>
@@ -88,10 +98,11 @@
         {% for row in row_locks.rows %}
         <tr class="{% if selected_row_lock_schema == row.object_schema and selected_row_lock_table == row.object_name and selected_row_blocking_connection_id == row.blocking_connection_id and selected_row_waiting_connection_id == row.waiting_connection_id %}active-table-row{% endif %}">
           <td>
-            <a href="{{ url_for('monitoring_locks_page', lock_focus='row', row_lock_schema=row.object_schema, row_lock_table=row.object_name, row_blocking_connection_id=row.blocking_connection_id, row_waiting_connection_id=row.waiting_connection_id) }}">
-              {{ row.object_schema }}
+            <a class="table-select-link" href="{{ url_for('monitoring_locks_page', lock_focus='row', row_lock_schema=row.object_schema, row_lock_table=row.object_name, row_blocking_connection_id=row.blocking_connection_id, row_waiting_connection_id=row.waiting_connection_id) }}">
+              Open
             </a>
           </td>
+          <td>{{ row.object_schema }}</td>
           <td>{{ row.object_name }}</td>
           <td>{{ row.waiting_connection_id }}</td>
           <td>{{ row.waiting_user }}</td>
@@ -104,7 +115,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="10">No row lock waits found.</td>
+          <td colspan="11">No row lock waits found.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -140,23 +151,23 @@
   <article class="panel">
     <div class="panel-header">
       <h3>Impacted Queries / Connections</h3>
-      {% if selected_row_waiting_connection_id %}
-      <span class="helper-text">waiter {{ selected_row_waiting_connection_id }}</span>
+      {% if selected_row_lock_schema and selected_row_lock_table and selected_row_blocking_connection_id %}
+      <span class="helper-text">{{ selected_row_lock_schema }}.{{ selected_row_lock_table }} / blocker {{ selected_row_blocking_connection_id }}</span>
       {% else %}
       <span class="helper-text">Click a row lock above.</span>
       {% endif %}
     </div>
-    <h4>Waiting Connection</h4>
+    <h4>Selected Waiting Connection</h4>
     {% if row_lock_impacted_process.error %}
     <p class="helper-text">{{ row_lock_impacted_process.error }}</p>
     {% else %}
     {{ render_report_table(row_lock_impacted_process, "No waiting connection detail loaded.") }}
     {% endif %}
-    <h4>Waiting Lock Detail</h4>
+    <h4>Impacted Waiting Queries</h4>
     {% if row_lock_impacted.error %}
     <p class="helper-text">{{ row_lock_impacted.error }}</p>
     {% else %}
-    {{ render_report_table(row_lock_impacted, "No impacted row-lock detail loaded.") }}
+    {{ render_report_table(row_lock_impacted, "No impacted waiting queries loaded.") }}
     {% endif %}
   </article>
 </section>

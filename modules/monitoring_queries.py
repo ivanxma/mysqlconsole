@@ -603,7 +603,8 @@ def fetch_monitoring_row_lock_source_detail(lock_schema, lock_table, blocking_co
     )
 
 
-def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, waiting_connection_id):
+def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, blocking_connection_id, waiting_connection_id=None):
+    selected_waiter = _coerce_int(waiting_connection_id)
     return run_report_query(
         """
         SELECT
@@ -612,6 +613,10 @@ def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, waiting_c
           waits.waiting_seconds,
           waits.waiting_lock_type,
           waits.waiting_lock_mode,
+          waits.blocking_connection_id,
+          waits.blocking_user,
+          waits.blocking_lock_type,
+          waits.blocking_lock_mode,
           process.command AS waiting_command,
           process.state AS waiting_state,
           LEFT(process.info, 500) AS waiting_sql
@@ -623,7 +628,11 @@ def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, waiting_c
             waiting_thread.processlist_user AS waiting_user,
             waiting_thread.processlist_time AS waiting_seconds,
             waiting_lock.lock_type AS waiting_lock_type,
-            waiting_lock.lock_mode AS waiting_lock_mode
+            waiting_lock.lock_mode AS waiting_lock_mode,
+            blocking_thread.processlist_id AS blocking_connection_id,
+            blocking_thread.processlist_user AS blocking_user,
+            blocking_lock.lock_type AS blocking_lock_type,
+            blocking_lock.lock_mode AS blocking_lock_mode
           FROM performance_schema.data_lock_waits AS lock_waits
           JOIN performance_schema.data_locks AS waiting_lock
             ON lock_waits.requesting_engine_lock_id = waiting_lock.engine_lock_id
@@ -631,16 +640,20 @@ def fetch_monitoring_row_lock_impacted_detail(lock_schema, lock_table, waiting_c
             ON lock_waits.blocking_engine_lock_id = blocking_lock.engine_lock_id
           LEFT JOIN performance_schema.threads AS waiting_thread
             ON waiting_lock.thread_id = waiting_thread.thread_id
+          LEFT JOIN performance_schema.threads AS blocking_thread
+            ON blocking_lock.thread_id = blocking_thread.thread_id
         ) AS waits
         LEFT JOIN performance_schema.processlist AS process
           ON waits.waiting_connection_id = process.id
         WHERE waits.object_schema = %s
           AND waits.object_name = %s
-          AND waits.waiting_connection_id = %s
-        ORDER BY waits.waiting_seconds DESC
-        LIMIT 50
+          AND waits.blocking_connection_id = %s
+        ORDER BY CASE WHEN waits.waiting_connection_id = %s THEN 0 ELSE 1 END,
+                 waits.waiting_seconds DESC,
+                 waits.waiting_connection_id
+        LIMIT 200
         """,
-        [lock_schema, lock_table, waiting_connection_id],
+        [lock_schema, lock_table, blocking_connection_id, selected_waiter],
     )
 
 
@@ -2162,13 +2175,15 @@ def build_monitoring_locks_context(
         )
         row_lock_source_process = _safe_report(fetch_monitoring_process_connection_detail, row_blocking_connection_id)
 
-    if row_lock_schema and row_lock_table and row_waiting_connection_id is not None:
+    if row_lock_schema and row_lock_table and row_blocking_connection_id is not None:
         row_lock_impacted = _safe_report(
             fetch_monitoring_row_lock_impacted_detail,
             row_lock_schema,
             row_lock_table,
+            row_blocking_connection_id,
             row_waiting_connection_id,
         )
+    if row_waiting_connection_id is not None:
         row_lock_impacted_process = _safe_report(fetch_monitoring_process_connection_detail, row_waiting_connection_id)
 
     if mdl_schema and mdl_name and mdl_owner_connection_id is not None:
