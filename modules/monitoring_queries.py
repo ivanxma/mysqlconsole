@@ -159,6 +159,17 @@ def _coerce_int(value, default=None):
         return default
 
 
+def _coerce_nonnegative_int(value, default=0):
+    number = _coerce_int(value, default)
+    if number is None or number < 0:
+        return default
+    return number
+
+
+def _coerce_bool(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _coerce_float(value, default=None):
     try:
         return float(value)
@@ -352,6 +363,173 @@ def fetch_monitoring_current_connections():
         ORDER BY connection_count DESC, active_count DESC, user_name
         LIMIT 100
         """
+    )
+
+
+def fetch_monitoring_lock_connections(*, min_seconds=0, not_idle=False, host_filter="", command_filter=""):
+    conditions = [
+        "process.user IS NOT NULL",
+        "process.user NOT IN ('event_scheduler', 'system user', 'mysql.session')",
+    ]
+    params = []
+    min_seconds_value = _coerce_nonnegative_int(min_seconds, 0)
+    if min_seconds_value:
+        conditions.append("process.time >= %s")
+        params.append(min_seconds_value)
+    if not_idle:
+        conditions.append("process.command <> 'Sleep'")
+    normalized_host = str(host_filter or "").strip()
+    if normalized_host:
+        conditions.append("process.host LIKE %s")
+        params.append(f"%{normalized_host}%")
+    normalized_command = str(command_filter or "").strip()
+    if normalized_command:
+        conditions.append("process.command LIKE %s")
+        params.append(f"%{normalized_command}%")
+    where_sql = " AND ".join(conditions)
+    return run_report_query(
+        f"""
+        SELECT
+          process.id AS connection_id,
+          process.user AS user_name,
+          process.host AS host_name,
+          process.db AS database_name,
+          process.command AS command_name,
+          process.time AS elapsed_seconds,
+          process.state AS state_name,
+          COALESCE(data_lock_counts.data_lock_count, 0) AS data_lock_count,
+          COALESCE(metadata_lock_counts.metadata_lock_count, 0) AS metadata_lock_count,
+          LEFT(process.info, 260) AS current_sql
+        FROM performance_schema.processlist AS process
+        LEFT JOIN performance_schema.threads AS thread
+          ON process.id = thread.processlist_id
+        LEFT JOIN (
+          SELECT thread_id, COUNT(*) AS data_lock_count
+          FROM performance_schema.data_locks
+          GROUP BY thread_id
+        ) AS data_lock_counts
+          ON thread.thread_id = data_lock_counts.thread_id
+        LEFT JOIN (
+          SELECT owner_thread_id, COUNT(*) AS metadata_lock_count
+          FROM performance_schema.metadata_locks
+          GROUP BY owner_thread_id
+        ) AS metadata_lock_counts
+          ON thread.thread_id = metadata_lock_counts.owner_thread_id
+        WHERE {where_sql}
+        ORDER BY data_lock_count DESC,
+                 metadata_lock_count DESC,
+                 process.time DESC,
+                 process.id DESC
+        LIMIT 200
+        """,
+        params,
+    )
+
+
+def fetch_monitoring_connection_thread_detail(connection_id):
+    return run_report_query(
+        """
+        SELECT
+          thread.thread_id,
+          thread.processlist_id AS connection_id,
+          thread.name AS thread_name,
+          thread.type AS thread_type,
+          thread.processlist_user AS user_name,
+          thread.processlist_host AS host_name,
+          thread.processlist_db AS database_name,
+          thread.processlist_command AS command_name,
+          thread.processlist_time AS elapsed_seconds,
+          thread.processlist_state AS state_name,
+          thread.instrumented,
+          thread.history,
+          process.command AS process_command,
+          LEFT(process.info, 500) AS current_sql
+        FROM performance_schema.threads AS thread
+        LEFT JOIN performance_schema.processlist AS process
+          ON thread.processlist_id = process.id
+        WHERE thread.processlist_id = %s
+        LIMIT 20
+        """,
+        [connection_id],
+    )
+
+
+def fetch_monitoring_connection_data_locks(connection_id):
+    return run_report_query(
+        """
+        SELECT
+          locks.object_schema,
+          locks.object_name,
+          locks.index_name,
+          locks.lock_type,
+          locks.lock_mode,
+          locks.lock_status,
+          locks.lock_data,
+          CASE
+            WHEN locks.lock_type = 'TABLE' THEN CONCAT(locks.object_schema, '.', locks.object_name)
+            WHEN locks.lock_type = 'RECORD' THEN CONCAT(locks.object_schema, '.', locks.object_name, ' / ', COALESCE(locks.index_name, '-'), ' = ', COALESCE(locks.lock_data, '-'))
+            ELSE CONCAT(locks.object_schema, '.', locks.object_name)
+          END AS locked_resource,
+          waiting_thread.processlist_id AS waiting_connection_id,
+          blocking_thread.processlist_id AS blocking_connection_id,
+          CASE
+            WHEN lock_waits.blocking_engine_lock_id = locks.engine_lock_id THEN 'blocking'
+            WHEN lock_waits.requesting_engine_lock_id = locks.engine_lock_id THEN 'waiting'
+            ELSE ''
+          END AS wait_role
+        FROM performance_schema.data_locks AS locks
+        JOIN performance_schema.threads AS owner_thread
+          ON locks.thread_id = owner_thread.thread_id
+        LEFT JOIN performance_schema.data_lock_waits AS lock_waits
+          ON lock_waits.blocking_engine_lock_id = locks.engine_lock_id
+          OR lock_waits.requesting_engine_lock_id = locks.engine_lock_id
+        LEFT JOIN performance_schema.data_locks AS waiting_lock
+          ON lock_waits.requesting_engine_lock_id = waiting_lock.engine_lock_id
+        LEFT JOIN performance_schema.threads AS waiting_thread
+          ON waiting_lock.thread_id = waiting_thread.thread_id
+        LEFT JOIN performance_schema.data_locks AS blocking_lock
+          ON lock_waits.blocking_engine_lock_id = blocking_lock.engine_lock_id
+        LEFT JOIN performance_schema.threads AS blocking_thread
+          ON blocking_lock.thread_id = blocking_thread.thread_id
+        WHERE owner_thread.processlist_id = %s
+        ORDER BY locks.object_schema,
+                 locks.object_name,
+                 locks.lock_type,
+                 locks.index_name,
+                 locks.lock_mode
+        LIMIT 200
+        """,
+        [connection_id],
+    )
+
+
+def fetch_monitoring_connection_metadata_locks(connection_id):
+    return run_report_query(
+        """
+        SELECT
+          locks.object_type,
+          locks.object_schema,
+          locks.object_name,
+          locks.lock_type,
+          locks.lock_duration,
+          locks.lock_status,
+          locks.source,
+          thread.processlist_id AS connection_id,
+          thread.processlist_user AS user_name,
+          thread.processlist_db AS database_name,
+          thread.processlist_state AS state_name,
+          thread.processlist_time AS elapsed_seconds
+        FROM performance_schema.metadata_locks AS locks
+        JOIN performance_schema.threads AS thread
+          ON locks.owner_thread_id = thread.thread_id
+        WHERE thread.processlist_id = %s
+        ORDER BY CASE WHEN locks.lock_status = 'PENDING' THEN 0 ELSE 1 END,
+                 locks.object_schema,
+                 locks.object_name,
+                 locks.lock_type
+        LIMIT 200
+        """,
+        [connection_id],
     )
 
 
@@ -2284,6 +2462,12 @@ def build_monitoring_locks_context(
     mdl_name="",
     mdl_type="",
     mdl_owner_connection_id=None,
+    connection_id=None,
+    connection_min_seconds="",
+    connection_not_idle="",
+    connection_host="",
+    connection_command="",
+    connection_refresh="",
     lock_focus="row",
 ):
     row_lock_schema = str(row_lock_schema or "").strip()
@@ -2294,8 +2478,16 @@ def build_monitoring_locks_context(
     mdl_name = str(mdl_name or "").strip()
     mdl_type = str(mdl_type or "").strip()
     mdl_owner_connection_id = _coerce_int(mdl_owner_connection_id)
+    selected_connection_id = _coerce_int(connection_id)
+    connection_min_seconds_value = _coerce_nonnegative_int(connection_min_seconds, 0)
+    connection_not_idle_value = _coerce_bool(connection_not_idle)
+    connection_host_value = str(connection_host or "").strip()
+    connection_command_value = str(connection_command or "").strip()
+    connection_refresh_value = str(connection_refresh or "").strip()
+    if connection_refresh_value not in {"", "0", "2", "5", "15", "30", "40"}:
+        connection_refresh_value = ""
     lock_focus = str(lock_focus or "row").strip().lower()
-    if lock_focus not in {"row", "meta"}:
+    if lock_focus not in {"row", "meta", "connection"}:
         lock_focus = "row"
 
     row_locks = _safe_report(fetch_monitoring_lock_waits)
@@ -2309,6 +2501,37 @@ def build_monitoring_locks_context(
     metadata_lock_source = _empty_report()
     metadata_lock_source_process = _empty_report()
     metadata_lock_impacted = _empty_report()
+    connection_filters = {
+        "connection_min_seconds": connection_min_seconds_value,
+        "connection_not_idle": connection_not_idle_value,
+        "connection_host": connection_host_value,
+        "connection_command": connection_command_value,
+        "connection_refresh": connection_refresh_value,
+    }
+    lock_connections = _empty_report()
+    selected_connection_thread = _empty_report()
+    selected_connection_data_locks = _empty_report()
+    selected_connection_metadata_locks = _empty_report()
+
+    if lock_focus == "connection":
+        lock_connections = _safe_report(
+            fetch_monitoring_lock_connections,
+            min_seconds=connection_min_seconds_value,
+            not_idle=connection_not_idle_value,
+            host_filter=connection_host_value,
+            command_filter=connection_command_value,
+        )
+        connection_ids = [
+            _coerce_int(row.get("connection_id"))
+            for row in lock_connections.get("rows", [])
+            if _coerce_int(row.get("connection_id")) is not None
+        ]
+        if selected_connection_id is None and connection_ids:
+            selected_connection_id = connection_ids[0]
+        if selected_connection_id is not None:
+            selected_connection_thread = _safe_report(fetch_monitoring_connection_thread_detail, selected_connection_id)
+            selected_connection_data_locks = _safe_report(fetch_monitoring_connection_data_locks, selected_connection_id)
+            selected_connection_metadata_locks = _safe_report(fetch_monitoring_connection_metadata_locks, selected_connection_id)
 
     if row_lock_schema and row_lock_table and row_blocking_connection_id is not None:
         row_lock_source = _safe_report(
@@ -2368,6 +2591,12 @@ def build_monitoring_locks_context(
         "metadata_lock_source": metadata_lock_source,
         "metadata_lock_source_process": metadata_lock_source_process,
         "metadata_lock_impacted": metadata_lock_impacted,
+        "connection_filters": connection_filters,
+        "lock_connections": lock_connections,
+        "selected_connection_thread": selected_connection_thread,
+        "selected_connection_data_locks": selected_connection_data_locks,
+        "selected_connection_metadata_locks": selected_connection_metadata_locks,
+        "selected_connection_id": selected_connection_id,
         "selected_row_lock_schema": row_lock_schema,
         "selected_row_lock_table": row_lock_table,
         "selected_row_blocking_connection_id": row_blocking_connection_id,
