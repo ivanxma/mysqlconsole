@@ -1,25 +1,14 @@
-import base64
-import csv
-import io
-import json
 import os
-import re
-import secrets
-import ssl
-import subprocess
-import sys
 import tempfile
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
-from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
-from modules import object_storage_util, oci_util, profile_store, update_util
+from flask import Flask, render_template, request, session
+from modules import object_storage_util
 from modules.admin_routes import register_admin_routes
 from modules.auth_routes import register_auth_routes
-from modules.core_util import chmod_private_file, parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
+from modules.config_services import ObjectStorageConfigService, OciConfigService, ProfileConfigService
+from modules.core_util import parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
 from modules.dashboard_queries import (
     _normalize_checkbox,
     _normalize_error_log_priorities,
@@ -107,6 +96,8 @@ from modules.monitoring_queries import (
     fetch_table_column_names,
     run_report_query,
 )
+from modules.query_service import DatabaseQueryService, build_csv_response, quote_identifier, quote_sql_string
+from modules.session_services import DbConsoleSessionService, load_flask_secret_key, normalize_credential_ttl_seconds
 from modules.status_variables import (
     build_empty_status_variable_page as module_build_empty_status_variable_page,
     fetch_grouped_status_variables as module_fetch_grouped_status_variables,
@@ -116,8 +107,8 @@ from modules.sql_workspace import (
     normalize_sql_workspace_secondary_engine,
     register_sql_workspace_routes,
 )
-from modules.session_util import SessionManager
 from modules.update_routes import register_update_routes
+from modules.update_service import DbConsoleUpdateService
 
 APP_TITLE = "MySQL DBConsole"
 ROOT_DIR = Path(__file__).resolve().parent
@@ -133,14 +124,6 @@ DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
 DBCONSOLE_UPDATE_MAX_LOG_LINES = 400
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
-IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_$]+$")
-DEFAULT_OBJECT_STORAGE = {
-    "region": "",
-    "namespace": "",
-    "bucket_name": "",
-    "bucket_prefix": "",
-    "config_profile": "DEFAULT",
-}
 DBCONSOLE_SESSION_SCOPE_KEY = "_dbconsole_session_scope"
 DBCONSOLE_SESSION_SCOPE_VALUE = "dbconsole"
 DBCONSOLE_SESSION_VERSION_KEY = "_dbconsole_session_version"
@@ -149,10 +132,9 @@ DBCONSOLE_CREDENTIAL_SESSION_KEY = "dbconsole_server_session_id"
 DBCONSOLE_VERSION_CHECK_SESSION_KEY = "dbconsole_version_check"
 DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY = "dbconsole_update_poll_token"
 DBCONSOLE_CSRF_SESSION_KEY = "dbconsole_csrf_token"
-try:
-    DBCONSOLE_CREDENTIAL_TTL_SECONDS = max(300, int(os.environ.get("DBCONSOLE_CREDENTIAL_TTL_SECONDS", "43200")))
-except (TypeError, ValueError):
-    DBCONSOLE_CREDENTIAL_TTL_SECONDS = 43200
+DBCONSOLE_CREDENTIAL_TTL_SECONDS = normalize_credential_ttl_seconds(
+    os.environ.get("DBCONSOLE_CREDENTIAL_TTL_SECONDS", "43200")
+)
 DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", "dbconsole_session").strip() or "dbconsole_session"
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
@@ -164,7 +146,6 @@ DB_ADMIN_DEFAULT_TAB = "select"
 DB_ADMIN_TABLE_INFO_TABS = {"columns", "ddl", "indexes", "partitions", "preview", "modify-columns"}
 DB_ADMIN_TABLE_INFO_DEFAULT_TAB = "columns"
 DB_ADMIN_EVENT_OUTPUT_SESSION_KEY = "db_admin_event_output"
-DBCONSOLE_UPDATE_RUNNING_STATES = {"starting", "running", "restarting"}
 LOCAL_ADMIN_PROFILE_NAME = "local-admin-profile"
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
 EVENT_SCHEDULE_OPTIONS = (
@@ -281,35 +262,27 @@ NAV_GROUPS = [
     },
 ]
 
-def load_flask_secret_key():
-    configured_secret = os.environ.get("FLASK_SECRET_KEY", "").strip()
-    if configured_secret:
-        return configured_secret
-    try:
-        if FLASK_SECRET_KEY_FILE.exists():
-            stored_secret = FLASK_SECRET_KEY_FILE.read_text(encoding="utf-8").strip()
-            if stored_secret:
-                return stored_secret
-        generated_secret = secrets.token_urlsafe(48)
-        FLASK_SECRET_KEY_FILE.write_text(generated_secret + "\n", encoding="utf-8")
-        try:
-            FLASK_SECRET_KEY_FILE.chmod(0o600)
-        except OSError:
-            pass
-        return generated_secret
-    except OSError:
-        return secrets.token_urlsafe(48)
-
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = load_flask_secret_key()
+app.config["SECRET_KEY"] = load_flask_secret_key(FLASK_SECRET_KEY_FILE)
 app.config["SESSION_COOKIE_NAME"] = DBCONSOLE_SESSION_COOKIE_NAME
 app.config["SESSION_COOKIE_PATH"] = DBCONSOLE_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = DBCONSOLE_SESSION_COOKIE_SAMESITE
 app.config["SESSION_COOKIE_SECURE"] = DBCONSOLE_SESSION_COOKIE_SECURE
 
-SESSION_MANAGER = SessionManager(
+profile_service = ProfileConfigService(
+    profile_store_path=PROFILE_STORE,
+    profile_ssh_key_dir=PROFILE_SSH_KEY_DIR,
+)
+oci_config_service = OciConfigService(
+    private_key_dir=OCI_PRIVATE_KEY_DIR,
+    app_config_dir=OCI_CONFIG_DIR,
+)
+object_storage_service = ObjectStorageConfigService(
+    object_storage_store_path=OBJECT_STORAGE_STORE,
+)
+session_service = DbConsoleSessionService(
     default_profile=DEFAULT_PROFILE,
     normalize_profile=normalize_profile,
     close_cached_connection=close_cached_connection,
@@ -322,21 +295,39 @@ SESSION_MANAGER = SessionManager(
     version=DBCONSOLE_SESSION_VERSION,
     credential_session_key=DBCONSOLE_CREDENTIAL_SESSION_KEY,
     csrf_session_key=DBCONSOLE_CSRF_SESSION_KEY,
+    profile_service=profile_service,
+    local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+    nav_groups=NAV_GROUPS,
+)
+update_service = DbConsoleUpdateService(
+    repo_dir=ROOT_DIR,
+    app_version_file=APP_VERSION_FILE,
+    worker_script=DBCONSOLE_UPDATE_WORKER,
+    status_file=DBCONSOLE_UPDATE_STATUS_FILE,
+    log_file=DBCONSOLE_UPDATE_LOG_FILE,
+    process_started_at=PROCESS_STARTED_AT,
+    poll_token_session_key=DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY,
+    version_check_session_key=DBCONSOLE_VERSION_CHECK_SESSION_KEY,
+    local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
+    can_access_update_page=session_service.can_access_update_page,
+    is_local_admin_profile_session=session_service.is_local_admin_profile_session,
+    get_session_profile=session_service.get_session_profile,
+    max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
 )
 
 
 def csrf_token():
-    return SESSION_MANAGER.ensure_csrf_token()
+    return session_service.csrf_token()
 
 
 @app.before_request
 def ensure_dbconsole_session_scope():
-    return SESSION_MANAGER.ensure_scope()
+    return session_service.ensure_scope()
 
 
 @app.before_request
 def validate_csrf_token():
-    return SESSION_MANAGER.validate_csrf_request()
+    return session_service.validate_csrf_request()
 
 
 @app.context_processor
@@ -346,196 +337,55 @@ def inject_security_helpers():
 
 @app.after_request
 def add_authenticated_no_store_headers(response):
-    return SESSION_MANAGER.add_authenticated_no_store_headers(response)
+    return session_service.add_authenticated_no_store_headers(response)
 
 
-def ensure_profile_store():
-    profile_store.ensure_profile_store(PROFILE_STORE)
+ensure_profile_store = profile_service.ensure_profile_store
+ensure_object_storage_store = object_storage_service.ensure_object_storage_store
+load_profiles = profile_service.load_profiles
+save_profiles = profile_service.save_profiles
+get_profile_by_name = profile_service.get_profile_by_name
+save_uploaded_profile_ssh_key = profile_service.save_uploaded_profile_ssh_key
+save_uploaded_oci_private_key = oci_config_service.save_uploaded_private_key
+test_oci_config = oci_config_service.test_config
+write_user_folder_oci_config = oci_config_service.write_user_folder_config
+build_oci_config_status = oci_config_service.build_config_status
+read_oci_config_profile = oci_config_service.read_config_profile
+oci_app_config_dir = oci_config_service.app_config_dir_path
+normalize_object_storage = object_storage_service.normalize_object_storage
+load_object_storage_config = object_storage_service.load_object_storage_config
+save_object_storage_config = object_storage_service.save_object_storage_config
+fetch_setup_status = object_storage_service.fetch_setup_status
 
+get_session_profile = session_service.get_session_profile
+set_session_profile = session_service.set_session_profile
+set_session_credentials = session_service.set_session_credentials
+get_session_credentials = session_service.get_session_credentials
+get_session_username = session_service.get_session_username
+has_active_login_state = session_service.has_active_login_state
+clear_login_state = session_service.clear_login_state
+_get_server_session_entry = session_service.get_server_session_entry
+_redirect_to_login_for_mysql_unavailable = session_service.redirect_to_login_for_mysql_unavailable
+session_login_required = session_service.session_login_required
+login_required = session_service.login_required
+local_admin_profile_needs_bootstrap = session_service.local_admin_profile_needs_bootstrap
+is_local_admin_profile_session = session_service.is_local_admin_profile_session
+local_admin_password_change_required = session_service.local_admin_password_change_required
+clear_local_admin_password_change_required = session_service.clear_local_admin_password_change_required
+nav_groups_for_current_session = session_service.nav_groups_for_current_session
+can_access_update_page = session_service.can_access_update_page
 
-def ensure_object_storage_store():
-    object_storage_util.ensure_object_storage_store(OBJECT_STORAGE_STORE)
-
-
-def _append_dbconsole_update_log(message):
-    update_util.append_update_log(DBCONSOLE_UPDATE_LOG_FILE, message)
-
-
-def _write_dbconsole_update_status(payload):
-    return update_util.write_update_status(DBCONSOLE_UPDATE_STATUS_FILE, payload)
-
-
-def _default_dbconsole_update_status():
-    return update_util.default_update_status()
-
-
-def _pid_is_alive(pid):
-    return update_util.pid_is_alive(pid)
-
-
-def _read_dbconsole_update_log_tail(max_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES):
-    return update_util.read_update_log_tail(DBCONSOLE_UPDATE_LOG_FILE, max_lines)
-
-
-def _load_dbconsole_update_status_payload():
-    return update_util.load_update_status_payload(DBCONSOLE_UPDATE_STATUS_FILE)
-
-
-def _public_dbconsole_update_status(status):
-    return update_util.public_update_status(status)
-
-
-def _ensure_dbconsole_update_poll_token():
-    token = str(session.get(DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY, "")).strip()
-    if not re.fullmatch(r"[a-f0-9]{32}", token):
-        token = uuid4().hex
-        session[DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY] = token
-    return token
-
-
-def _update_status_poll_token_is_valid(status):
-    expected_token = str((status or {}).get("poll_token", "")).strip()
-    supplied_token = str(request.headers.get("X-DBConsole-Update-Poll-Token", "")).strip()
-    return bool(expected_token and supplied_token and hmac.compare_digest(expected_token, supplied_token))
-
-
-def _maybe_finalize_dbconsole_update_status(status):
-    return update_util.maybe_finalize_update_status(
-        DBCONSOLE_UPDATE_STATUS_FILE,
-        DBCONSOLE_UPDATE_LOG_FILE,
-        PROCESS_STARTED_AT,
-        status,
-    )
-
-
-def get_dbconsole_update_status():
-    return update_util.get_update_status(
-        DBCONSOLE_UPDATE_STATUS_FILE,
-        DBCONSOLE_UPDATE_LOG_FILE,
-        PROCESS_STARTED_AT,
-        DBCONSOLE_UPDATE_MAX_LOG_LINES,
-    )
-
-
-def local_admin_profile_needs_bootstrap():
-    profile = get_profile_by_name(LOCAL_ADMIN_PROFILE_NAME)
-    if not profile:
-        return True
-    return not (
-        profile.get("socket_enabled")
-        and str(profile.get("socket_path") or "").strip()
-        and not str(profile.get("host") or "").strip()
-    )
-
-
-def can_access_update_page():
-    return is_local_admin_profile_session() or local_admin_profile_needs_bootstrap()
-
-
-UPDATE_LOCAL_ADMIN_RESET_FIELDS = {
-    "reset_local_mysql_admin_password",
-    "confirm_reset_local_mysql_admin_password",
-    "confirm_local_mysql_admin_reset",
-}
-
-
-def normalize_update_local_admin_bootstrap_credentials(form_payload, require_password=False):
-    form_has_reset_fields = any(field_name in form_payload for field_name in UPDATE_LOCAL_ADMIN_RESET_FIELDS)
-    if require_password and not form_has_reset_fields:
-        return {}
-    password = str(form_payload.get("reset_local_mysql_admin_password", "") or "")
-    confirm_password = str(form_payload.get("confirm_reset_local_mysql_admin_password", "") or "")
-    acknowledged = str(form_payload.get("confirm_local_mysql_admin_reset", "") or "").strip().lower() in {"1", "true", "yes", "on"}
-    if not password and not confirm_password:
-        if require_password:
-            raise ValueError("Enter and confirm the temporary localadmin password for first-time Auto-Update bootstrap.")
-        return {}
-    if not password:
-        raise ValueError("Enter the new localadmin password.")
-    if not confirm_password:
-        raise ValueError("Confirm the new localadmin password.")
-    if password != confirm_password:
-        raise ValueError("Localadmin password confirmation does not match.")
-    if not acknowledged:
-        raise ValueError("Confirm that Auto-Update should set up the localadmin MySQL password.")
-
-    profile = get_session_profile() if is_local_admin_profile_session() else {}
-    username = str(profile.get("username") or "localadmin").strip() or "localadmin"
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}", username):
-        raise ValueError("Localadmin MySQL username in the current profile is not valid for setup.")
-    return {
-        "LOCAL_MYSQL_ADMIN_USER": username,
-        "LOCAL_MYSQL_ADMIN_PASSWORD": password,
-        "LOCAL_MYSQL_PROFILE_NAME": LOCAL_ADMIN_PROFILE_NAME,
-    }
-
-
-def start_dbconsole_update_job(local_admin_password_reset=None):
-    return update_util.start_update_job(
-        repo_dir=ROOT_DIR,
-        worker_script=DBCONSOLE_UPDATE_WORKER,
-        status_file=DBCONSOLE_UPDATE_STATUS_FILE,
-        log_file=DBCONSOLE_UPDATE_LOG_FILE,
-        python_executable=sys.executable,
-        service_pid=os.getpid(),
-        poll_token=_ensure_dbconsole_update_poll_token(),
-        process_started_at=PROCESS_STARTED_AT,
-        max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
-        local_admin_password_reset=local_admin_password_reset,
-    )
-
-
-def get_local_app_version():
-    return update_util.get_local_app_version(APP_VERSION_FILE)
-
-
-def _normalize_git_remote_url(remote_url):
-    return update_util.normalize_git_remote_url(remote_url)
-
-
-def infer_app_version_url():
-    return update_util.infer_app_version_url(ROOT_DIR)
-
-
-def normalize_repository_version_request_url(version_url):
-    return update_util.normalize_repository_version_request_url(version_url)
-
-
-def build_repository_version_ssl_context():
-    return update_util.build_repository_version_ssl_context()
-
-
-def read_repository_version_payload(response_body):
-    return update_util.read_repository_version_payload(response_body)
-
-
-def fetch_repository_app_version(timeout=2):
-    return update_util.fetch_repository_app_version(ROOT_DIR, timeout=timeout)
-
-
-def refresh_repo_version_check():
-    local_version = get_local_app_version()
-    repo_result = fetch_repository_app_version()
-    repo_version = repo_result.get("repo_version") or "-"
-    update_available = bool(repo_version != "-" and local_version != "-" and repo_version != local_version)
-    version_check = {
-        "local_version": local_version,
-        "repo_version": repo_version,
-        "update_available": update_available,
-        "checked_at": _utc_now_iso(),
-        "error": repo_result.get("error", ""),
-        "version_url": repo_result.get("version_url", ""),
-    }
-    session[DBCONSOLE_VERSION_CHECK_SESSION_KEY] = version_check
-    return version_check
-
-
-def should_show_update_page_after_login(version_check):
-    if not can_access_update_page():
-        return False
-    if version_check.get("update_available"):
-        return True
-    return bool(version_check.get("error"))
+UPDATE_LOCAL_ADMIN_RESET_FIELDS = update_service.update_local_admin_reset_fields
+normalize_update_local_admin_bootstrap_credentials = update_service.normalize_local_admin_bootstrap_credentials
+start_dbconsole_update_job = update_service.start_job
+get_local_app_version = update_service.get_local_app_version
+infer_app_version_url = update_service.infer_app_version_url
+refresh_repo_version_check = update_service.refresh_repo_version_check
+should_show_update_page_after_login = update_service.should_show_update_page_after_login
+_public_dbconsole_update_status = update_service.public_status
+get_dbconsole_update_status = update_service.get_status
+_ensure_dbconsole_update_poll_token = update_service.ensure_poll_token
+_update_status_poll_token_is_valid = update_service.status_poll_token_is_valid
 
 
 def is_system_schema_name(schema_name):
@@ -551,178 +401,6 @@ def _normalize_int(value, default, minimum=None):
     if minimum is not None and normalized < minimum:
         return default
     return normalized
-
-
-def load_profiles():
-    return profile_store.load_profiles(PROFILE_STORE)
-
-
-def save_profiles(profiles):
-    profile_store.save_profiles(PROFILE_STORE, profiles)
-
-
-def get_profile_by_name(profile_name):
-    return profile_store.get_profile_by_name(PROFILE_STORE, profile_name)
-
-
-def is_local_admin_profile_session():
-    profile = get_session_profile()
-    return (
-        profile.get("name") == LOCAL_ADMIN_PROFILE_NAME
-        and bool(profile.get("socket_enabled"))
-        and bool(str(profile.get("socket_path") or "").strip())
-    )
-
-
-def local_admin_password_change_required():
-    profile = get_session_profile()
-    return bool(is_local_admin_profile_session() and profile.get("require_password_change"))
-
-
-def clear_local_admin_password_change_required():
-    profiles = load_profiles()
-    changed = False
-    updated_profiles = []
-    for profile in profiles:
-        if profile.get("name") == LOCAL_ADMIN_PROFILE_NAME and profile.get("require_password_change"):
-            profile = dict(profile)
-            profile["require_password_change"] = False
-            changed = True
-        updated_profiles.append(profile)
-    if changed:
-        save_profiles(updated_profiles)
-        current_profile = get_session_profile()
-        if current_profile.get("name") == LOCAL_ADMIN_PROFILE_NAME:
-            current_profile["require_password_change"] = False
-            set_session_profile(current_profile)
-
-
-def nav_groups_for_current_session():
-    if is_local_admin_profile_session():
-        return NAV_GROUPS
-    can_bootstrap_update = local_admin_profile_needs_bootstrap()
-    filtered_groups = []
-    for group in NAV_GROUPS:
-        filtered_items = []
-        for item in group["items"]:
-            if item["endpoint"] == "profile_page":
-                continue
-            if item["endpoint"] == "update_dbconsole_page" and not can_bootstrap_update:
-                continue
-            filtered_items.append(item)
-        filtered_groups.append({**group, "items": filtered_items})
-    return filtered_groups
-
-
-def _safe_profile_key_dir_name(profile_name):
-    return profile_store.safe_profile_key_dir_name(profile_name)
-
-
-def save_uploaded_profile_ssh_key(profile_name, upload_storage):
-    return profile_store.save_uploaded_profile_ssh_key(PROFILE_SSH_KEY_DIR, profile_name, upload_storage)
-
-
-def save_uploaded_oci_private_key(profile_name, upload_storage):
-    return oci_util.save_uploaded_oci_private_key(OCI_PRIVATE_KEY_DIR, profile_name, upload_storage)
-
-
-def test_oci_config(payload):
-    return oci_util.test_oci_config(payload)
-
-
-def write_user_folder_oci_config(payload):
-    return oci_util.write_user_folder_oci_config(payload)
-
-
-def build_oci_config_status(payload):
-    return oci_util.build_oci_config_status(payload)
-
-
-def read_oci_config_profile(config_file, profile_name):
-    return oci_util.read_oci_config_profile(config_file, profile_name)
-
-
-def oci_app_config_dir():
-    return str(OCI_CONFIG_DIR)
-
-
-def normalize_object_storage(payload):
-    return object_storage_util.normalize_object_storage(payload)
-
-
-def load_object_storage_config():
-    return object_storage_util.load_object_storage_config(OBJECT_STORAGE_STORE)
-
-
-def save_object_storage_config(payload):
-    object_storage_util.save_object_storage_config(OBJECT_STORAGE_STORE, payload)
-
-
-def fetch_setup_status():
-    return object_storage_util.fetch_setup_status(OBJECT_STORAGE_STORE)
-
-
-def get_session_profile():
-    return SESSION_MANAGER.get_session_profile()
-
-
-def set_session_profile(profile):
-    SESSION_MANAGER.set_session_profile(profile)
-
-
-def _get_server_session_id():
-    return SESSION_MANAGER.get_server_session_id()
-
-
-def _cleanup_expired_server_sessions():
-    SESSION_MANAGER.cleanup_expired_server_sessions()
-
-
-def _get_server_session_entry():
-    return SESSION_MANAGER.get_server_session_entry()
-
-
-def set_session_credentials(username, password):
-    SESSION_MANAGER.set_session_credentials(username, password)
-
-
-def get_session_credentials():
-    return SESSION_MANAGER.get_session_credentials()
-
-
-def get_session_username():
-    return SESSION_MANAGER.get_session_username()
-
-
-def has_active_login_state():
-    return SESSION_MANAGER.has_active_login_state()
-
-
-def clear_login_state(keep_profile=True):
-    SESSION_MANAGER.clear_login_state(keep_profile=keep_profile)
-
-
-def _redirect_to_login_for_mysql_unavailable(error):
-    return SESSION_MANAGER.redirect_to_login_for_mysql_unavailable(error)
-
-
-def session_login_required(view):
-    return SESSION_MANAGER.session_login_required(view)
-
-
-def login_required(view):
-    return SESSION_MANAGER.login_required(view)
-
-
-def quote_identifier(identifier):
-    candidate = str(identifier or "").strip()
-    if not IDENTIFIER_RE.fullmatch(candidate):
-        raise ValueError(f"Invalid identifier: {candidate!r}")
-    return f"`{candidate}`"
-
-
-def quote_sql_string(value):
-    return "'" + str(value or "").replace("\\", "\\\\").replace("'", "''") + "'"
 
 
 def normalize_page_number(value):
@@ -770,10 +448,7 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
     )
 
 
-SESSION_MANAGER.configure_auth_callbacks(
-    mysql_connection=mysql_connection,
-    local_admin_password_change_required=local_admin_password_change_required,
-)
+session_service.configure_auth_callbacks(mysql_connection=mysql_connection)
 
 
 @app.errorhandler(MySQLOperationalError)
@@ -790,15 +465,16 @@ def handle_mysql_interface_error(error):
     return _redirect_to_login_for_mysql_unavailable(error)
 
 
-def execute_query(sql, params=None, *, database=None, use_secondary_engine=""):
-    with mysql_connection(database_override=database) as connection:
-        with connection.cursor() as cursor:
-            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
-            if params is None:
-                cursor.execute(sql)
-            else:
-                cursor.execute(sql, params)
-            return cursor.fetchall()
+query_service = DatabaseQueryService(
+    mysql_connection=mysql_connection,
+    apply_query_session_options=_apply_query_session_options,
+)
+execute_query = query_service.execute_query
+execute_multi_result_query = query_service.execute_multi_result_query
+execute_statement = query_service.execute_statement
+fetch_scalar = query_service.fetch_scalar
+fetch_database_exists = query_service.fetch_database_exists
+fetch_table_exists = query_service.fetch_table_exists
 
 
 configure_monitoring_queries(
@@ -806,54 +482,6 @@ configure_monitoring_queries(
     quote_identifier=quote_identifier,
     mysql_connection=mysql_connection,
 )
-
-
-def execute_multi_result_query(sql, params=None, *, database=None, use_secondary_engine=""):
-    result_sets = []
-    with mysql_connection(database_override=database) as connection:
-        with connection.cursor() as cursor:
-            _apply_query_session_options(cursor, use_secondary_engine=use_secondary_engine)
-            if params is None:
-                cursor.execute(sql)
-            else:
-                cursor.execute(sql, params)
-
-            result_index = 1
-            while True:
-                columns = [item[0] for item in cursor.description] if cursor.description else []
-                rows = cursor.fetchall() if columns else []
-                if columns or rows:
-                    result_sets.append(
-                        {
-                            "label": f"Result {result_index}",
-                            "columns": columns,
-                            "rows": rows,
-                        }
-                    )
-                    result_index += 1
-                if not cursor.nextset():
-                    break
-    return result_sets
-
-
-def execute_statement(sql, params=None, *, database=None):
-    with mysql_connection(database_override=database) as connection:
-        with connection.cursor() as cursor:
-            if params is None:
-                cursor.execute(sql)
-            else:
-                cursor.execute(sql, params)
-            rowcount = cursor.rowcount
-            while cursor.nextset():
-                pass
-            return rowcount
-
-
-def fetch_scalar(sql, params=None, *, database=None, default=None):
-    rows = execute_query(sql, params=params, database=database)
-    if not rows:
-        return default
-    return next(iter(rows[0].values()))
 
 
 configure_db_admin_queries(
@@ -882,55 +510,6 @@ configure_dashboard_queries(
     build_dashboard_heatwave_summary=module_build_dashboard_heatwave_summary,
     get_session_profile=get_session_profile,
 )
-
-
-def fetch_database_exists(database_name):
-    if not database_name:
-        return False
-    return bool(
-        fetch_scalar(
-            """
-            SELECT COUNT(*) AS database_count_value
-            FROM information_schema.schemata
-            WHERE schema_name = %s
-            """,
-            [database_name],
-            default=0,
-        )
-    )
-
-
-def fetch_table_exists(database_name, table_name):
-    if not database_name or not table_name:
-        return False
-    return bool(
-        fetch_scalar(
-            """
-            SELECT COUNT(*) AS table_count_value
-            FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_name = %s
-            """,
-            [database_name, table_name],
-            default=0,
-        )
-    )
-
-
-def build_csv_response(filename, columns, rows):
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(columns)
-    for row in rows:
-        if isinstance(row, dict):
-            writer.writerow([row.get(column, "") for column in columns])
-        else:
-            writer.writerow(list(row))
-    return Response(
-        stream.getvalue(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 def change_local_admin_profile_password(new_password):
@@ -1004,7 +583,7 @@ register_auth_routes(
         "get_profile_by_name": get_profile_by_name,
         "get_session_profile": get_session_profile,
         "set_session_profile": set_session_profile,
-        "set_logged_in": lambda value: session.__setitem__("logged_in", bool(value)),
+        "set_logged_in": session_service.set_logged_in,
         "set_session_credentials": set_session_credentials,
         "clear_login_state": clear_login_state,
         "mysql_connection": mysql_connection,
