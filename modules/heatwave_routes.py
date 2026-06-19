@@ -120,7 +120,24 @@ def register_heatwave_routes(app, deps):
         active_tab = str(request.values.get("tab", "upload")).strip().lower()
         if active_tab not in {"upload", "load", "refresh"}:
             active_tab = "upload"
-        object_storage_config = deps["load_object_storage_config"]()
+        stored_object_storage_config = deps["load_object_storage_config"]()
+        selected_object_storage_profile = str(
+            request.values.get("object_storage_profile")
+            or stored_object_storage_config.get("active_profile_name")
+            or stored_object_storage_config.get("profile_name")
+            or ""
+        ).strip()
+        try:
+            object_storage_config = deps["select_object_storage_config"](selected_object_storage_profile)
+        except Exception as error:
+            flash(str(error), "error")
+            object_storage_config = stored_object_storage_config
+            selected_object_storage_profile = str(
+                object_storage_config.get("active_profile_name")
+                or object_storage_config.get("profile_name")
+                or ""
+            ).strip()
+        object_storage_profiles = object_storage_config.get("profiles", [])
         form = normalize_external_form(
             request.form if request.method == "POST" else request.args,
             object_storage_config,
@@ -191,6 +208,8 @@ def register_heatwave_routes(app, deps):
             result_sets=result_sets,
             upload_result=upload_result,
             object_storage_config=object_storage_config,
+            object_storage_profiles=object_storage_profiles,
+            selected_object_storage_profile=selected_object_storage_profile,
             object_storage_folders=object_storage_folders,
             object_storage_files=object_storage_files,
             object_storage_error=object_storage_error,

@@ -354,7 +354,10 @@ read_oci_config_profile = oci_config_service.read_config_profile
 oci_app_config_dir = oci_config_service.app_config_dir_path
 normalize_object_storage = object_storage_service.normalize_object_storage
 load_object_storage_config = object_storage_service.load_object_storage_config
+select_object_storage_config = object_storage_service.select_object_storage_config
 save_object_storage_config = object_storage_service.save_object_storage_config
+set_active_object_storage_profile = object_storage_service.set_active_object_storage_profile
+delete_object_storage_profile = object_storage_service.delete_object_storage_profile
 fetch_setup_status = object_storage_service.fetch_setup_status
 
 get_session_profile = session_service.get_session_profile
@@ -626,6 +629,8 @@ register_admin_routes(
         "load_object_storage_config": load_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,
+        "set_active_object_storage_profile": set_active_object_storage_profile,
+        "delete_object_storage_profile": delete_object_storage_profile,
         "fetch_setup_status": fetch_setup_status,
         "build_empty_status_variable_page": module_build_empty_status_variable_page,
         "fetch_grouped_status_variables": module_fetch_grouped_status_variables,
@@ -777,6 +782,7 @@ register_heatwave_routes(
         "fetch_tables_for_database": fetch_tables_for_database,
         "execute_query": execute_query,
         "load_object_storage_config": load_object_storage_config,
+        "select_object_storage_config": select_object_storage_config,
         "list_object_storage_folders": object_storage_util.list_object_storage_folders,
         "list_object_storage_files": object_storage_util.list_object_storage_files,
         "create_object_storage_folder": object_storage_util.create_object_storage_folder,

@@ -2120,8 +2120,14 @@ h4 {
 }
 
 .oci-overview-row {
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   align-items: start;
+}
+
+.oci-overview-panel,
+.oci-profile-selector-panel,
+.lakehouse-object-profile-panel {
+  margin-bottom: 20px;
 }
 
 .oci-config-layout {
@@ -2144,10 +2150,16 @@ h4 {
   gap: 10px;
   align-items: start;
   padding: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-strong);
   cursor: pointer;
+}
+
+.radio-card.active,
+.radio-card:focus-within {
+  border-color: rgba(169, 58, 26, 0.42);
+  box-shadow: 0 0 0 3px rgba(169, 58, 26, 0.08);
 }
 
 .radio-card input {
@@ -2163,6 +2175,33 @@ h4 {
   margin-top: 4px;
   color: var(--muted);
   line-height: 1.35;
+}
+
+.oci-profile-radio-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.oci-profile-radio-form {
+  margin: 0;
+}
+
+.oci-profile-card {
+  height: 100%;
+}
+
+.oci-profile-delete-form {
+  margin-top: 16px;
+}
+
+.lakehouse-object-profile-detail {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.oci-object-storage-region-summary {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-bottom: 16px;
 }
 
 .oci-profile-detail-list {

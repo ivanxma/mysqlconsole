@@ -59,8 +59,17 @@ class ObjectStorageConfigService:
     def load_object_storage_config(self):
         return object_storage_util.load_object_storage_config(self.object_storage_store_path)
 
+    def select_object_storage_config(self, profile_name):
+        return object_storage_util.select_object_storage_config(self.object_storage_store_path, profile_name)
+
     def save_object_storage_config(self, payload):
         object_storage_util.save_object_storage_config(self.object_storage_store_path, payload)
+
+    def set_active_object_storage_profile(self, profile_name):
+        return object_storage_util.set_active_object_storage_profile(self.object_storage_store_path, profile_name)
+
+    def delete_object_storage_profile(self, profile_name):
+        return object_storage_util.delete_object_storage_profile(self.object_storage_store_path, profile_name)
 
     def fetch_setup_status(self):
         return object_storage_util.fetch_setup_status(self.object_storage_store_path)

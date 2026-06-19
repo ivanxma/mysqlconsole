@@ -125,10 +125,26 @@ def register_admin_routes(app, deps):
         config = deps["load_object_storage_config"]()
         if request.method == "POST":
             action = str(request.form.get("setup_action", "save")).strip()
+            selected_profile = str(
+                request.form.get("selected_active_profile")
+                or request.form.get("profile_name")
+                or request.form.get("active_profile_name")
+                or ""
+            ).strip()
             payload = dict(config)
             payload.update(request.form.to_dict())
             try:
-                if active_tab == "oci":
+                if action == "activate_oci_profile":
+                    if not selected_profile:
+                        raise ValueError("Choose an OCI config profile to activate.")
+                    deps["set_active_object_storage_profile"](selected_profile)
+                    flash(f"Active OCI config profile set to `{selected_profile}`.", "success")
+                elif action == "delete_oci_profile":
+                    if not selected_profile:
+                        raise ValueError("Choose an OCI config profile to delete.")
+                    deps["delete_object_storage_profile"](selected_profile)
+                    flash(f"OCI config profile `{selected_profile}` deleted.", "success")
+                elif active_tab == "oci":
                     if action in {"use_existing_oci_config", "test_existing_oci_config"}:
                         profile = (
                             request.form.get("existing_config_profile")
@@ -136,11 +152,15 @@ def register_admin_routes(app, deps):
                             or config.get("oci_config_profile")
                             or "DEFAULT"
                         )
+                        profile_detail = deps["read_oci_config_profile"]("~/.oci/config", profile)
+                        profile_values = profile_detail.get("values", {}) if profile_detail.get("exists") else {}
                         payload.update(
                             {
                                 "oci_config_source": "config_file",
                                 "oci_config_file": "~/.oci/config",
                                 "oci_config_profile": profile,
+                                "oci_region": profile_values.get("region", ""),
+                                "oci_namespace": profile_values.get("namespace", payload.get("oci_namespace", "")),
                                 "config_profile": profile,
                             }
                         )
@@ -150,7 +170,7 @@ def register_admin_routes(app, deps):
                             test_result = deps["test_oci_config"](config)
                             flash(test_result["message"], "success" if test_result.get("ok") else "error")
                         else:
-                            flash("Updated the OCI config file reference.", "success")
+                            flash(f"Saved OCI config profile `{profile}`.", "success")
                     else:
                         payload["oci_config_source"] = "user_folder"
                         payload["oci_user_folder"] = deps["oci_app_config_dir"]()
@@ -167,11 +187,11 @@ def register_admin_routes(app, deps):
                             test_result = deps["test_oci_config"](config)
                             flash(test_result["message"], "success" if test_result.get("ok") else "error")
                         else:
-                            flash("Stored OCI config in the selected user folder.", "success")
+                            flash(f"Stored OCI config profile `{config['profile_name']}`.", "success")
                 else:
                     config = deps["normalize_object_storage"](payload)
                     deps["save_object_storage_config"](config)
-                    flash("Object Storage configuration saved.", "success")
+                    flash(f"Object Storage configuration saved for `{config['profile_name']}`.", "success")
             except Exception as error:
                 flash(str(error), "error")
             return redirect(url_for("setup_object_storage_page", config_tab=active_tab))
@@ -190,6 +210,8 @@ def register_admin_routes(app, deps):
             page_title="Setup OCI Config",
             active_tab=active_tab,
             object_storage_config=config,
+            object_storage_profiles=config.get("profiles", []),
+            active_object_storage_profile=config.get("active_profile_name", config.get("profile_name", "")),
             oci_config_status=deps["build_oci_config_status"](config),
             existing_profile=existing_profile,
             existing_profile_detail=existing_profile_detail,

@@ -117,6 +117,22 @@ def build_oci_config_text(config):
     return "\n".join(lines) + "\n"
 
 
+def _oci_config_values(config):
+    normalized = normalize_oci_config(config)
+    values = {
+        "user": normalized["oci_user"],
+        "fingerprint": normalized["oci_fingerprint"],
+        "tenancy": normalized["oci_tenancy"],
+        "region": normalized["oci_region"],
+        "key_file": normalized["oci_key_file"],
+    }
+    if normalized["oci_compartment"]:
+        values["compartment"] = normalized["oci_compartment"]
+    if normalized["oci_namespace"]:
+        values["namespace"] = normalized["oci_namespace"]
+    return values
+
+
 def list_oci_config_profiles(config_file):
     config_path = Path(os.path.expanduser(str(config_file or "").strip()))
     if not str(config_file or "").strip() or not config_path.exists():
@@ -252,7 +268,25 @@ def write_user_folder_oci_config(config):
     except OSError:
         pass
     config_path = config_dir / "config"
-    config_path.write_text(build_oci_config_text(normalized), encoding="utf-8")
+    parser = configparser.RawConfigParser()
+    parser.optionxform = str
+    if config_path.exists():
+        try:
+            parser.read(config_path, encoding="utf-8")
+        except configparser.Error as error:
+            raise ValueError(f"Unable to read existing app-local OCI config `{config_path}`: {error}") from error
+    profile = normalized["oci_config_profile"] or "DEFAULT"
+    values = _oci_config_values(normalized)
+    if profile == "DEFAULT":
+        parser["DEFAULT"].clear()
+        parser["DEFAULT"].update(values)
+    else:
+        if not parser.has_section(profile):
+            parser.add_section(profile)
+        parser[profile].clear()
+        parser[profile].update(values)
+    with config_path.open("w", encoding="utf-8") as config_file:
+        parser.write(config_file)
     chmod_private_file(config_path)
     return str(config_path)
 
