@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from threading import RLock
 
 import mysql.connector
 from mysql.connector.constants import ClientFlag
@@ -31,6 +32,7 @@ DEFAULT_PROFILE = {
 }
 MYSQL_SSL_MODES = {"DISABLED", "REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY"}
 MYSQL_CONNECTION_CACHE_KEY = "mysql_connection_cache"
+MYSQL_CONNECTION_LOCK_KEY = "mysql_connection_lock"
 
 OperationalError = mysql.connector.OperationalError
 InterfaceError = mysql.connector.InterfaceError
@@ -174,21 +176,30 @@ def apply_mysql_ssl_profile(connect_kwargs, profile):
 def close_cached_connection(entry):
     if not isinstance(entry, dict):
         return
-    cache = entry.pop(MYSQL_CONNECTION_CACHE_KEY, None)
-    if not isinstance(cache, dict):
-        return
-    connection = cache.get("connection")
-    tunnel = cache.get("tunnel")
-    if connection is not None:
-        try:
-            connection.close()
-        except Exception:
-            pass
-    if tunnel is not None:
-        try:
-            tunnel.stop()
-        except Exception:
-            pass
+    with _get_session_connection_lock(entry):
+        cache = entry.pop(MYSQL_CONNECTION_CACHE_KEY, None)
+        if not isinstance(cache, dict):
+            return
+        connection = cache.get("connection")
+        tunnel = cache.get("tunnel")
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        if tunnel is not None:
+            try:
+                tunnel.stop()
+            except Exception:
+                pass
+
+
+def _get_session_connection_lock(session_entry):
+    """Return the lock that serializes one server session's MySQL connection."""
+    lock = session_entry.get(MYSQL_CONNECTION_LOCK_KEY)
+    if lock is None:
+        lock = session_entry.setdefault(MYSQL_CONNECTION_LOCK_KEY, RLock())
+    return lock
 
 
 def test_connection(connection):
@@ -275,17 +286,33 @@ def borrow_connection(profile, credentials, session_entry, database_override=Non
     if use_unix_socket and profile["ssh_enabled"]:
         raise ValueError("Unix socket profiles cannot also use SSH tunneling.")
 
-    signature = profile_signature(profile, credentials["username"])
-    requested_database = database_override or profile["database"] or None
-    cache = session_entry.get(MYSQL_CONNECTION_CACHE_KEY)
-    if not isinstance(cache, dict) or cache.get("signature") != signature:
-        close_cached_connection(session_entry)
-        cache = None
-    connection = cache.get("connection") if isinstance(cache, dict) else None
-    try:
-        if connection is not None:
-            prepare_connection_for_use(connection, requested_database, autocommit)
-        else:
+    with _get_session_connection_lock(session_entry):
+        signature = profile_signature(profile, credentials["username"])
+        requested_database = database_override or profile["database"] or None
+        cache = session_entry.get(MYSQL_CONNECTION_CACHE_KEY)
+        if not isinstance(cache, dict) or cache.get("signature") != signature:
+            close_cached_connection(session_entry)
+            cache = None
+        connection = cache.get("connection") if isinstance(cache, dict) else None
+        try:
+            if connection is not None:
+                prepare_connection_for_use(connection, requested_database, autocommit)
+            else:
+                connection, tunnel = open_connection(
+                    profile=profile,
+                    credentials=credentials,
+                    database_name=requested_database,
+                    connect_timeout=connect_timeout,
+                    autocommit=autocommit,
+                )
+                session_entry[MYSQL_CONNECTION_CACHE_KEY] = {
+                    "signature": signature,
+                    "connection": connection,
+                    "tunnel": tunnel,
+                }
+                test_connection(connection)
+        except Exception:
+            close_cached_connection(session_entry)
             connection, tunnel = open_connection(
                 profile=profile,
                 credentials=credentials,
@@ -299,36 +326,21 @@ def borrow_connection(profile, credentials, session_entry, database_override=Non
                 "tunnel": tunnel,
             }
             test_connection(connection)
-    except Exception:
-        close_cached_connection(session_entry)
-        connection, tunnel = open_connection(
-            profile=profile,
-            credentials=credentials,
-            database_name=requested_database,
-            connect_timeout=connect_timeout,
-            autocommit=autocommit,
-        )
-        session_entry[MYSQL_CONNECTION_CACHE_KEY] = {
-            "signature": signature,
-            "connection": connection,
-            "tunnel": tunnel,
-        }
-        test_connection(connection)
-    try:
-        yield connection
-    except Exception:
-        if not autocommit:
-            try:
-                connection.rollback()
-            except Exception:
-                close_cached_connection(session_entry)
-        raise
-    finally:
-        if connection is not None:
-            try:
-                connection.set_autocommit(True)
-            except Exception:
-                close_cached_connection(session_entry)
+        try:
+            yield connection
+        except Exception:
+            if not autocommit:
+                try:
+                    connection.rollback()
+                except Exception:
+                    close_cached_connection(session_entry)
+            raise
+        finally:
+            if connection is not None:
+                try:
+                    connection.set_autocommit(True)
+                except Exception:
+                    close_cached_connection(session_entry)
 
 
 def quote_sql_string_literal(value):

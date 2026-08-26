@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.4b`.
+Version summary from `1.0.2a` to `1.0.4c`.
+
+## 1.0.4c Summary
+
+Version `1.0.4c` serializes each authenticated session's cached MySQL connection.
+
+- Added a per-session re-entrant connection lock, so concurrent requests from the same session cannot use Connector/Python concurrently.
+- Added registry synchronization for server-session creation, lookup, expiry, and logout.
+- Makes connection cleanup wait for an in-progress request before closing its cached connection or SSH tunnel.
+- Added regression tests proving same-session serialization, different-session independence, and safe close-after-use.
+- Aligned package metadata with the application version.
 
 ## 1.0.4b Summary
 

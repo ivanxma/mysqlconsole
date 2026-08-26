@@ -1,6 +1,6 @@
 [project]
 name = "dbconsole"
-version = "1.0.3v"
+version = "1.0.4c"
 requires-python = ">=3.12"
 dependencies = [
   "Flask>=3.1,<4.0",

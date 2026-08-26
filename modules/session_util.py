@@ -3,6 +3,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 from functools import wraps
+from threading import RLock
 from uuid import uuid4
 
 from flask import abort, flash, redirect, request, session, url_for
@@ -38,6 +39,7 @@ class SessionManager:
         self.credential_session_key = credential_session_key
         self.csrf_session_key = csrf_session_key
         self.active_sessions = {}
+        self.active_sessions_lock = RLock()
         self.mysql_connection = None
         self.local_admin_password_change_required = None
 
@@ -99,13 +101,18 @@ class SessionManager:
 
     def cleanup_expired_server_sessions(self):
         now = datetime.now(timezone.utc)
-        expired_session_ids = []
-        for server_session_id, entry in list(self.active_sessions.items()):
-            created_at = self.parse_iso_datetime((entry or {}).get("created_at"))
-            if created_at is None or (now - created_at).total_seconds() > self.credential_ttl_seconds:
-                expired_session_ids.append(server_session_id)
-        for server_session_id in expired_session_ids:
-            entry = self.active_sessions.pop(server_session_id, None)
+        expired_entries = []
+        with self.active_sessions_lock:
+            expired_session_ids = []
+            for server_session_id, entry in list(self.active_sessions.items()):
+                created_at = self.parse_iso_datetime((entry or {}).get("created_at"))
+                if created_at is None or (now - created_at).total_seconds() > self.credential_ttl_seconds:
+                    expired_session_ids.append(server_session_id)
+            for server_session_id in expired_session_ids:
+                entry = self.active_sessions.pop(server_session_id, None)
+                if entry is not None:
+                    expired_entries.append(entry)
+        for entry in expired_entries:
             self.close_cached_connection(entry)
 
     def get_server_session_entry(self):
@@ -113,20 +120,26 @@ class SessionManager:
         server_session_id = self.get_server_session_id()
         if not server_session_id:
             return None
-        entry = self.active_sessions.get(server_session_id)
+        with self.active_sessions_lock:
+            entry = self.active_sessions.get(server_session_id)
         return entry if isinstance(entry, dict) else None
 
     def set_session_credentials(self, username, password):
         old_session_id = self.get_server_session_id()
-        if old_session_id:
-            old_entry = self.active_sessions.pop(old_session_id, None)
-            self.close_cached_connection(old_entry)
+        old_entry = None
         server_session_id = uuid4().hex
-        self.active_sessions[server_session_id] = {
+        session_entry = {
             "username": str(username or "").strip(),
             "password": password or "",
             "created_at": self.utc_now_iso(),
+            "mysql_connection_lock": RLock(),
         }
+        with self.active_sessions_lock:
+            if old_session_id:
+                old_entry = self.active_sessions.pop(old_session_id, None)
+            self.active_sessions[server_session_id] = session_entry
+        if old_entry is not None:
+            self.close_cached_connection(old_entry)
         session[self.credential_session_key] = server_session_id
 
     def get_session_credentials(self):
@@ -149,8 +162,11 @@ class SessionManager:
 
     def clear_login_state(self, keep_profile=True):
         server_session_id = self.get_server_session_id()
+        entry = None
         if server_session_id:
-            entry = self.active_sessions.pop(server_session_id, None)
+            with self.active_sessions_lock:
+                entry = self.active_sessions.pop(server_session_id, None)
+        if entry is not None:
             self.close_cached_connection(entry)
         profile = session.get("connection_profile") if keep_profile else None
         profile_name = session.get("profile_name") if keep_profile else None
