@@ -246,18 +246,25 @@
     </tbody>
   </table>
 
-  <h3>Installed Components</h3>
-  <table>
-    <thead><tr><th>Component</th><th>URN</th><th>Security Related</th></tr></thead>
-    <tbody>
-      {% for row in server_overview.installed_components %}
-      <tr><td>{{ row.component_name }}</td><td>{{ row.component_urn }}</td><td>{{ "Yes" if row.is_security_related else "No" }}</td></tr>
-      {% else %}
-      <tr><td colspan="3" class="empty">No installed components returned.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <details class="collapsible-section" data-report-section="installed-components">
+    <summary><span>Installed Components</span><small>Collapsed by default · {{ server_overview.installed_component_count }} component(s)</small></summary>
+    <div class="collapsible-content">
+      <table>
+        <thead><tr><th>Component</th><th>URN</th><th>Security Related</th></tr></thead>
+        <tbody>
+          {% for row in server_overview.installed_components %}
+          <tr><td>{{ row.component_name }}</td><td>{{ row.component_urn }}</td><td>{{ "Yes" if row.is_security_related else "No" }}</td></tr>
+          {% else %}
+          <tr><td colspan="3" class="empty">No installed components returned.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 
+  <details class="collapsible-section" data-report-section="mysql-audit">
+    <summary><span>MySQL Audit</span><small>Collapsed by default · Variables, status, users, and filters</small></summary>
+    <div class="collapsible-content">
   <h3>MySQL Audit Variables and Status</h3>
   {% for error in server_overview.audit_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
   <table>
@@ -295,6 +302,12 @@
     </tbody>
   </table>
 
+    </div>
+  </details>
+
+  <details class="collapsible-section" data-report-section="mysql-firewall">
+    <summary><span>MySQL Firewall</span><small>Collapsed by default · Variables, status, users, and rules</small></summary>
+    <div class="collapsible-content">
   <h3>MySQL Firewall Variables and Status</h3>
   {% for error in server_overview.firewall_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
   <table>
@@ -330,7 +343,12 @@
     </tbody>
   </table>
 
-  <h3>Password Policy</h3>
+    </div>
+  </details>
+
+  <details class="collapsible-section" data-report-section="password-policy">
+    <summary><span>Password Policy</span><small>Collapsed by default · Variables and status</small></summary>
+    <div class="collapsible-content">
   {% for error in server_overview.password_info.errors %}<p class="error">{{ error }}</p>{% endfor %}
   <table>
     <thead><tr><th>Name</th><th>Value</th></tr></thead>
@@ -342,6 +360,8 @@
       {% endfor %}
     </tbody>
   </table>
+    </div>
+  </details>
 
   <details class="collapsible-section" data-report-section="error-log">
     <summary><span>Error Log</span><small>Up to {{ error_log_row_limit }} most recent row(s)</small></summary>
@@ -384,6 +404,9 @@
     <div class="detail-card"><span class="label">Performance Schema Channels</span><span class="value">{{ server_overview.replication_info.performance_schema_channel_count }}</span></div>
     <div class="detail-card"><span class="label">Group Members</span><span class="value">{{ server_overview.replication_info.group_member_count }}</span></div>
   </div>
+  <details class="collapsible-section" data-report-section="replication-details">
+    <summary><span>Replication Details</span><small>Collapsed by default · Replica and Group Replication details</small></summary>
+    <div class="collapsible-content">
   {% if server_overview.replication_info.replica_status.error %}<p class="error">{{ server_overview.replication_info.replica_status.error }}</p>{% endif %}
   <h3>Replica Status</h3>
   <table>
@@ -462,6 +485,9 @@
     </tbody>
   </table>
 
+    </div>
+  </details>
+
   <h2>HeatWave Status</h2>
   {% if heatwave_summary.error %}<p class="error">{{ heatwave_summary.error }}</p>{% endif %}
   <table>
@@ -475,7 +501,10 @@
     </tbody>
   </table>
 
-  <h2>Database Inventory</h2>
+  <details class="collapsible-section" data-report-section="db-inventory-details">
+    <summary><span>DB Inventory Details</span><small>Collapsed by default · Databases, tables, views, routines, and events</small></summary>
+    <div class="collapsible-content">
+  <h3>Database Inventory</h3>
   <table>
     <thead><tr><th>Database</th><th>DB Size</th><th>Base Tables</th><th>InnoDB</th><th>Views</th><th>Stored Procedures / Functions</th><th>HeatWave Tables</th><th>Loaded 100%</th><th>Partial</th><th>None</th></tr></thead>
     <tbody>
@@ -487,7 +516,7 @@
     </tbody>
   </table>
 
-  <h2>InnoDB Tables</h2>
+  <h3>InnoDB Tables</h3>
   <table>
     <thead><tr><th>Database</th><th>Table</th><th>Rows</th><th>Data Size</th><th>Index Size</th><th>Total Size</th></tr></thead>
     <tbody>
@@ -499,7 +528,7 @@
     </tbody>
   </table>
 
-  <h2>Views</h2>
+  <h3>Views</h3>
   <table>
     <thead><tr><th>Database</th><th>View</th><th>Security Type</th></tr></thead>
     <tbody>
@@ -511,7 +540,7 @@
     </tbody>
   </table>
 
-  <h2>Stored Procedures / Functions</h2>
+  <h3>Stored Procedures / Functions</h3>
   <table>
     <thead><tr><th>Database</th><th>Type</th><th>Name</th></tr></thead>
     <tbody>
@@ -523,7 +552,7 @@
     </tbody>
   </table>
 
-  <h2>Events</h2>
+  <h3>Events</h3>
   {% if event_rows_error %}<p class="error">{{ event_rows_error }}</p>{% endif %}
   <table>
     <thead><tr><th>Database</th><th>Event</th><th>Status</th><th>Type</th><th>Schedule</th><th>On Completion</th><th>Definer</th><th>Created</th><th>Last Altered</th><th>Last Executed</th></tr></thead>
@@ -535,6 +564,8 @@
       {% endfor %}
     </tbody>
   </table>
+    </div>
+  </details>
   <script>
     (() => {
       const filter = document.getElementById("error-log-priority-filter");

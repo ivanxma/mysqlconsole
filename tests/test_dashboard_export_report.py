@@ -1,10 +1,42 @@
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import patch
 
 from jinja2 import Environment, FileSystemLoader
 
 from modules import dashboard_queries
+
+
+class ReportSectionParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.section_stack = []
+        self.section_headings = {}
+        self.heading = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "details":
+            section = attributes.get("data-report-section", "")
+            self.section_stack.append(section)
+            if section:
+                self.section_headings.setdefault(section, [])
+        elif tag in {"h2", "h3"} and self.section_stack:
+            self.heading = [self.section_stack[-1], []]
+
+    def handle_data(self, data):
+        if self.heading:
+            self.heading[1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag in {"h2", "h3"} and self.heading:
+            section, parts = self.heading
+            if section:
+                self.section_headings[section].append("".join(parts).strip())
+            self.heading = None
+        elif tag == "details":
+            self.section_stack.pop()
 
 
 class DashboardExportReportTests(unittest.TestCase):
@@ -57,8 +89,50 @@ class DashboardExportReportTests(unittest.TestCase):
         self.assertIn("Exclude Note and System", source)
         self.assertIn('<option value="all">ALL</option>', source)
         self.assertIn("data-error-log-row", source)
-        self.assertIn("<h2>Events</h2>", source)
-        self.assertGreater(source.index("<h2>Events</h2>"), source.index("<h2>Stored Procedures / Functions</h2>"))
+        collapsed_sections = (
+            "installed-components",
+            "mysql-audit",
+            "mysql-firewall",
+            "password-policy",
+            "replication-details",
+            "db-inventory-details",
+        )
+        for section in collapsed_sections:
+            self.assertIn(f'data-report-section="{section}"', source)
+            self.assertNotIn(f'data-report-section="{section}" open', source)
+        self.assertIn("<span>MySQL Audit</span>", source)
+        self.assertIn("<h3>MySQL Audit Applied Users</h3>", source)
+        self.assertIn("<span>MySQL Firewall</span>", source)
+        self.assertIn("<span>Replication Details</span>", source)
+        self.assertIn("<span>DB Inventory Details</span>", source)
+        self.assertIn("<h3>Events</h3>", source)
+        self.assertGreater(source.index("<h3>Events</h3>"), source.index("<h3>Stored Procedures / Functions</h3>"))
+
+        parser = ReportSectionParser()
+        parser.feed(source)
+        self.assertEqual(
+            parser.section_headings["mysql-audit"],
+            ["MySQL Audit Variables and Status", "MySQL Audit Applied Users", "MySQL Audit Filters"],
+        )
+        self.assertEqual(
+            parser.section_headings["mysql-firewall"],
+            ["MySQL Firewall Variables and Status", "MySQL Firewall Users and Rules"],
+        )
+        self.assertEqual(
+            parser.section_headings["replication-details"],
+            [
+                "Replica Status",
+                "Replication Connection Status",
+                "Replication Applier Coordinator",
+                "Replication Applier Workers",
+                "Group Replication Members",
+                "Group Replication Member Stats",
+            ],
+        )
+        self.assertEqual(
+            parser.section_headings["db-inventory-details"],
+            ["Database Inventory", "InnoDB Tables", "Views", "Stored Procedures / Functions", "Events"],
+        )
 
     def test_lakehouse_template_exposes_folder_population(self):
         root = Path(__file__).resolve().parents[1]

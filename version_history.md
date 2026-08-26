@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.4a`.
+Version summary from `1.0.2a` to `1.0.4b`.
+
+## 1.0.4b Summary
+
+Version `1.0.4b` reorganizes the downloaded Admin Dashboard report into compact, collapsed detail groups.
+
+- Made Installed Components and Password Policy individually collapsible and collapsed by default.
+- Grouped audit variables/status, applied users, and filters under MySQL Audit.
+- Grouped firewall variables/status, users, and rules under MySQL Firewall.
+- Grouped replica and Group Replication tables under Replication Details.
+- Grouped database inventory, InnoDB tables, views, routines, and events under DB Inventory Details.
 
 ## 1.0.4a Summary
 
