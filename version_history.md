@@ -260,6 +260,6 @@ Version `1.0.3` focuses on deployment hardening, secured connection profile mana
 - For existing deployments without `local-admin-profile`, run Auto-Update once to refresh code, then rerun Auto-Update from the refreshed page with the temporary local admin password.
 - After bootstrap, sign in with `local-admin-profile`, username `localadmin`, and the temporary password; DBConsole requires an immediate password change and then logs out.
 
-## HTML Version
+## Viewing Version History
 
-The standalone HTML version remains available in `version_history.html` for local browser viewing. GitHub repository `/blob/` pages display HTML files as source code, so use this Markdown file for formatted viewing inside GitHub.
+Use this Markdown file for formatted version-history viewing inside GitHub.
