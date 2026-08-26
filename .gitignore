@@ -29,6 +29,7 @@ profiles.json
 object_storage.json
 tls/
 profile_ssh_keys/
+# Legacy OCI API-key state is ignored for upgrade safety but is no longer read.
 oci_config/
 oci_private_keys/
 

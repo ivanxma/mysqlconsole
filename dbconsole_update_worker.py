@@ -458,6 +458,7 @@ class UpdateWorker:
             "DBCONSOLE_DEPENDENCY_AUDIT_STRICT",
             "DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL",
             "DBCONSOLE_UPDATE_ALLOWED_BRANCH",
+            "DBCONSOLE_OBJECT_STORAGE_REGION",
         )
 
         if host_value:

@@ -1,6 +1,16 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3y`.
+Version summary from `1.0.2a` to `1.0.3z`.
+
+## 1.0.3z Summary
+
+Version `1.0.3z` replaces OCI API-key/config-file authentication with OCI Compute Instance Principal authentication for Object Storage.
+
+- Removed OCI user, tenancy, fingerprint, private-key upload, and config-file/profile runtime settings and UI.
+- Added a cached Instance Principal signer and explicit per-profile Object Storage region client configuration.
+- Added deployment-region seeding through `DBCONSOLE_OBJECT_STORAGE_REGION` and OCI IMDSv2 without overriding saved cross-region targets.
+- Revalidated profile, folder, and file dropdown population against the selected target's region, namespace, bucket, and prefix.
+- Added server-side upload size, filename, extension, prefix, CSV/JSON text, Parquet/Avro signature, and post-upload object-size validation.
 
 ## 1.0.3y Summary
 

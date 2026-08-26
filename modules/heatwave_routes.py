@@ -149,6 +149,12 @@ def register_heatwave_routes(app, deps):
             try:
                 if active_tab == "upload":
                     upload_folder = form["upload_folder"]
+                    upload_storage = request.files.get("lakehouse_upload_file")
+                    validated_upload = deps["validate_object_storage_upload"](
+                        object_storage_config,
+                        upload_folder,
+                        upload_storage,
+                    )
                     if form["create_folder"]:
                         upload_folder = deps["create_object_storage_folder"](
                             object_storage_config,
@@ -156,10 +162,12 @@ def register_heatwave_routes(app, deps):
                             form["new_folder_name"],
                         )
                         form["upload_folder"] = upload_folder.strip("/")
+                        validated_upload["folder"] = upload_folder.strip("/")
                     upload_result = deps["upload_object_storage_file"](
                         object_storage_config,
                         upload_folder,
-                        request.files.get("lakehouse_upload_file"),
+                        upload_storage,
+                        validated=validated_upload,
                     )
                     form["uploaded_oci_uri"] = upload_result["oci_uri"]
                     form["oci_uri"] = upload_result["oci_uri"]

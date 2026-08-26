@@ -1,54 +1,10 @@
 {% extends "base.html" %}
 
-{% macro object_storage_hidden(config) %}
-<input type="hidden" name="active_profile_name" value="{{ config.active_profile_name or config.profile_name }}">
-<input type="hidden" name="region" value="{{ config.region }}">
-<input type="hidden" name="namespace" value="{{ config.namespace }}">
-<input type="hidden" name="bucket_name" value="{{ config.bucket_name }}">
-<input type="hidden" name="bucket_prefix" value="{{ config.bucket_prefix }}">
-{% endmacro %}
-
-{% macro oci_hidden(config) %}
-<input type="hidden" name="active_profile_name" value="{{ config.active_profile_name or config.profile_name }}">
-<input type="hidden" name="oci_config_source" value="{{ config.oci_config_source }}">
-<input type="hidden" name="oci_user_folder" value="{{ config.oci_user_folder }}">
-<input type="hidden" name="oci_config_file" value="{{ config.oci_config_file }}">
-<input type="hidden" name="oci_config_profile" value="{{ config.oci_config_profile }}">
-<input type="hidden" name="oci_user" value="{{ config.oci_user }}">
-<input type="hidden" name="oci_fingerprint" value="{{ config.oci_fingerprint }}">
-<input type="hidden" name="oci_tenancy" value="{{ config.oci_tenancy }}">
-<input type="hidden" name="oci_region" value="{{ config.oci_region }}">
-<input type="hidden" name="oci_key_file" value="{{ config.oci_key_file }}">
-<input type="hidden" name="oci_compartment" value="{{ config.oci_compartment }}">
-<input type="hidden" name="oci_namespace" value="{{ config.oci_namespace }}">
-{% endmacro %}
-
 {% block content %}
 <section class="page-header">
   <p class="eyebrow">Admin</p>
-  <h2>Setup OCI Config</h2>
-  <p>Manage the OCI SDK profile and Object Storage values used by HeatWave workflows.</p>
-</section>
-
-<section class="tab-shell">
-  <div class="tab-bar" role="tablist" aria-label="OCI setup tabs">
-    <a
-      class="tab-link {% if active_tab == 'oci' %}active{% endif %}"
-      role="tab"
-      aria-selected="{{ 'true' if active_tab == 'oci' else 'false' }}"
-      href="{{ url_for('setup_object_storage_page', config_tab='oci') }}"
-    >
-      OCI Config
-    </a>
-    <a
-      class="tab-link {% if active_tab == 'object-storage' %}active{% endif %}"
-      role="tab"
-      aria-selected="{{ 'true' if active_tab == 'object-storage' else 'false' }}"
-      href="{{ url_for('setup_object_storage_page', config_tab='object-storage') }}"
-    >
-      Object Storage Config
-    </a>
-  </div>
+  <h2>Setup Object Storage</h2>
+  <p>Configure Object Storage targets. OCI access is authenticated by this Compute instance's Instance Principal.</p>
 </section>
 
 <section class="panel oci-overview-panel">
@@ -60,28 +16,16 @@
   </div>
   <dl class="detail-list oci-overview-row">
     <div>
-      <dt>Active Pair</dt>
+      <dt>Active Profile</dt>
       <dd>{{ active_object_storage_profile or "-" }}</dd>
     </div>
     <div>
-      <dt>Source</dt>
-      <dd>{{ "~/.oci/config" if oci_config_status.config_source == "config_file" else "User Config" }}</dd>
+      <dt>Authentication</dt>
+      <dd>Instance Principal</dd>
     </div>
     <div>
-      <dt>Config File</dt>
-      <dd>{{ oci_config_status.effective_file }}</dd>
-    </div>
-    <div>
-      <dt>Readable</dt>
-      <dd>{{ "Yes" if oci_config_status.exists else "No" }}</dd>
-    </div>
-    <div>
-      <dt>Profile</dt>
-      <dd>{{ oci_config_status.active_profile or "-" }}</dd>
-    </div>
-    <div>
-      <dt>Private Key</dt>
-      <dd>{{ "Stored" if object_storage_config.oci_key_file else "-" }}</dd>
+      <dt>Region</dt>
+      <dd>{{ object_storage_config.region or deployment_region_default or "-" }}</dd>
     </div>
     <div>
       <dt>Object Storage</dt>
@@ -93,16 +37,15 @@
 <section class="panel oci-profile-selector-panel">
   <div class="panel-header">
     <div>
-      <h3>OCI Config Profiles</h3>
-      <span class="helper-text">Each saved profile keeps its OCI config and Object Storage settings together.</span>
+      <h3>Object Storage Profiles</h3>
+      <span class="helper-text">Profiles keep region, namespace, bucket, and prefix together.</span>
     </div>
   </div>
-  <div class="oci-profile-radio-list" role="radiogroup" aria-label="Active OCI config profile">
+  <div class="oci-profile-radio-list" role="radiogroup" aria-label="Active Object Storage profile">
     {% for profile in object_storage_profiles %}
     <form method="post" class="oci-profile-radio-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="config_tab" value="{{ active_tab }}">
-      <input type="hidden" name="setup_action" value="activate_oci_profile">
+      <input type="hidden" name="setup_action" value="activate_object_storage_profile">
       <input type="hidden" name="selected_active_profile" value="{{ profile.profile_name }}">
       <label class="radio-card oci-profile-card {% if profile.profile_name == active_object_storage_profile %}active{% endif %}">
         <input
@@ -114,11 +57,7 @@
         >
         <span>
           <strong>{{ profile.profile_name }}</strong>
-          <small>
-            {{ "~/.oci/config" if profile.oci_config_source == "config_file" else "User Config" }}
-            -
-            {{ profile.bucket_name or "-" }}{% if profile.namespace %}@{{ profile.namespace }}{% endif %}
-          </small>
+          <small>{{ profile.region or "-" }} — {{ profile.bucket_name or "-" }}{% if profile.namespace %}@{{ profile.namespace }}{% endif %}</small>
         </span>
       </label>
     </form>
@@ -126,7 +65,6 @@
   </div>
   <form method="post" class="inline-form oci-profile-delete-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="config_tab" value="{{ active_tab }}">
     <label>
       Delete Profile
       <select name="selected_active_profile">
@@ -135,216 +73,46 @@
         {% endfor %}
       </select>
     </label>
-    <button class="button secondary danger" type="submit" name="setup_action" value="delete_oci_profile" {% if object_storage_profiles|length <= 1 %}disabled{% endif %}>Delete</button>
+    <button class="button secondary danger" type="submit" name="setup_action" value="delete_object_storage_profile" {% if object_storage_profiles|length <= 1 %}disabled{% endif %}>Delete</button>
   </form>
 </section>
 
-{% if active_tab == 'oci' %}
-<section class="split-layout split-layout-top oci-config-layout">
-  <article class="panel oci-source-panel">
-    <div class="panel-header">
-      <div>
-        <h3>Config Source</h3>
-        <span class="helper-text">Choose the source to configure on the right.</span>
-      </div>
-    </div>
-    <div class="oci-source-options" role="radiogroup" aria-label="OCI config source">
-      <label class="radio-card">
-        <input type="radio" name="oci_source_choice" value="user_folder" data-oci-source-choice {% if oci_source_choice != 'config_file' %}checked{% endif %}>
-        <span>
-          <strong>User Config</strong>
-          <small>Store a generated OCI config in the app-local folder.</small>
-        </span>
-      </label>
-      <label class="radio-card">
-        <input type="radio" name="oci_source_choice" value="config_file" data-oci-source-choice {% if oci_source_choice == 'config_file' %}checked{% endif %}>
-        <span>
-          <strong>OCI Config</strong>
-          <small>Use a profile from <code>~/.oci/config</code>.</small>
-        </span>
-      </label>
-    </div>
-  </article>
-
-  <article class="panel" data-oci-config-panel="config_file">
-    <div class="panel-header">
-      <div>
-        <h3>OCI Config</h3>
-        <span class="helper-text">Read <code>~/.oci/config</code>, inspect a profile, then save the selected profile.</span>
-      </div>
-    </div>
-    <form method="get" class="form-grid compact-form">
-      <input type="hidden" name="config_tab" value="oci">
-      <input type="hidden" name="oci_source_choice" value="config_file">
-      <label class="full-span">
-        Profile
-        <select name="existing_config_profile" onchange="this.form.submit()">
-          {% if not oci_config_status.default_profiles or existing_profile not in oci_config_status.default_profiles %}
-          <option value="{{ existing_profile or 'DEFAULT' }}">{{ existing_profile or "DEFAULT" }}</option>
-          {% endif %}
-          {% for profile in oci_config_status.default_profiles %}
-          <option value="{{ profile }}" {% if profile == existing_profile %}selected{% endif %}>{{ profile }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    </form>
-
-    {% if existing_profile_detail.error %}
-    <p class="helper-text error-text">{{ existing_profile_detail.error }}</p>
-    {% endif %}
-    <dl class="detail-list oci-profile-detail-list">
-      <div>
-        <dt>User</dt>
-        <dd>{{ existing_profile_detail["values"].get("user") or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Fingerprint</dt>
-        <dd>{{ existing_profile_detail["values"].get("fingerprint") or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Tenancy</dt>
-        <dd>{{ existing_profile_detail["values"].get("tenancy") or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Region</dt>
-        <dd>{{ existing_profile_detail["values"].get("region") or "-" }}</dd>
-      </div>
-      <div>
-        <dt>Key File</dt>
-        <dd>{{ existing_profile_detail["values"].get("key_file") or "-" }}</dd>
-      </div>
-    </dl>
-    <pre class="sql-block oci-profile-config-text">{{ existing_profile_detail.section_text or "No profile content loaded." }}</pre>
-
-    <form method="post" class="form-grid">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="config_tab" value="oci">
-      <input type="hidden" name="oci_config_file" value="~/.oci/config">
-      <input type="hidden" name="existing_config_profile" value="{{ existing_profile or 'DEFAULT' }}">
-      {{ object_storage_hidden(object_storage_config) }}
-      <div class="form-actions">
-        <button class="button primary" type="submit" name="setup_action" value="use_existing_oci_config">Save OCI Config</button>
-        <button class="button secondary" type="submit" name="setup_action" value="test_existing_oci_config">Test OCI Config</button>
-      </div>
-    </form>
-  </article>
-
-  <article class="panel" data-oci-config-panel="user_folder">
-    <div class="panel-header">
-      <div>
-        <h3>User Config</h3>
-        <span class="helper-text">Edit the profile fields. The config is stored in the app-local git-ignored folder.</span>
-      </div>
-    </div>
-    <form method="post" class="form-grid" enctype="multipart/form-data">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="config_tab" value="oci">
-      {{ object_storage_hidden(object_storage_config) }}
-      <label>
-        Profile
-        <input name="oci_config_profile" type="text" value="{{ object_storage_config.oci_config_profile or object_storage_config.config_profile or 'DEFAULT' }}">
-      </label>
-      <label>
-        Region
-        <input name="oci_region" type="text" value="{{ object_storage_config.oci_region or object_storage_config.region }}" placeholder="uk-london-1">
-      </label>
-      <label class="full-span">
-        User OCID
-        <input name="oci_user" type="text" value="{{ object_storage_config.oci_user }}" placeholder="ocid1.user.oc1..">
-      </label>
-      <label>
-        Fingerprint
-        <input name="oci_fingerprint" type="text" value="{{ object_storage_config.oci_fingerprint }}" placeholder="31:d7:5f:...">
-      </label>
-      <label>
-        Namespace
-        <input name="oci_namespace" type="text" value="{{ object_storage_config.oci_namespace or object_storage_config.namespace }}" placeholder="frjjrqzbffld">
-      </label>
-      <label class="full-span">
-        Tenancy OCID
-        <input name="oci_tenancy" type="text" value="{{ object_storage_config.oci_tenancy }}" placeholder="ocid1.tenancy.oc1..">
-      </label>
-      <label class="full-span">
-        Compartment OCID
-        <input name="oci_compartment" type="text" value="{{ object_storage_config.oci_compartment }}" placeholder="ocid1.compartment.oc1..">
-      </label>
-      <label class="full-span">
-        Private Key
-        <input name="oci_private_key_file" type="file" accept=".pem,.key,.txt">
-      </label>
-      <p class="helper-text full-span">
-        {% if object_storage_config.oci_key_file %}
-        A private key is already stored for this profile. Upload a new key only when replacing it.
-        {% else %}
-        Upload the OCI API private key. The key file and generated config are written with owner-only permissions.
-        {% endif %}
-      </p>
-      <div class="form-actions">
-        <button class="button primary" type="submit" name="setup_action" value="store_user_oci_config">Save User Config</button>
-        <button class="button secondary" type="submit" name="setup_action" value="test_user_oci_config">Test OCI Config</button>
-      </div>
-    </form>
-  </article>
-</section>
-{% else %}
 <section class="panel">
   <div class="panel-header">
     <div>
       <h3>Object Storage Settings</h3>
-      <span class="helper-text">Bucket values for <code>{{ active_object_storage_profile or object_storage_config.profile_name }}</code>. Region is read from the OCI config profile.</span>
+      <span class="helper-text">The region selects the Object Storage service endpoint; authentication comes from the Instance Principal.</span>
     </div>
   </div>
-  <dl class="detail-list oci-object-storage-region-summary">
-    <div>
-      <dt>Region</dt>
-      <dd>{{ object_storage_config.region or "-" }}</dd>
-    </div>
-  </dl>
+  {% if deployment_region_default %}
+  <p class="helper-text">Deployment region default: <code>{{ deployment_region_default }}</code>. Saved profile regions remain authoritative and may target another region.</p>
+  {% endif %}
   <form method="post" class="form-grid">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="config_tab" value="object-storage">
-    {{ oci_hidden(object_storage_config) }}
-    <input type="hidden" name="region" value="{{ object_storage_config.region }}">
     <label>
-      Namespace
-      <input name="namespace" type="text" value="{{ object_storage_config.namespace or object_storage_config.oci_namespace }}">
+      Profile Name *
+      <input name="profile_name" type="text" required value="{{ object_storage_config.profile_name or 'DEFAULT' }}">
     </label>
     <label>
-      Bucket Name
-      <input name="bucket_name" type="text" value="{{ object_storage_config.bucket_name }}">
+      Region *
+      <input name="region" type="text" required pattern="[a-z0-9-]+" value="{{ object_storage_config.region or deployment_region_default }}" placeholder="uk-london-1">
     </label>
     <label>
-      Bucket Prefix
-      <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}">
+      Namespace *
+      <input name="namespace" type="text" required value="{{ object_storage_config.namespace }}">
+    </label>
+    <label>
+      Bucket Name *
+      <input name="bucket_name" type="text" required value="{{ object_storage_config.bucket_name }}">
     </label>
     <label class="full-span">
-      OCI Config Profile
-      <input name="config_profile" type="text" value="{{ object_storage_config.config_profile or object_storage_config.oci_config_profile }}">
+      Bucket Prefix
+      <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}" placeholder="lakehouse/input">
     </label>
     <div class="form-actions">
-      <button class="button primary" type="submit">Save Object Storage Config</button>
+      <button class="button primary" type="submit" name="setup_action" value="save_object_storage_profile">Save Object Storage Profile</button>
+      <button class="button secondary" type="submit" name="setup_action" value="test_instance_principal_access">Test Instance Principal Access</button>
     </div>
   </form>
 </section>
-{% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-  (() => {
-    const sourceChoices = Array.from(document.querySelectorAll("[data-oci-source-choice]"));
-    const configPanels = Array.from(document.querySelectorAll("[data-oci-config-panel]"));
-    if (!sourceChoices.length || !configPanels.length) {
-      return;
-    }
-    const syncPanels = () => {
-      const selected = sourceChoices.find((choice) => choice.checked)?.value || "user_folder";
-      configPanels.forEach((panel) => {
-        panel.hidden = panel.dataset.ociConfigPanel !== selected;
-      });
-    };
-    sourceChoices.forEach((choice) => choice.addEventListener("change", syncPanels));
-    syncPanels();
-  })();
-</script>
 {% endblock %}

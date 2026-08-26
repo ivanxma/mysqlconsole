@@ -89,7 +89,7 @@
       <select name="object_storage_profile" onchange="this.form.submit()">
         {% for profile in object_storage_profiles %}
         <option value="{{ profile.profile_name }}" {% if profile.profile_name == selected_object_storage_profile %}selected{% endif %}>
-          {{ profile.profile_name }}
+          {{ profile.profile_name }} — {{ profile.region or "-" }} — {{ profile.bucket_name or "-" }}{% if profile.namespace %}@{{ profile.namespace }}{% endif %}
         </option>
         {% endfor %}
       </select>
@@ -154,7 +154,7 @@
       </label>
       <label class="full-span">
         Upload File
-        <input name="lakehouse_upload_file" type="file" accept=".csv,.json,.parquet,.delta,.avro">
+        <input name="lakehouse_upload_file" type="file" required accept=".csv,.json,.parquet,.avro">
       </label>
       <div class="form-actions">
         <button class="button primary" type="submit" name="lakehouse_action" value="upload_file">Upload File</button>

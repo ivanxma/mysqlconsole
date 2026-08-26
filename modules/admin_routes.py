@@ -119,103 +119,52 @@ def register_admin_routes(app, deps):
     @app.route("/admin/setup-object-storage", methods=["GET", "POST"])
     @login_required
     def setup_object_storage_page():
-        active_tab = str(request.values.get("config_tab", "oci")).strip().lower()
-        if active_tab not in {"oci", "object-storage"}:
-            active_tab = "oci"
-        config = deps["load_object_storage_config"]()
+        store = deps["load_object_storage_config"]()
         if request.method == "POST":
             action = str(request.form.get("setup_action", "save")).strip()
             selected_profile = str(
                 request.form.get("selected_active_profile")
                 or request.form.get("profile_name")
-                or request.form.get("active_profile_name")
+                or store.get("active_profile_name")
                 or ""
             ).strip()
-            payload = dict(config)
-            payload.update(request.form.to_dict())
             try:
-                if action == "activate_oci_profile":
+                if action == "activate_object_storage_profile":
                     if not selected_profile:
-                        raise ValueError("Choose an OCI config profile to activate.")
+                        raise ValueError("Choose an Object Storage profile to activate.")
                     deps["set_active_object_storage_profile"](selected_profile)
-                    flash(f"Active OCI config profile set to `{selected_profile}`.", "success")
-                elif action == "delete_oci_profile":
+                    flash(f"Active Object Storage profile set to `{selected_profile}`.", "success")
+                elif action == "delete_object_storage_profile":
                     if not selected_profile:
-                        raise ValueError("Choose an OCI config profile to delete.")
+                        raise ValueError("Choose an Object Storage profile to delete.")
                     deps["delete_object_storage_profile"](selected_profile)
-                    flash(f"OCI config profile `{selected_profile}` deleted.", "success")
-                elif active_tab == "oci":
-                    if action in {"use_existing_oci_config", "test_existing_oci_config"}:
-                        profile = (
-                            request.form.get("existing_config_profile")
-                            or request.form.get("oci_config_profile")
-                            or config.get("oci_config_profile")
-                            or "DEFAULT"
-                        )
-                        profile_detail = deps["read_oci_config_profile"]("~/.oci/config", profile)
-                        profile_values = profile_detail.get("values", {}) if profile_detail.get("exists") else {}
-                        payload.update(
-                            {
-                                "oci_config_source": "config_file",
-                                "oci_config_file": "~/.oci/config",
-                                "oci_config_profile": profile,
-                                "oci_region": profile_values.get("region", ""),
-                                "oci_namespace": profile_values.get("namespace", payload.get("oci_namespace", "")),
-                                "config_profile": profile,
-                            }
-                        )
-                        config = deps["normalize_object_storage"](payload)
-                        deps["save_object_storage_config"](config)
-                        if action == "test_existing_oci_config":
-                            test_result = deps["test_oci_config"](config)
-                            flash(test_result["message"], "success" if test_result.get("ok") else "error")
-                        else:
-                            flash(f"Saved OCI config profile `{profile}`.", "success")
-                    else:
-                        payload["oci_config_source"] = "user_folder"
-                        payload["oci_user_folder"] = deps["oci_app_config_dir"]()
-                        uploaded_key_path = deps["save_uploaded_oci_private_key"](
-                            payload.get("oci_config_profile", config.get("oci_config_profile", "DEFAULT")),
-                            request.files.get("oci_private_key_file"),
-                        )
-                        payload["oci_key_file"] = uploaded_key_path or config.get("oci_key_file", "")
-                        payload["config_profile"] = payload.get("oci_config_profile")
-                        config = deps["normalize_object_storage"](payload)
-                        deps["write_user_folder_oci_config"](config)
-                        deps["save_object_storage_config"](config)
-                        if action == "test_user_oci_config":
-                            test_result = deps["test_oci_config"](config)
-                            flash(test_result["message"], "success" if test_result.get("ok") else "error")
-                        else:
-                            flash(f"Stored OCI config profile `{config['profile_name']}`.", "success")
+                    flash(f"Object Storage profile `{selected_profile}` deleted.", "success")
                 else:
-                    config = deps["normalize_object_storage"](payload)
-                    deps["save_object_storage_config"](config)
-                    flash(f"Object Storage configuration saved for `{config['profile_name']}`.", "success")
+                    config = deps["normalize_object_storage"](request.form.to_dict())
+                    if action == "test_instance_principal_access":
+                        test_result = deps["test_instance_principal_access"](config)
+                        flash(test_result["message"], "success" if test_result.get("ok") else "error")
+                    else:
+                        deps["save_object_storage_config"](config)
+                        selected_profile = config["profile_name"]
+                        flash(f"Object Storage profile `{selected_profile}` saved.", "success")
             except Exception as error:
                 flash(str(error), "error")
-            return redirect(url_for("setup_object_storage_page", config_tab=active_tab))
-        existing_profile = (
-            request.args.get("existing_config_profile")
-            or config.get("oci_config_profile")
-            or config.get("config_profile")
-            or "DEFAULT"
-        )
-        existing_profile_detail = deps["read_oci_config_profile"]("~/.oci/config", existing_profile)
-        source_choice = str(request.args.get("oci_source_choice", config.get("oci_config_source", "user_folder"))).strip()
-        if source_choice not in {"user_folder", "config_file"}:
-            source_choice = config.get("oci_config_source", "user_folder")
+            return redirect(url_for("setup_object_storage_page", profile=selected_profile))
+
+        selected_profile = str(request.args.get("profile") or store.get("active_profile_name") or "").strip()
+        try:
+            config = deps["select_object_storage_config"](selected_profile)
+        except Exception as error:
+            flash(str(error), "error")
+            config = store
         return render_dashboard(
             "setup_object_storage.html",
-            page_title="Setup OCI Config",
-            active_tab=active_tab,
+            page_title="Setup Object Storage",
             object_storage_config=config,
-            object_storage_profiles=config.get("profiles", []),
-            active_object_storage_profile=config.get("active_profile_name", config.get("profile_name", "")),
-            oci_config_status=deps["build_oci_config_status"](config),
-            existing_profile=existing_profile,
-            existing_profile_detail=existing_profile_detail,
-            oci_source_choice=source_choice,
+            object_storage_profiles=store.get("profiles", []),
+            active_object_storage_profile=store.get("active_profile_name", ""),
+            deployment_region_default=deps["deployment_region_default"],
         )
 
     @app.route("/admin/status-variables")

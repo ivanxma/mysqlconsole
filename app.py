@@ -7,7 +7,7 @@ from flask import Flask, render_template, request, session
 from modules import object_storage_util
 from modules.admin_routes import register_admin_routes
 from modules.auth_routes import register_auth_routes
-from modules.config_services import ObjectStorageConfigService, OciConfigService, ProfileConfigService
+from modules.config_services import ObjectStorageConfigService, ProfileConfigService
 from modules.core_util import parse_iso_datetime as _parse_iso_datetime, utc_now_iso as _utc_now_iso
 from modules.dashboard_queries import (
     _normalize_checkbox,
@@ -117,8 +117,6 @@ OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
 FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
 PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
-OCI_PRIVATE_KEY_DIR = ROOT_DIR / "oci_private_keys"
-OCI_CONFIG_DIR = ROOT_DIR / "oci_config"
 DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
 DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
@@ -140,6 +138,7 @@ DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", 
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
 DBCONSOLE_SESSION_COOKIE_SECURE_VALUE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower()
 DBCONSOLE_SESSION_COOKIE_SECURE = DBCONSOLE_SESSION_COOKIE_SECURE_VALUE in {"1", "true", "yes", "on"}
+DBCONSOLE_OBJECT_STORAGE_REGION = os.environ.get("DBCONSOLE_OBJECT_STORAGE_REGION", "").strip().lower()
 
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "routine", "charset-collation"}
 DB_ADMIN_DEFAULT_TAB = "select"
@@ -229,7 +228,7 @@ NAV_GROUPS = [
             {"endpoint": "mysql_dashboard_page", "label": "Dashboard"},
             {"endpoint": "profile_page", "label": "Profile"},
             {"endpoint": "admin_status_variables_page", "label": "Status and Variables"},
-            {"endpoint": "setup_object_storage_page", "label": "Setup OCI Config"},
+            {"endpoint": "setup_object_storage_page", "label": "Setup Object Storage"},
             {"endpoint": "update_dbconsole_page", "label": "Auto-Update"},
         ],
     },
@@ -270,17 +269,15 @@ app.config["SESSION_COOKIE_PATH"] = DBCONSOLE_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = DBCONSOLE_SESSION_COOKIE_SAMESITE
 app.config["SESSION_COOKIE_SECURE"] = DBCONSOLE_SESSION_COOKIE_SECURE
+app.config["MAX_CONTENT_LENGTH"] = object_storage_util.DEFAULT_MAX_UPLOAD_BYTES + (1024 * 1024)
 
 profile_service = ProfileConfigService(
     profile_store_path=PROFILE_STORE,
     profile_ssh_key_dir=PROFILE_SSH_KEY_DIR,
 )
-oci_config_service = OciConfigService(
-    private_key_dir=OCI_PRIVATE_KEY_DIR,
-    app_config_dir=OCI_CONFIG_DIR,
-)
 object_storage_service = ObjectStorageConfigService(
     object_storage_store_path=OBJECT_STORAGE_STORE,
+    default_region=DBCONSOLE_OBJECT_STORAGE_REGION,
 )
 session_service = DbConsoleSessionService(
     default_profile=DEFAULT_PROFILE,
@@ -346,12 +343,6 @@ load_profiles = profile_service.load_profiles
 save_profiles = profile_service.save_profiles
 get_profile_by_name = profile_service.get_profile_by_name
 save_uploaded_profile_ssh_key = profile_service.save_uploaded_profile_ssh_key
-save_uploaded_oci_private_key = oci_config_service.save_uploaded_private_key
-test_oci_config = oci_config_service.test_config
-write_user_folder_oci_config = oci_config_service.write_user_folder_config
-build_oci_config_status = oci_config_service.build_config_status
-read_oci_config_profile = oci_config_service.read_config_profile
-oci_app_config_dir = oci_config_service.app_config_dir_path
 normalize_object_storage = object_storage_service.normalize_object_storage
 load_object_storage_config = object_storage_service.load_object_storage_config
 select_object_storage_config = object_storage_service.select_object_storage_config
@@ -359,6 +350,7 @@ save_object_storage_config = object_storage_service.save_object_storage_config
 set_active_object_storage_profile = object_storage_service.set_active_object_storage_profile
 delete_object_storage_profile = object_storage_service.delete_object_storage_profile
 fetch_setup_status = object_storage_service.fetch_setup_status
+test_instance_principal_access = object_storage_service.test_instance_principal_access
 
 get_session_profile = session_service.get_session_profile
 set_session_profile = session_service.set_session_profile
@@ -620,13 +612,10 @@ register_admin_routes(
         "change_local_admin_profile_password": change_local_admin_profile_password,
         "clear_local_admin_password_change_required": clear_local_admin_password_change_required,
         "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
-        "save_uploaded_oci_private_key": save_uploaded_oci_private_key,
-        "test_oci_config": test_oci_config,
-        "write_user_folder_oci_config": write_user_folder_oci_config,
-        "build_oci_config_status": build_oci_config_status,
-        "read_oci_config_profile": read_oci_config_profile,
-        "oci_app_config_dir": oci_app_config_dir,
+        "deployment_region_default": DBCONSOLE_OBJECT_STORAGE_REGION,
+        "test_instance_principal_access": test_instance_principal_access,
         "load_object_storage_config": load_object_storage_config,
+        "select_object_storage_config": select_object_storage_config,
         "normalize_object_storage": normalize_object_storage,
         "save_object_storage_config": save_object_storage_config,
         "set_active_object_storage_profile": set_active_object_storage_profile,
@@ -786,6 +775,7 @@ register_heatwave_routes(
         "list_object_storage_folders": object_storage_util.list_object_storage_folders,
         "list_object_storage_files": object_storage_util.list_object_storage_files,
         "create_object_storage_folder": object_storage_util.create_object_storage_folder,
+        "validate_object_storage_upload": object_storage_util.validate_object_storage_upload,
         "upload_object_storage_file": object_storage_util.upload_object_storage_file,
     },
 )

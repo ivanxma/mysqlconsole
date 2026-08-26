@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.3y`
+Current version: `1.0.3z`
 
 Version history: `version_history.md`.
 
@@ -45,7 +45,7 @@ Key files:
 
 Current feature modules:
 
-- `modules/config_services.py`: profile, OCI config, and Object Storage config service wrappers
+- `modules/config_services.py`: profile and Object Storage config service wrappers
 - `modules/query_service.py`: generic MySQL query execution helpers, SQL quoting, table existence checks, and CSV responses
 - `modules/session_services.py`: Flask session policy, CSRF helpers, login state, local-admin profile state, and navigation filtering
 - `modules/update_service.py`: Auto-Update status, poll-token, repository-version, and local-admin bootstrap helpers
@@ -61,6 +61,7 @@ Current feature modules:
 - Python 3.12 or newer for setup-created deployments
 - MySQL access credentials
 - optional SSH access if tunneling is enabled in a profile
+- an OCI Compute Instance Principal dynamic-group policy for Object Storage browsing and uploads
 
 Python dependencies are installed from `requirements.txt`. `pyproject.toml` also declares `requires-python = ">=3.12"` for tooling that reads Python project metadata.
 
@@ -435,6 +436,7 @@ For `setup.sh`:
 - `DBCONSOLE_DEPENDENCY_AUDIT_STRICT`
 - `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
 - `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
+- `DBCONSOLE_OBJECT_STORAGE_REGION`
 - `LOCAL_MYSQL_PROFILE_NAME`
 - `LOCAL_MYSQL_ADMIN_USER`
 - `LOCAL_MYSQL_ADMIN_PASSWORD`
@@ -456,6 +458,7 @@ For `start_http.sh` and `start_https.sh`:
 - `DBCONSOLE_SESSION_COOKIE_SECURE`
 - `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
 - `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
+- `DBCONSOLE_OBJECT_STORAGE_REGION`
 - `LOCAL_MYSQL_AUTOSTART`
 - `LOCAL_MYSQL_SOCKET`
 - `LOCAL_MYSQL_SERVICE`
@@ -469,7 +472,7 @@ For `start_http.sh` and `start_https.sh`:
 
 ## Default Config Files
 
-- `.runtime.env`: saved host, port, and TLS defaults written by `setup.sh`
+- `.runtime.env`: saved host, port, TLS, and optional deployment-region defaults written by `setup.sh`
 - `.flask_secret_key`: generated Flask session signing key used when `FLASK_SECRET_KEY` is not set
 - `.embedded/mysql-shell/`: app-local embedded MySQL Shell fallback used when the platform `mysqlsh` is missing or below the required version
 - `.embedded/mysql-server/`: app-local MySQL Server installed from the public Oracle macOS tar archive for socket-only local admin use
@@ -483,6 +486,10 @@ For `start_http.sh` and `start_https.sh`:
 `.runtime.env`, `.flask_secret_key`, `.data/`, `.embedded/`, `etc/my.cnf`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/` are git-ignored local state. `etc/` itself is not ignored, so future checked-in configuration templates can be added there without changing `.gitignore`. `setup.sh` repairs local sensitive file permissions on every run: runtime config, Flask secret key, profiles, object storage config, and generated MySQL config are written as owner-readable files, uploaded SSH-key directories are owner-only, and TLS private key material is owner-readable only. The auto-update worker allows local changes to these files during the repository clean-check.
 
 `profiles.json` must not contain database passwords. The generated `local-admin-profile` stores only the local socket path, default database, default username, and first-login password-change marker. SSH private keys are also not stored in `profiles.json`; uploaded key files are kept under `profile_ssh_keys/` with restrictive permissions and only the server-side path is retained.
+
+Object Storage uses OCI Compute Instance Principal authentication exclusively. DBConsole does not read or generate `~/.oci/config`, store API-key fingerprints, or upload OCI private keys. `setup.sh` resolves the optional `DBCONSOLE_OBJECT_STORAGE_REGION` default in this order: explicit environment override, saved `.runtime.env` value, OCI IMDSv2 deployment region, then an empty value completed in `Admin > Setup Object Storage`. The deployment default seeds only a missing first-run region; each saved Object Storage profile remains authoritative and may target another region.
+
+For a deployment upgraded from API-key authentication, the legacy app-local `oci_config/` and `oci_private_keys/` directories remain ignored so they do not block the first Auto-Update. DBConsole no longer reads either directory. After Instance Principal access, folder population, file population, and a test upload have succeeded, remove those two app-local directories according to your credential-retention procedure. Do not remove a user's global `~/.oci/config` as part of DBConsole cleanup.
 
 ## Main Screens
 
@@ -585,7 +592,7 @@ For `start_http.sh` and `start_https.sh`:
 
 `External Table/Lakehouse` supports:
 
-- upload CSV, JSON, Parquet, Delta, and Avro files to the configured Object Storage bucket
+- upload validated CSV, JSON, Parquet, and Avro files to the configured Object Storage bucket through Instance Principal authentication
 - list Object Storage folders from the configured bucket/prefix
 - optionally create a folder before upload
 - choose an External Folder and file in HeatWave Load to fill the editable `oci://bucket@namespace/path/file` URI

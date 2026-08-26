@@ -198,11 +198,13 @@ DBCONSOLE_DEPENDENCY_AUDIT="${DBCONSOLE_DEPENDENCY_AUDIT:-warn}"
 DBCONSOLE_DEPENDENCY_AUDIT_STRICT="${DBCONSOLE_DEPENDENCY_AUDIT_STRICT:-0}"
 DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL="${DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL:-}"
 DBCONSOLE_UPDATE_ALLOWED_BRANCH="${DBCONSOLE_UPDATE_ALLOWED_BRANCH:-main}"
+DBCONSOLE_OBJECT_STORAGE_REGION_INPUT="${DBCONSOLE_OBJECT_STORAGE_REGION:-}"
 EXISTING_DEFAULT_HTTP_PORT=""
 EXISTING_DEFAULT_HTTPS_PORT=""
 EXISTING_HOST=""
 EXISTING_SSL_CERT_FILE=""
 EXISTING_SSL_KEY_FILE=""
+EXISTING_DBCONSOLE_OBJECT_STORAGE_REGION=""
 LOCAL_MYSQL_TEMP_ROOT_PASSWORD=""
 LOCAL_MYSQL_DATADIR_INITIALIZED=0
 
@@ -232,7 +234,7 @@ Environment overrides:
   LOCAL_MYSQL_INIT_FILE_PROVISIONING, LOCAL_MYSQL_RESET_UNKNOWN_ROOT,
   DBCONSOLE_DEPENDENCY_AUDIT,
   DBCONSOLE_DEPENDENCY_AUDIT_STRICT, DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL,
-  DBCONSOLE_UPDATE_ALLOWED_BRANCH
+  DBCONSOLE_UPDATE_ALLOWED_BRANCH, DBCONSOLE_OBJECT_STORAGE_REGION
 
 Bootstrap overrides for curl | sh:
   BOOTSTRAP_REPO_URL, BOOTSTRAP_CLONE_DIR, BOOTSTRAP_PARENT_DIR
@@ -783,7 +785,7 @@ load_existing_runtime_env() {
     return 0
   fi
 
-  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE DBCONSOLE_MYSQLSH
+  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE DBCONSOLE_MYSQLSH DBCONSOLE_OBJECT_STORAGE_REGION
   # shellcheck disable=SC1090
   source "$RUNTIME_ENV_FILE"
   EXISTING_DEFAULT_HTTP_PORT="${DEFAULT_HTTP_PORT:-}"
@@ -791,6 +793,7 @@ load_existing_runtime_env() {
   EXISTING_HOST="${HOST:-}"
   EXISTING_SSL_CERT_FILE="${SSL_CERT_FILE:-}"
   EXISTING_SSL_KEY_FILE="${SSL_KEY_FILE:-}"
+  EXISTING_DBCONSOLE_OBJECT_STORAGE_REGION="${DBCONSOLE_OBJECT_STORAGE_REGION:-}"
 }
 
 version_ge() {
@@ -828,6 +831,36 @@ resolve_value() {
   else
     echo "$fallback"
   fi
+}
+
+normalize_object_storage_region() {
+  local value
+  value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  value="${value#${value%%[![:space:]]*}}"
+  value="${value%${value##*[![:space:]]}}"
+  if [[ -n "$value" && ! "$value" =~ ^[a-z0-9-]+$ ]]; then
+    echo "Object Storage region must use only lowercase letters, numbers, and hyphens." >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+
+detect_oci_compute_region() {
+  local detected=""
+  if command -v curl >/dev/null 2>&1; then
+    detected="$(curl -fsS --connect-timeout 1 --max-time 2 -H 'Authorization: Bearer Oracle' \
+      http://169.254.169.254/opc/v2/instance/region 2>/dev/null || true)"
+  fi
+  normalize_object_storage_region "$detected"
+}
+
+resolve_object_storage_region() {
+  local resolved
+  resolved="$(resolve_value "$DBCONSOLE_OBJECT_STORAGE_REGION_INPUT" "$EXISTING_DBCONSOLE_OBJECT_STORAGE_REGION" "")"
+  if [[ -z "$resolved" ]]; then
+    resolved="$(detect_oci_compute_region)"
+  fi
+  normalize_object_storage_region "$resolved"
 }
 
 display_prompt_value() {
@@ -1312,6 +1345,7 @@ write_runtime_env() {
   local ssl_key_file="$5"
   local os_family="$6"
   local deploy_mode="$7"
+  local object_storage_region="$8"
   local embedded_mysqlsh="${DBCONSOLE_MYSQLSH:-}"
   local update_remote_url
   local update_branch
@@ -1332,6 +1366,9 @@ write_runtime_env() {
     echo "DEFAULT_HTTP_PORT=$http_port"
     echo "DEFAULT_HTTPS_PORT=$https_port"
     echo "DBCONSOLE_PYTHON_MIN_VERSION=$DBCONSOLE_PYTHON_MIN_VERSION"
+    if [[ -n "$object_storage_region" ]]; then
+      echo "DBCONSOLE_OBJECT_STORAGE_REGION=$object_storage_region"
+    fi
     if [[ -n "$python_bin_value" ]]; then
       echo "DBCONSOLE_PYTHON_BIN=$python_bin_value"
     fi
@@ -1454,15 +1491,6 @@ harden_local_file_permissions() {
       chmod 600 "$file_path" 2>/dev/null || true
     done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
   fi
-
-  for dir_path in "$SCRIPT_DIR/oci_config" "$SCRIPT_DIR/oci_private_keys"; do
-    if [[ -d "$dir_path" ]]; then
-      chmod 700 "$dir_path" 2>/dev/null || true
-      while IFS= read -r -d '' file_path; do
-        chmod 600 "$file_path" 2>/dev/null || true
-      done < <(find "$dir_path" -type f -print0 2>/dev/null)
-    fi
-  done
 
   if [[ -d "$SCRIPT_DIR/.data" ]]; then
     chmod 700 "$SCRIPT_DIR/.data" 2>/dev/null || true
@@ -3298,6 +3326,7 @@ main() {
   local prompted_ports
   local tls_assets
   local python_command
+  local object_storage_region
 
   load_existing_runtime_env
   parse_args "$@"
@@ -3340,6 +3369,7 @@ main() {
 
   ssl_cert_file="$(resolve_value "$SSL_CERT_FILE_INPUT" "$EXISTING_SSL_CERT_FILE" "")"
   ssl_key_file="$(resolve_value "$SSL_KEY_FILE_INPUT" "$EXISTING_SSL_KEY_FILE" "")"
+  object_storage_region="$(resolve_object_storage_region)"
   case "$deploy_mode" in
     https|both)
       if is_interactive_terminal && [[ -z "$SSL_CERT_FILE_INPUT" ]]; then
@@ -3387,7 +3417,7 @@ main() {
   fi
   configure_local_mysql_admin_account "$os_family"
   write_local_admin_profile
-  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family" "$deploy_mode"
+  write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family" "$deploy_mode" "$object_storage_region"
   harden_local_file_permissions
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"
 
@@ -3401,6 +3431,9 @@ main() {
   echo "Default host: $host_value"
   echo "Default HTTP port: $http_port"
   echo "Default HTTPS port: $https_port"
+  if [[ -n "$object_storage_region" ]]; then
+    echo "Default Object Storage region: $object_storage_region"
+  fi
   if [[ -n "$ssl_cert_file" && -n "$ssl_key_file" ]]; then
     echo "TLS certificate: $ssl_cert_file"
     echo "TLS key: $ssl_key_file"
