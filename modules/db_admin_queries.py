@@ -10,6 +10,7 @@ _get_event_schedule_option = None
 _quote_identifier = None
 _quote_sql_string = None
 _mysql_connection = None
+_is_system_schema_name = None
 _db_admin_preview_masked_base_types = set()
 
 
@@ -23,11 +24,13 @@ def configure_db_admin_queries(
     quote_identifier,
     quote_sql_string,
     mysql_connection,
+    is_system_schema_name,
     db_admin_preview_masked_base_types,
 ):
     global _execute_query, _execute_statement, _fetch_scalar, _fetch_table_column_lookup
     global _get_event_schedule_option, _quote_identifier, _quote_sql_string
-    global _mysql_connection, _db_admin_preview_masked_base_types, DB_ADMIN_PREVIEW_MASKED_BASE_TYPES
+    global _mysql_connection, _is_system_schema_name
+    global _db_admin_preview_masked_base_types, DB_ADMIN_PREVIEW_MASKED_BASE_TYPES
     _execute_query = execute_query
     _execute_statement = execute_statement
     _fetch_scalar = fetch_scalar
@@ -36,6 +39,7 @@ def configure_db_admin_queries(
     _quote_identifier = quote_identifier
     _quote_sql_string = quote_sql_string
     _mysql_connection = mysql_connection
+    _is_system_schema_name = is_system_schema_name
     _db_admin_preview_masked_base_types = set(db_admin_preview_masked_base_types or [])
     DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = _db_admin_preview_masked_base_types
 
@@ -86,6 +90,12 @@ def quote_sql_string(*args, **kwargs):
     if _quote_sql_string is None:
         raise RuntimeError("DB Admin query dependencies are not configured")
     return _quote_sql_string(*args, **kwargs)
+
+
+def is_system_schema_name(*args, **kwargs):
+    if _is_system_schema_name is None:
+        raise RuntimeError("DB Admin query dependencies are not configured")
+    return _is_system_schema_name(*args, **kwargs)
 
 
 DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = _db_admin_preview_masked_base_types

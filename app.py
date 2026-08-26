@@ -488,6 +488,7 @@ configure_db_admin_queries(
     quote_identifier=quote_identifier,
     quote_sql_string=quote_sql_string,
     mysql_connection=mysql_connection,
+    is_system_schema_name=is_system_schema_name,
     db_admin_preview_masked_base_types=DB_ADMIN_PREVIEW_MASKED_BASE_TYPES,
 )
 

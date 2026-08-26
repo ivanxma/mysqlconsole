@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.3z`.
+Version summary from `1.0.2a` to `1.0.4`.
+
+## 1.0.4 Summary
+
+Version `1.0.4` fixes DB Admin schema-guard dependency wiring for primary-key repair and other schema-changing actions.
+
+- Injected the shared system-schema guard into `modules/db_admin_queries.py` so primary-key repair no longer fails with an undefined helper.
+- Added regression coverage proving system schemas are rejected before SQL execution and application schemas generate the expected primary-key statement.
 
 ## 1.0.3z Summary
 
