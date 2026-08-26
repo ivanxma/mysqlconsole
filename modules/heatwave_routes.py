@@ -191,10 +191,16 @@ def register_heatwave_routes(app, deps):
         object_storage_files = []
         object_storage_error = ""
         object_storage_files_error = ""
-        try:
-            object_storage_folders = deps["list_object_storage_folders"](object_storage_config)
-        except Exception as error:
-            object_storage_error = str(error)
+        base_folder = str(object_storage_config.get("bucket_prefix") or "").strip().strip("/")
+        object_storage_folders = [f"{base_folder}/" if base_folder else ""]
+        populate_folders = str(request.values.get("populate_folders", "")).strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        if populate_folders or request.method == "POST":
+            try:
+                object_storage_folders = deps["list_object_storage_folders"](object_storage_config)
+            except Exception as error:
+                object_storage_error = str(error)
         if active_tab == "load":
             try:
                 object_storage_files = deps["list_object_storage_files"](
@@ -218,6 +224,7 @@ def register_heatwave_routes(app, deps):
             object_storage_config=object_storage_config,
             object_storage_profiles=object_storage_profiles,
             selected_object_storage_profile=selected_object_storage_profile,
+            folders_populated=populate_folders or request.method == "POST",
             object_storage_folders=object_storage_folders,
             object_storage_files=object_storage_files,
             object_storage_error=object_storage_error,

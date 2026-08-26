@@ -224,7 +224,10 @@ def fetch_dashboard_innodb_table_rows():
           table_schema AS database_name_value,
           table_name AS table_name_value,
           engine AS engine_value,
-          table_rows AS table_rows_value
+          COALESCE(table_rows, 0) AS table_rows_value,
+          COALESCE(data_length, 0) AS data_bytes_value,
+          COALESCE(index_length, 0) AS index_bytes_value,
+          COALESCE(data_length, 0) + COALESCE(index_length, 0) AS total_bytes_value
         FROM information_schema.tables
         WHERE table_type = 'BASE TABLE'
           AND UPPER(COALESCE(engine, '')) = 'INNODB'
@@ -233,15 +236,26 @@ def fetch_dashboard_innodb_table_rows():
         ORDER BY table_schema, table_name
         """
     )
-    return [
-        {
+    normalized_rows = []
+    for row in rows:
+        table_rows = row["table_rows_value"] if row["table_rows_value"] is not None else 0
+        data_bytes = row["data_bytes_value"] or 0
+        index_bytes = row["index_bytes_value"] or 0
+        total_bytes = row["total_bytes_value"] or 0
+        normalized_rows.append({
             "database_name": row["database_name_value"],
             "table_name": row["table_name_value"],
             "engine": row["engine_value"] or "InnoDB",
-            "row_count": row["table_rows_value"] if row["table_rows_value"] is not None else "-",
-        }
-        for row in rows
-    ]
+            "row_count": table_rows,
+            "table_rows": table_rows,
+            "data_bytes": data_bytes,
+            "index_bytes": index_bytes,
+            "total_bytes": total_bytes,
+            "data_size_label": _format_bytes(data_bytes),
+            "index_size_label": _format_bytes(index_bytes),
+            "total_size_label": _format_bytes(total_bytes),
+        })
+    return normalized_rows
 
 
 def fetch_dashboard_view_rows():
@@ -1002,6 +1016,7 @@ def fetch_server_overview(
     recent_error_log_period=None,
     recent_error_log_code="",
     recent_error_log_message_like="",
+    recent_error_log_limit=50,
     sections=None,
 ):
     selected_sections = set(sections or {"server-database", "logs", "security", "heatwave", "replication"})
@@ -1128,7 +1143,7 @@ def fetch_server_overview(
         try:
             recent_error_log_rows = fetch_recent_error_log_rows(
                 hours=selected_error_log_period["hours"],
-                limit=50,
+                limit=max(1, min(int(recent_error_log_limit), 2000)),
                 priorities=selected_error_log_priorities,
                 error_code=selected_error_log_code,
                 message_like=selected_error_log_message_like,

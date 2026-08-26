@@ -99,6 +99,48 @@
       color: #932e21;
       font-weight: 700;
     }
+    .collapsible-section {
+      margin-top: 24px;
+      border: 1px solid #d9cbbb;
+      background: #ffffff;
+    }
+    .collapsible-section > summary {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: baseline;
+      gap: 12px;
+      padding: 12px 14px;
+      background: #efe7dc;
+      cursor: pointer;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .collapsible-section > summary::before {
+      content: "▸";
+    }
+    .collapsible-section[open] > summary::before {
+      content: "▾";
+    }
+    .collapsible-section > summary small {
+      color: #6c6258;
+      font-size: 12px;
+      font-weight: 400;
+    }
+    .collapsible-content {
+      padding: 0 14px 8px;
+      overflow-x: auto;
+    }
+    .report-filter {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      margin: 14px 0;
+    }
+    .report-filter select {
+      min-width: 220px;
+      padding: 6px 8px;
+    }
   </style>
 </head>
 <body>
@@ -138,31 +180,39 @@
     </tbody>
   </table>
 
-  <h2>Global Variables</h2>
-  {% if global_variables_error %}<p class="error">{{ global_variables_error }}</p>{% endif %}
-  <table>
-    <thead><tr><th>Name</th><th>Value</th></tr></thead>
-    <tbody>
-      {% for row in global_variables %}
-      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
-      {% else %}
-      <tr><td colspan="2" class="empty">No GLOBAL variables were returned.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <details class="collapsible-section" data-report-section="global-variables">
+    <summary><span>Global Variables</span><small>Collapsed by default · {{ global_variables|length }} row(s)</small></summary>
+    <div class="collapsible-content">
+      {% if global_variables_error %}<p class="error">{{ global_variables_error }}</p>{% endif %}
+      <table>
+        <thead><tr><th>Name</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for row in global_variables %}
+          <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty">No GLOBAL variables were returned.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 
-  <h2>Global Status</h2>
-  {% if global_status_error %}<p class="error">{{ global_status_error }}</p>{% endif %}
-  <table>
-    <thead><tr><th>Name</th><th>Value</th></tr></thead>
-    <tbody>
-      {% for row in global_status %}
-      <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
-      {% else %}
-      <tr><td colspan="2" class="empty">No GLOBAL status rows were returned.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <details class="collapsible-section" data-report-section="global-status">
+    <summary><span>Global Status</span><small>Collapsed by default · {{ global_status|length }} row(s)</small></summary>
+    <div class="collapsible-content">
+      {% if global_status_error %}<p class="error">{{ global_status_error }}</p>{% endif %}
+      <table>
+        <thead><tr><th>Name</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for row in global_status %}
+          <tr><td>{{ row.name }}</td><td>{{ row.value }}</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="empty">No GLOBAL status rows were returned.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 
   <h2>Inventory Summary</h2>
   <div class="detail-grid">
@@ -293,25 +343,37 @@
     </tbody>
   </table>
 
-  <h2>Error Log</h2>
-  <div class="detail-grid">
-    <div class="detail-card"><span class="label">Period</span><span class="value">{{ server_overview.selected_error_log_period.label }}</span></div>
-    <div class="detail-card"><span class="label">Priority</span><span class="value">{{ server_overview.selected_error_log_priority_label }}</span></div>
-    <div class="detail-card"><span class="label">Error Code</span><span class="value">{{ server_overview.selected_error_log_code or "Any" }}</span></div>
-    <div class="detail-card"><span class="label">Message</span><span class="value">{{ server_overview.selected_error_log_message_like or "Any" }}</span></div>
-    <div class="detail-card"><span class="label">Returned Rows</span><span class="value">{{ server_overview.recent_error_log_count }}</span></div>
-  </div>
-  {% if server_overview.recent_error_log_error %}<p class="error">{{ server_overview.recent_error_log_error }}</p>{% endif %}
-  <table>
-    <thead><tr><th>Logged</th><th>Priority</th><th>Subsystem</th><th>Error Code</th><th>Message</th></tr></thead>
-    <tbody>
-      {% for row in server_overview.recent_error_log_rows %}
-      <tr><td>{{ row.logged }}</td><td>{{ row.priority }}</td><td>{{ row.subsystem }}</td><td>{{ row.error_code }}</td><td>{{ row.message }}</td></tr>
-      {% else %}
-      <tr><td colspan="5" class="empty">No rows were returned for the selected filters.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <details class="collapsible-section" data-report-section="error-log">
+    <summary><span>Error Log</span><small>Up to {{ error_log_row_limit }} most recent row(s)</small></summary>
+    <div class="collapsible-content">
+      <div class="report-filter">
+        <label for="error-log-priority-filter"><strong>Priority rows</strong></label>
+        <select id="error-log-priority-filter">
+          <option value="exclude-note-system" selected>Exclude Note and System</option>
+          <option value="all">ALL</option>
+        </select>
+        <span id="error-log-visible-count"></span>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-card"><span class="label">Period</span><span class="value">{{ server_overview.selected_error_log_period.label }}</span></div>
+        <div class="detail-card"><span class="label">Fetched Priority</span><span class="value">All</span></div>
+        <div class="detail-card"><span class="label">Error Code</span><span class="value">{{ server_overview.selected_error_log_code or "Any" }}</span></div>
+        <div class="detail-card"><span class="label">Message</span><span class="value">{{ server_overview.selected_error_log_message_like or "Any" }}</span></div>
+        <div class="detail-card"><span class="label">Fetched Rows</span><span class="value">{{ server_overview.recent_error_log_count }}</span></div>
+      </div>
+      {% if server_overview.recent_error_log_error %}<p class="error">{{ server_overview.recent_error_log_error }}</p>{% endif %}
+      <table id="error-log-table">
+        <thead><tr><th>Logged</th><th>Priority</th><th>Subsystem</th><th>Error Code</th><th>Message</th></tr></thead>
+        <tbody>
+          {% for row in server_overview.recent_error_log_rows %}
+          <tr data-error-log-row data-priority="{{ row.priority|string|lower }}"><td>{{ row.logged }}</td><td>{{ row.priority }}</td><td>{{ row.subsystem }}</td><td>{{ row.error_code }}</td><td>{{ row.message }}</td></tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No rows were returned for the selected filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 
   <h2>Replication</h2>
   <div class="detail-grid">
@@ -460,5 +522,37 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <h2>Events</h2>
+  {% if event_rows_error %}<p class="error">{{ event_rows_error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>Database</th><th>Event</th><th>Status</th><th>Type</th><th>Schedule</th><th>On Completion</th><th>Definer</th><th>Created</th><th>Last Altered</th><th>Last Executed</th></tr></thead>
+    <tbody>
+      {% for row in event_rows %}
+      <tr><td>{{ row.database_name }}</td><td>{{ row.event_name }}</td><td>{{ row.status_label }}</td><td>{{ row.event_type }}</td><td>{{ row.schedule_label }}</td><td>{{ row.on_completion }}</td><td>{{ row.definer }}</td><td>{{ row.created }}</td><td>{{ row.last_altered }}</td><td>{{ row.last_executed }}</td></tr>
+      {% else %}
+      <tr><td colspan="10" class="empty">No user-schema events were returned.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <script>
+    (() => {
+      const filter = document.getElementById("error-log-priority-filter");
+      const rows = Array.from(document.querySelectorAll("[data-error-log-row]"));
+      const count = document.getElementById("error-log-visible-count");
+      if (!filter || !count) return;
+      const refresh = () => {
+        let visible = 0;
+        rows.forEach((row) => {
+          const excluded = filter.value === "exclude-note-system" && ["note", "system"].includes(row.dataset.priority);
+          row.hidden = excluded;
+          if (!excluded) visible += 1;
+        });
+        count.textContent = `${visible} of ${rows.length} row(s) shown`;
+      };
+      filter.addEventListener("change", refresh);
+      refresh();
+    })();
+  </script>
 </body>
 </html>

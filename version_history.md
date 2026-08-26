@@ -1,6 +1,15 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.4`.
+Version summary from `1.0.2a` to `1.0.4a`.
+
+## 1.0.4a Summary
+
+Version `1.0.4a` improves the downloaded Admin Dashboard report and Object Storage folder selection.
+
+- Made Global Variables, Global Status, and Error Log report sections collapsible and collapsed by default.
+- Expanded report error-log collection to 2,000 rows and added a client-side `Exclude Note and System` / `ALL` priority view.
+- Added database event inventory at the end of the report and populated InnoDB row/data/index/total size fields.
+- Added an explicit Object Storage `Populate Folders` action with bounded recursive folder discovery under the configured profile prefix.
 
 ## 1.0.4 Summary
 

@@ -86,7 +86,7 @@
     <input type="hidden" name="tab" value="{{ active_tab }}">
     <label class="full-span">
       Profile
-      <select name="object_storage_profile" onchange="this.form.submit()">
+      <select name="object_storage_profile">
         {% for profile in object_storage_profiles %}
         <option value="{{ profile.profile_name }}" {% if profile.profile_name == selected_object_storage_profile %}selected{% endif %}>
           {{ profile.profile_name }} — {{ profile.region or "-" }} — {{ profile.bucket_name or "-" }}{% if profile.namespace %}@{{ profile.namespace }}{% endif %}
@@ -94,6 +94,14 @@
         {% endfor %}
       </select>
     </label>
+    {% if active_tab == 'upload' %}
+    <input type="hidden" name="upload_folder" value="{{ form.upload_folder }}">
+    {% else %}
+    <input type="hidden" name="load_folder" value="{{ form.load_folder }}">
+    {% endif %}
+    <div class="form-actions">
+      <button class="button secondary" type="submit" name="populate_folders" value="1">Populate Folders</button>
+    </div>
   </form>
   <dl class="detail-list lakehouse-object-profile-detail">
     <div>
@@ -143,6 +151,7 @@
           <option value="{{ form.upload_folder }}">{{ form.upload_folder or "/" }}</option>
           {% endfor %}
         </select>
+        <span class="helper-text">{% if folders_populated %}Folders populated from Object Storage.{% else %}Select Populate Folders to retrieve folders under the configured base prefix.{% endif %}</span>
       </label>
       <label class="checkbox-field">
         <input name="create_folder" type="checkbox" value="1" data-lakehouse-create-folder {% if form.create_folder %}checked{% endif %}>
@@ -228,6 +237,7 @@
         <option value="{{ form.load_folder }}">{{ form.load_folder or "/" }}</option>
         {% endfor %}
       </select>
+      <span class="helper-text">{% if folders_populated %}Folders populated from Object Storage.{% else %}Select Populate Folders above to retrieve folders under the configured base prefix.{% endif %}</span>
     </label>
     <label>
       File
@@ -493,6 +503,7 @@
       const params = new URLSearchParams(new FormData(folderSelect.form));
       params.set("tab", "load");
       params.set("load_folder", folderSelect.value);
+      params.set("populate_folders", "1");
       params.delete("load_file");
       params.delete("oci_uri");
       params.delete("_csrf_token");

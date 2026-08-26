@@ -142,6 +142,39 @@ class InstancePrincipalClientTests(unittest.TestCase):
         factory.assert_called_once_with({"region": "uk-london-1"})
         self.assertEqual(calls, [("example-ns", "lakehouse", {"limit": 1})])
 
+    def test_folder_population_recurses_below_the_configured_prefix(self):
+        calls = []
+        prefixes_by_parent = {
+            "incoming/": ["incoming/2026/", "incoming/archive/"],
+            "incoming/2026/": ["incoming/2026/08/"],
+            "incoming/archive/": [],
+            "incoming/2026/08/": [],
+        }
+
+        class FakeClient:
+            def list_objects(self, namespace, bucket, **kwargs):
+                calls.append((namespace, bucket, kwargs))
+                return SimpleNamespace(
+                    data=SimpleNamespace(
+                        prefixes=prefixes_by_parent.get(kwargs["prefix"], []),
+                        next_start_with=None,
+                    )
+                )
+
+        with patch("modules.oci_util.build_object_storage_client", return_value=FakeClient()):
+            folders = oci_util.list_object_storage_folders(
+                {"region": "uk-london-1"},
+                namespace="example-ns",
+                bucket_name="lakehouse",
+                base_prefix="incoming",
+            )
+
+        self.assertEqual(
+            folders,
+            ["incoming/", "incoming/2026/", "incoming/archive/", "incoming/2026/08/"],
+        )
+        self.assertEqual({call[2]["prefix"] for call in calls}, set(prefixes_by_parent))
+
 
 class UploadValidationTests(unittest.TestCase):
     @staticmethod

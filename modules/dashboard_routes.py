@@ -4,6 +4,8 @@ from flask import Response, render_template, request, session
 
 from modules.mysql_pages import build_mysql_dashboard_context
 
+DASHBOARD_EXPORT_ERROR_LOG_LIMIT = 2000
+
 
 def register_dashboard_routes(app, deps):
     login_required = deps["login_required"]
@@ -16,6 +18,7 @@ def register_dashboard_routes(app, deps):
         selected_error_log_message_like,
         *,
         sections=None,
+        recent_error_log_limit=50,
     ):
         return build_mysql_dashboard_context(
             fetch_server_overview=lambda: deps["fetch_server_overview"](
@@ -23,6 +26,7 @@ def register_dashboard_routes(app, deps):
                 recent_error_log_period=selected_error_log_period["value"],
                 recent_error_log_code=selected_error_log_code,
                 recent_error_log_message_like=selected_error_log_message_like,
+                recent_error_log_limit=recent_error_log_limit,
                 sections=sections,
             ),
             fetch_database_inventory=deps["fetch_database_inventory"],
@@ -60,16 +64,16 @@ def register_dashboard_routes(app, deps):
     @app.route("/mysql/dashboard/download")
     @login_required
     def mysql_dashboard_download_page():
-        selected_error_log_priorities = deps["normalize_error_log_priorities"](request.args.getlist("error_prio"))
         selected_error_log_period = deps["normalize_error_log_period"](request.args.get("error_period"))
         selected_error_log_code = deps["normalize_error_log_code"](request.args.get("error_code"))
         selected_error_log_message_like = deps["normalize_error_log_message_like"](request.args.get("message_like"))
         dashboard_context = build_mysql_dashboard_snapshot_context(
-            selected_error_log_priorities,
+            [],
             selected_error_log_period,
             selected_error_log_code,
             selected_error_log_message_like,
             sections={"server-database", "logs", "security", "heatwave", "replication"},
+            recent_error_log_limit=DASHBOARD_EXPORT_ERROR_LOG_LIMIT,
         )
         generated_at = datetime.now(timezone.utc)
         profile = deps["get_session_profile"]()
@@ -77,6 +81,8 @@ def register_dashboard_routes(app, deps):
         global_variables_error = ""
         global_status = []
         global_status_error = ""
+        event_rows = []
+        event_rows_error = ""
         try:
             global_variables = deps["fetch_all_show_variable_rows"]("VARIABLES")
         except Exception as error:  # pragma: no cover - depends on server privileges
@@ -85,6 +91,10 @@ def register_dashboard_routes(app, deps):
             global_status = deps["fetch_all_show_variable_rows"]("STATUS")
         except Exception as error:  # pragma: no cover - depends on server privileges
             global_status_error = str(error)
+        try:
+            event_rows = deps["fetch_db_admin_event_rows"]()
+        except Exception as error:  # pragma: no cover - depends on server privileges
+            event_rows_error = str(error)
         html = render_template(
             "mysql_dashboard_export.html",
             app_title=deps["app_title"],
@@ -98,6 +108,9 @@ def register_dashboard_routes(app, deps):
             global_variables_error=global_variables_error,
             global_status=global_status,
             global_status_error=global_status_error,
+            event_rows=event_rows,
+            event_rows_error=event_rows_error,
+            error_log_row_limit=DASHBOARD_EXPORT_ERROR_LOG_LIMIT,
             **dashboard_context,
         )
         filename = f"admin-dashboard-{generated_at.strftime('%Y%m%d-%H%M%S')}.html"

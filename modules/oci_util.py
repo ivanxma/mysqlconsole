@@ -74,25 +74,38 @@ def build_object_storage_uri(namespace, bucket_name, object_name):
     return f"oci://{bucket_value}@{namespace_value}/{object_value}"
 
 
-def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="", limit=1000):
+def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="", limit=1000, max_folders=1000):
     namespace_value = str(namespace or "").strip()
     bucket_value = str(bucket_name or "").strip()
     if not namespace_value or not bucket_value:
         return []
     prefix = normalize_object_prefix(base_prefix)
     client = build_object_storage_client(config)
-    response = client.list_objects(
-        namespace_value,
-        bucket_value,
-        prefix=prefix,
-        delimiter="/",
-        limit=limit,
-    )
     folders = [prefix]
-    for item in getattr(response.data, "prefixes", []) or []:
-        folder = normalize_object_prefix(item)
-        if folder not in folders:
-            folders.append(folder)
+    seen = {prefix}
+    pending = [prefix]
+    while pending and len(folders) < max_folders:
+        current_prefix = pending.pop(0)
+        start = None
+        while len(folders) < max_folders:
+            kwargs = {"prefix": current_prefix, "delimiter": "/", "limit": limit}
+            if start:
+                kwargs["start"] = start
+            response = client.list_objects(namespace_value, bucket_value, **kwargs)
+            data = response.data
+            for item in getattr(data, "prefixes", []) or []:
+                folder = normalize_object_prefix(item)
+                if prefix and not folder.startswith(prefix):
+                    continue
+                if folder and folder not in seen:
+                    seen.add(folder)
+                    folders.append(folder)
+                    pending.append(folder)
+                    if len(folders) >= max_folders:
+                        break
+            start = getattr(data, "next_start_with", None)
+            if not start:
+                break
     return sorted(folders, key=lambda value: (value.count("/"), value.lower()))
 
 

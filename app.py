@@ -667,6 +667,7 @@ register_dashboard_routes(
         "normalize_error_log_message_like": normalize_error_log_message_like,
         "get_session_profile": get_session_profile,
         "fetch_all_show_variable_rows": fetch_all_show_variable_rows,
+        "fetch_db_admin_event_rows": fetch_db_admin_event_rows,
         "get_local_app_version": get_local_app_version,
         "get_session_username": get_session_username,
         "fetch_setup_status": fetch_setup_status,
