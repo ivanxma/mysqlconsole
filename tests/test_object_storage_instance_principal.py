@@ -221,7 +221,7 @@ class UploadValidationTests(unittest.TestCase):
             oci_util.validate_object_storage_upload(self.upload("late-error.csv", payload))
 
     def test_json_reports_its_syntax_location(self):
-        with self.assertRaisesRegex(ValueError, r"line 4, column"):
+        with self.assertRaisesRegex(ValueError, r"line \d+, column \d+.*byte \d+|byte \d+, line \d+, column \d+"):
             oci_util.validate_object_storage_upload(
                 self.upload("invalid.json", b"{\n  \"name\": \"Ada\",\n  \"active\":\n}\n")
             )

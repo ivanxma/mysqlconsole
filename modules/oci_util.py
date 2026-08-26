@@ -180,6 +180,16 @@ def _format_text_location(byte_offset, line_number, column_number):
     return f"byte {byte_offset}, line {line_number}, column {column_number}"
 
 
+def _stream_line_and_column(stream, byte_offset):
+    stream.seek(0)
+    prefix = stream.read(max(0, byte_offset))
+    text = prefix.decode("utf-8", errors="replace")
+    line_number = text.count("\n") + 1
+    column_number = len(text.rsplit("\n", 1)[-1]) + 1
+    stream.seek(0)
+    return line_number, column_number
+
+
 def _validate_utf8_text_stream(stream, suffix):
     """Read every byte once without materialising the upload in memory."""
     decoder = codecs.getincrementaldecoder("utf-8")()
@@ -264,7 +274,12 @@ def _validate_json_stream(stream, size):
         except ValueError:
             raise
         except Exception as error:
-            raise ValueError(f"JSON syntax validation failed near byte {stream.tell()}: {error}") from error
+            byte_offset = stream.tell()
+            line_number, column_number = _stream_line_and_column(stream, byte_offset)
+            raise ValueError(
+                "JSON syntax validation failed near "
+                f"{_format_text_location(byte_offset, line_number, column_number)}: {error}"
+            ) from error
     stream.seek(0)
 
 
