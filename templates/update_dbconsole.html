@@ -25,60 +25,10 @@
   <form method="post" class="update-bootstrap-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="update_action" value="start">
-    <p class="helper-text">
-      {% if bootstrap_required %}
-      First-time bootstrap is available because <code>{{ local_admin_profile_name }}</code> is missing or not socket-only. Enter and confirm a temporary <code>{{ local_admin_mysql_user }}</code> password to create or reset only that local MySQL account during setup.
-      {% elif update_start_allowed %}
-      Auto-Update runs from an authenticated <code>{{ local_admin_profile_name }}</code> session. Use the local-admin password change page for password changes.
-      {% else %}
-      Sign in with <code>{{ local_admin_profile_name }}</code> to start Auto-Update. Version retrieval and status viewing remain available for authenticated sessions.
-      {% endif %}
-    </p>
-    {% if bootstrap_required %}
-    <div class="flash error">
-      Required first-time bootstrap: this reset creates or repairs <code>{{ local_admin_mysql_user }}@localhost</code> only. DBConsole does not create a MySQL <code>root</code> user and does not reset <code>root@localhost</code>. After the update, sign in with <code>{{ local_admin_profile_name }}</code>, username <code>{{ local_admin_mysql_user }}</code>, and this temporary password; DBConsole will require an immediate password change.
-    </div>
-    <div class="form-grid update-bootstrap-grid">
-      <label>
-        Local Admin Account
-        <input
-          type="text"
-          value="{{ local_admin_mysql_user }}"
-          readonly
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck="false"
-        >
-      </label>
-      <label>
-        New Localadmin Password
-        <input
-          type="password"
-          name="reset_local_mysql_admin_password"
-          autocomplete="new-password"
-          {% if bootstrap_required %}required{% endif %}
-        >
-      </label>
-      <label>
-        Confirm New Password
-        <input
-          type="password"
-          name="confirm_reset_local_mysql_admin_password"
-          autocomplete="new-password"
-          {% if bootstrap_required %}required{% endif %}
-        >
-      </label>
-      <label class="checkbox-field">
-        <input type="checkbox" name="confirm_local_mysql_admin_reset" value="yes" {% if bootstrap_required %}required{% endif %}>
-        Confirm setup of the localadmin MySQL password
-      </label>
-    </div>
-    {% endif %}
+    <p class="helper-text">Auto-Update runs only from an authenticated socket-only <code>{{ local_admin_profile_name }}</code> session. Use the local-admin password change page for password changes.</p>
     <div class="form-actions">
-      {% if not bootstrap_required and update_start_allowed %}
       <a class="button secondary" href="{{ url_for('local_admin_password_page') }}">Change Localadmin Password</a>
-      {% endif %}
-      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start or not update_start_allowed %}disabled{% endif %}>Auto-Update</button>
+      <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
     </div>
   </form>
 
@@ -171,7 +121,6 @@
   (() => {
     const statusUrl = {{ url_for("update_dbconsole_status")|tojson }};
     const initialStatus = {{ update_status|tojson }};
-    const pollToken = {{ update_poll_token|tojson }};
     const restartWaitLimitMs = 30000;
     const pollIntervalMs = 2000;
     const state = {
@@ -233,13 +182,14 @@
       try {
         const response = await window.fetch(statusUrl, {
           method: "GET",
-          headers: {
-            "Accept": "application/json",
-            "X-DBConsole-Update-Poll-Token": pollToken,
-          },
+          headers: { "Accept": "application/json" },
           cache: "no-store",
           credentials: "same-origin",
         });
+        if (response.redirected || !(response.headers.get("content-type") || "").includes("application/json")) {
+          window.location.assign(response.url || window.location.href);
+          return;
+        }
         if (!response.ok) {
           throw new Error("Status request failed with HTTP " + response.status);
         }

@@ -2,13 +2,14 @@ import csv
 import io
 import json
 import re
-import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from modules.runtime_util import ensure_private_directory, ensure_private_regular_file, get_runtime_directory, write_new_private_text
 
-IMPORT_CACHE_DIR = Path(tempfile.gettempdir()) / "dbconsole-import-cache"
+IMPORT_PLAN_TTL_SECONDS = 60 * 60
 IMPORT_SQL_TYPE_RE = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)*(?:\([0-9, ]+\))?$")
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
@@ -64,40 +65,83 @@ def _import_type_allows_primary_key(data_type):
 
 
 def _ensure_import_cache_dir():
-    IMPORT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return ensure_private_directory(get_runtime_directory() / "import-plans")
 
 
 def _import_cache_path(plan_id):
     candidate = str(plan_id or "").strip()
     if not re.fullmatch(r"[a-f0-9]{32}", candidate):
         return None
-    return IMPORT_CACHE_DIR / f"{candidate}.json"
+    return _ensure_import_cache_dir() / f"{candidate}.json"
 
 
-def save_mysql_import_plan(plan):
-    _ensure_import_cache_dir()
+def _valid_session_id(session_id):
+    return bool(re.fullmatch(r"[a-f0-9]{32}", str(session_id or "").strip()))
+
+
+def _plan_is_expired(plan_payload, now=None):
+    try:
+        expires_at = float(plan_payload.get("expires_at", 0))
+    except (AttributeError, TypeError, ValueError):
+        return True
+    return expires_at <= (time.time() if now is None else now)
+
+
+def cleanup_expired_mysql_import_plans(now=None):
+    cache_dir = _ensure_import_cache_dir()
+    for cache_path in cache_dir.glob("*.json"):
+        try:
+            ensure_private_regular_file(cache_path)
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            cache_path.unlink(missing_ok=True)
+            continue
+        if not isinstance(payload, dict) or _plan_is_expired(payload, now=now):
+            cache_path.unlink(missing_ok=True)
+
+
+def save_mysql_import_plan(plan, session_id):
+    if not _valid_session_id(session_id):
+        raise ValueError("No active server session is available for the import draft.")
+    cleanup_expired_mysql_import_plans()
     plan_payload = dict(plan)
     plan_payload["plan_id"] = uuid4().hex
+    plan_payload["owner_session_id"] = str(session_id).strip()
+    plan_payload["expires_at"] = time.time() + IMPORT_PLAN_TTL_SECONDS
     cache_path = _import_cache_path(plan_payload["plan_id"])
-    cache_path.write_text(json.dumps(plan_payload, ensure_ascii=False), encoding="utf-8")
+    write_new_private_text(cache_path, json.dumps(plan_payload, ensure_ascii=False))
     return plan_payload
 
 
-def load_mysql_import_plan(plan_id):
+def load_mysql_import_plan(plan_id, session_id):
+    if not _valid_session_id(session_id):
+        return None
+    cleanup_expired_mysql_import_plans()
     cache_path = _import_cache_path(plan_id)
     if cache_path is None or not cache_path.exists():
         return None
     try:
-        return json.loads(cache_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        ensure_private_regular_file(cache_path)
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
         return None
+    if not isinstance(payload, dict) or _plan_is_expired(payload):
+        cache_path.unlink(missing_ok=True)
+        return None
+    if payload.get("owner_session_id") != str(session_id).strip():
+        return None
+    return payload
 
 
-def delete_mysql_import_plan(plan_id):
+def delete_mysql_import_plan(plan_id, session_id):
+    if not _valid_session_id(session_id):
+        return
     cache_path = _import_cache_path(plan_id)
     if cache_path is None or not cache_path.exists():
         return
-    cache_path.unlink(missing_ok=True)
+    plan = load_mysql_import_plan(plan_id, session_id)
+    if plan is not None:
+        cache_path.unlink(missing_ok=True)
 
 
 def sanitize_import_identifier(value, prefix="column"):

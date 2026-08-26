@@ -37,11 +37,6 @@ def register_auth_routes(app, deps):
                                 f"DBConsole update available: {version_check.get('local_version')} -> {version_check.get('repo_version')}.",
                                 "success",
                             )
-                        elif deps["local_admin_profile_needs_bootstrap"]():
-                            flash(
-                                "DBConsole update available. Use Auto-Update to complete first-time local-admin-profile bootstrap with a temporary localadmin password.",
-                                "success",
-                            )
                         else:
                             flash(
                                 "DBConsole update available. Sign in with local-admin-profile to run Auto-Update.",

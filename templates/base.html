@@ -120,8 +120,57 @@
       </div>
     </dialog>
 
+    <dialog class="management-dialog" id="destructive-action-dialog" aria-labelledby="destructive-action-title">
+      <div class="management-dialog-shell">
+        <div class="panel-header">
+          <div>
+            <h3 id="destructive-action-title">Confirm action</h3>
+            <p class="helper-text" id="destructive-action-message"></p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="button secondary" type="button" data-destructive-action-cancel>Cancel</button>
+          <button class="button danger" type="button" data-destructive-action-confirm>Continue</button>
+        </div>
+      </div>
+    </dialog>
+
     {% if logged_in %}
     <script>
+      (() => {
+        const dialog = document.getElementById("destructive-action-dialog");
+        const message = document.getElementById("destructive-action-message");
+        const confirmButton = dialog?.querySelector("[data-destructive-action-confirm]");
+        const cancelButton = dialog?.querySelector("[data-destructive-action-cancel]");
+        let pendingSubmission = null;
+        const closeDialog = () => {
+          pendingSubmission = null;
+          if (dialog?.open) dialog.close();
+        };
+        document.addEventListener("submit", (event) => {
+          const form = event.target;
+          const submitter = event.submitter;
+          const confirmation = submitter?.dataset.confirmMessage || form.dataset.confirmMessage;
+          if (!confirmation || form.dataset.confirmed === "true") {
+            form.dataset.confirmed = "";
+            return;
+          }
+          event.preventDefault();
+          pendingSubmission = {form, submitter};
+          message.textContent = confirmation;
+          dialog.showModal();
+          confirmButton.focus();
+        }, true);
+        confirmButton?.addEventListener("click", () => {
+          if (!pendingSubmission) return;
+          const {form, submitter} = pendingSubmission;
+          form.dataset.confirmed = "true";
+          closeDialog();
+          form.requestSubmit(submitter);
+        });
+        cancelButton?.addEventListener("click", closeDialog);
+        dialog?.addEventListener("cancel", closeDialog);
+      })();
       (() => {
         const groups = Array.from(document.querySelectorAll("[data-nav-group]"));
         const storageKey = "dbconsole-open-nav-group";

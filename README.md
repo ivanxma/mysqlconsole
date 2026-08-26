@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.4c`
+Current version: `1.0.4d`
 
 Version history: `version_history.md`.
 
@@ -48,7 +48,7 @@ Current feature modules:
 - `modules/config_services.py`: profile and Object Storage config service wrappers
 - `modules/query_service.py`: generic MySQL query execution helpers, SQL quoting, table existence checks, and CSV responses
 - `modules/session_services.py`: Flask session policy, CSRF helpers, login state, local-admin profile state, and navigation filtering
-- `modules/update_service.py`: Auto-Update status, poll-token, repository-version, and local-admin bootstrap helpers
+- `modules/update_service.py`: authenticated Auto-Update status and repository-version helpers
 - `modules/mysql_import.py`
 - `modules/mysql_util.py`: MySQL Connector/Python boundary for profile normalization, TLS options, cached connections, health checks, transactions, and SQL literal escaping
 - `modules/status_variables.py`
@@ -388,7 +388,7 @@ LOCAL_MYSQL_ADMIN_PASSWORD='<new-temporary-password>' ./reset_localadmin_passwor
 
 The reset script reads `.runtime.env` when present, accepts `--user`, `--socket`, `--database`, and `--service` overrides, and prompts interactively when `LOCAL_MYSQL_ADMIN_PASSWORD` is omitted. It creates or resets only `localadmin@localhost` through socket-root access or one-time MySQL init-file provisioning. It does not create a MySQL `root` user, does not reset `root@localhost`, and does not save the password.
 
-DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs and the session can use Auto-Update through `local-admin-profile` or first-time bootstrap. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch. HTTPS version checks use `certifi` by default; set `DBCONSOLE_VERSION_CA_BUNDLE` to a specific CA bundle path if your environment requires one.
+DBConsole stores the local application version in `appver.json`. On successful login it checks the repository copy of that file with a short timeout and redirects to `Admin > Auto-Update` when the repository version string differs and the session is an authenticated `local-admin-profile`. Set `DBCONSOLE_VERSION_URL` when the raw `appver.json` URL cannot be inferred from the configured git origin and branch. HTTPS version checks use `certifi` by default; set `DBCONSOLE_VERSION_CA_BUNDLE` to a specific CA bundle path if your environment requires one.
 
 `setup.sh` runs a dependency vulnerability audit with `pip-audit` after installing Python dependencies. The default mode is warn-only so setup can continue if the advisory service is unavailable or an issue is reported. Set `DBCONSOLE_DEPENDENCY_AUDIT=off` to skip the audit, or set `DBCONSOLE_DEPENDENCY_AUDIT_STRICT=1` to fail setup on audit setup errors or reported vulnerabilities.
 
@@ -455,7 +455,6 @@ For `start_http.sh` and `start_https.sh`:
 - `DBCONSOLE_MYSQLSH`
 - `DBCONSOLE_PYTHON_BIN`
 - `DBCONSOLE_PYTHON_MIN_VERSION`
-- `DBCONSOLE_SESSION_COOKIE_SECURE`
 - `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
 - `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
 - `DBCONSOLE_OBJECT_STORAGE_REGION`
@@ -487,9 +486,15 @@ For `start_http.sh` and `start_https.sh`:
 
 `profiles.json` must not contain database passwords. The generated `local-admin-profile` stores only the local socket path, default database, default username, and first-login password-change marker. SSH private keys are also not stored in `profiles.json`; uploaded key files are kept under `profile_ssh_keys/` with restrictive permissions and only the server-side path is retained.
 
+On systemd deployments, `setup.sh` provisions an owner-only `/run/dbconsole` runtime directory for update status/log state and session-bound import plans. Rerun setup once after upgrading to this release so existing units receive the runtime-directory settings.
+
 Object Storage uses OCI Compute Instance Principal authentication exclusively. DBConsole does not read or generate `~/.oci/config`, store API-key fingerprints, or upload OCI private keys. `setup.sh` resolves the optional `DBCONSOLE_OBJECT_STORAGE_REGION` default in this order: explicit environment override, saved `.runtime.env` value, OCI IMDSv2 deployment region, then an empty value completed in `Admin > Setup Object Storage`. The deployment default seeds only a missing first-run region; each saved Object Storage profile remains authoritative and may target another region.
 
+`Admin > Setup Object Storage` also stores a per-profile upload validation limit. It defaults to 2 GiB and can be set from 1 MiB through 10 GiB. CSV and JSON are UTF-8 stream-decoded and validated across the complete upload before transfer; JSON must parse as a complete object or array, with syntax errors reporting a line and column when available. Parquet and Avro always receive container-signature checks and receive additional validation automatically when the optional `pyarrow` or `fastavro` libraries are installed.
+
 For a deployment upgraded from API-key authentication, the legacy app-local `oci_config/` and `oci_private_keys/` directories remain ignored so they do not block the first Auto-Update. DBConsole no longer reads either directory. After Instance Principal access, folder population, file population, and a test upload have succeeded, remove those two app-local directories according to your credential-retention procedure. Do not remove a user's global `~/.oci/config` as part of DBConsole cleanup.
+
+For upgrades that still contain the old JSON keys `config_profile`, `oci_config_profile`, `oci_region`, or `oci_namespace`, DBConsole reads and rewrites them as canonical Object Storage profile fields only through **28 February 2027**. Before that date, open and save each profile in `Admin > Setup Object Storage`; after the cutoff, legacy aliases are rejected.
 
 ## Main Screens
 

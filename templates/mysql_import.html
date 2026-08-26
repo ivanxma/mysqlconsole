@@ -425,17 +425,19 @@
     });
     syncPrimaryKeyFields();
 
-    importForm.addEventListener("submit", (event) => {
-      const replaceField = importForm.querySelector("[data-replace-existing-table]");
-      const tableField = importForm.querySelector("[name='table_name']");
+    const replaceField = importForm.querySelector("[data-replace-existing-table]");
+    const tableField = importForm.querySelector("[name='table_name']");
+    const syncReplaceConfirmation = () => {
       if (!replaceField || !replaceField.checked) {
+        delete importForm.dataset.confirmMessage;
         return;
       }
       const tableName = tableField && tableField.value.trim() ? tableField.value.trim() : "the selected table";
-      if (!window.confirm(`Replace ${tableName}? Existing data in that table will be removed.`)) {
-        event.preventDefault();
-      }
-    });
+      importForm.dataset.confirmMessage = `Replace ${tableName}? Existing data in that table will be removed.`;
+    };
+    replaceField?.addEventListener("change", syncReplaceConfirmation);
+    tableField?.addEventListener("input", syncReplaceConfirmation);
+    syncReplaceConfirmation();
   })();
 </script>
 {% endblock %}

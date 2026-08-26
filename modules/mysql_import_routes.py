@@ -9,8 +9,9 @@ def register_mysql_import_routes(app, deps):
     @login_required
     def mysql_import_page():
         database_inventory = [row for row in deps["fetch_database_inventory"]() if not row["is_system"]]
+        server_session_id = deps["get_server_session_id"]()
         existing_plan_id = str(session.get("mysql_import_plan_id", "")).strip()
-        plan = deps["load_mysql_import_plan"](existing_plan_id) if existing_plan_id else None
+        plan = deps["load_mysql_import_plan"](existing_plan_id, server_session_id) if existing_plan_id else None
         if existing_plan_id and plan is None:
             session.pop("mysql_import_plan_id", None)
 
@@ -25,7 +26,7 @@ def register_mysql_import_routes(app, deps):
 
             if action == "clear":
                 if existing_plan_id:
-                    deps["delete_mysql_import_plan"](existing_plan_id)
+                    deps["delete_mysql_import_plan"](existing_plan_id, server_session_id)
                 session.pop("mysql_import_plan_id", None)
                 flash("Import draft cleared.", "success")
                 return redirect(url_for("mysql_import_page"))
@@ -39,11 +40,12 @@ def register_mysql_import_routes(app, deps):
                             request.form,
                             database_inventory,
                             quote_identifier=deps["quote_identifier"],
-                        )
+                        ),
+                        server_session_id,
                     )
                     session["mysql_import_plan_id"] = plan["plan_id"]
                     if existing_plan_id and existing_plan_id != plan["plan_id"]:
-                        deps["delete_mysql_import_plan"](existing_plan_id)
+                        deps["delete_mysql_import_plan"](existing_plan_id, server_session_id)
                     flash(f"Loaded {plan['row_count']} rows from `{plan['source_filename']}`.", "success")
                     return redirect(url_for("mysql_import_page"))
                 except Exception as error:
@@ -76,7 +78,7 @@ def register_mysql_import_routes(app, deps):
                         mysql_connection=deps["mysql_connection"],
                     )
                     if existing_plan_id:
-                        deps["delete_mysql_import_plan"](existing_plan_id)
+                        deps["delete_mysql_import_plan"](existing_plan_id, server_session_id)
                     session.pop("mysql_import_plan_id", None)
                     flash(
                         f"Imported {plan.get('row_count', 0)} rows into "

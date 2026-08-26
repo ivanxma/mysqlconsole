@@ -1,4 +1,7 @@
 import codecs
+import csv
+import io
+import json
 from pathlib import Path
 from threading import Lock
 
@@ -6,7 +9,11 @@ from werkzeug.utils import secure_filename
 
 
 SUPPORTED_LAKEHOUSE_UPLOAD_EXTENSIONS = {"csv", "json", "parquet", "avro"}
-DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
+MEBIBYTE = 1024 * 1024
+DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+MAX_CONFIGURABLE_UPLOAD_BYTES = 10 * 1024 * 1024 * 1024
+VALIDATION_CHUNK_BYTES = 1024 * 1024
+STDLIB_JSON_FALLBACK_MAX_BYTES = 16 * MEBIBYTE
 
 _INSTANCE_PRINCIPAL_SIGNER = None
 _INSTANCE_PRINCIPAL_SIGNER_LOCK = Lock()
@@ -169,6 +176,119 @@ def _measure_upload_stream(upload_storage):
     return size
 
 
+def _format_text_location(byte_offset, line_number, column_number):
+    return f"byte {byte_offset}, line {line_number}, column {column_number}"
+
+
+def _validate_utf8_text_stream(stream, suffix):
+    """Read every byte once without materialising the upload in memory."""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    byte_offset = 0
+    line_number = 1
+    column_number = 1
+    while True:
+        chunk = stream.read(VALIDATION_CHUNK_BYTES)
+        if not chunk:
+            break
+        nul_offset = chunk.find(b"\x00")
+        if nul_offset >= 0:
+            raise ValueError(
+                f"{suffix.upper()} upload contains a binary NUL at "
+                f"{_format_text_location(byte_offset + nul_offset, line_number, column_number)}."
+            )
+        try:
+            text = decoder.decode(chunk, final=False)
+        except UnicodeDecodeError as error:
+            raise ValueError(
+                f"{suffix.upper()} upload is not valid UTF-8 near "
+                f"{_format_text_location(byte_offset + error.start, line_number, column_number)}."
+            ) from error
+        byte_offset += len(chunk)
+        for character in text:
+            if character == "\n":
+                line_number += 1
+                column_number = 1
+            else:
+                column_number += 1
+    try:
+        decoder.decode(b"", final=True)
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f"{suffix.upper()} upload is not valid UTF-8 near "
+            f"{_format_text_location(byte_offset + error.start, line_number, column_number)}."
+        ) from error
+    stream.seek(0)
+
+
+def _validate_csv_stream(stream):
+    text_stream = io.TextIOWrapper(stream, encoding="utf-8-sig", newline="")
+    try:
+        for _row in csv.reader(text_stream, strict=True):
+            pass
+    except csv.Error as error:
+        raise ValueError(f"CSV syntax validation failed at line {getattr(error, 'line_num', '?')}: {error}") from error
+    finally:
+        text_stream.detach()
+    stream.seek(0)
+
+
+def _validate_json_stream(stream, size):
+    """Fully parse JSON with ijson when installed, retaining a stdlib fallback."""
+    try:
+        import ijson
+    except ImportError:
+        if size > STDLIB_JSON_FALLBACK_MAX_BYTES:
+            raise ValueError(
+                "Streaming JSON validation requires the ijson dependency for uploads above "
+                f"{STDLIB_JSON_FALLBACK_MAX_BYTES // MEBIBYTE} MiB. Run setup to install requirements."
+            )
+        try:
+            text_stream = io.TextIOWrapper(stream, encoding="utf-8-sig")
+            parsed = json.load(text_stream)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"JSON syntax validation failed at line {error.lineno}, column {error.colno} (byte {error.pos}): {error.msg}."
+            ) from error
+        finally:
+            text_stream.detach()
+        if not isinstance(parsed, (dict, list)):
+            raise ValueError("JSON upload must contain an object or array at the document root.")
+    else:
+        try:
+            events = ijson.parse(stream)
+            _prefix, first_event, _value = next(events)
+            if first_event not in {"start_map", "start_array"}:
+                raise ValueError("JSON upload must contain an object or array at the document root.")
+            for _event in events:
+                pass
+        except ValueError:
+            raise
+        except Exception as error:
+            raise ValueError(f"JSON syntax validation failed near byte {stream.tell()}: {error}") from error
+    stream.seek(0)
+
+
+def _validate_optional_binary_format(stream, suffix):
+    """Use installed format libraries without making heavyweight packages mandatory."""
+    try:
+        stream.seek(0)
+        if suffix == "parquet":
+            import pyarrow.parquet as parquet
+
+            parquet.ParquetFile(stream)
+        elif suffix == "avro":
+            from fastavro import reader as avro_reader
+
+            for _record in avro_reader(stream):
+                pass
+    except ImportError:
+        return
+    except Exception as error:
+        raise ValueError(f"{suffix.title()} format-library validation failed: {error}") from error
+    finally:
+        stream.seek(0)
+
+
 def validate_object_storage_upload(upload_storage, *, max_upload_bytes=DEFAULT_MAX_UPLOAD_BYTES):
     if upload_storage is None or not getattr(upload_storage, "filename", ""):
         raise ValueError("Choose a file to upload.")
@@ -193,18 +313,18 @@ def validate_object_storage_upload(upload_storage, *, max_upload_bytes=DEFAULT_M
         stream.seek(max(0, size - 4))
         if stream.read(4) != b"PAR1":
             raise ValueError("Parquet upload does not contain the expected closing PAR1 signature.")
+        _validate_optional_binary_format(stream, suffix)
     elif suffix == "avro" and not prefix.startswith(b"Obj\x01"):
         raise ValueError("Avro upload does not contain the expected object-container signature.")
-    elif suffix in {"csv", "json"}:
-        if b"\x00" in prefix:
-            raise ValueError(f"{suffix.upper()} upload contains binary NUL bytes.")
-        try:
-            codecs.getincrementaldecoder("utf-8")().decode(prefix, final=False)
-        except UnicodeDecodeError as error:
-            raise ValueError(f"{suffix.upper()} upload must begin with valid UTF-8 text.") from error
-        json_prefix = prefix.removeprefix(b"\xef\xbb\xbf")
-        if suffix == "json" and json_prefix.lstrip()[:1] not in {b"{", b"["}:
-            raise ValueError("JSON upload must begin with an object or array.")
+    elif suffix == "avro":
+        _validate_optional_binary_format(stream, suffix)
+    else:
+        stream.seek(0)
+        _validate_utf8_text_stream(stream, suffix)
+        if suffix == "csv":
+            _validate_csv_stream(stream)
+        else:
+            _validate_json_stream(stream, size)
     stream.seek(0)
     return {"filename": filename, "suffix": suffix, "size": size}
 

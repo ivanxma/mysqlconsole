@@ -1,10 +1,12 @@
 import json
 import re
+from datetime import date
 from uuid import uuid4
 
 from modules.core_util import chmod_private_file
 from modules.oci_util import (
     DEFAULT_MAX_UPLOAD_BYTES,
+    MAX_CONFIGURABLE_UPLOAD_BYTES,
     build_object_storage_uri,
     create_object_storage_folder as oci_create_object_storage_folder,
     list_object_storage_files as oci_list_object_storage_files,
@@ -21,7 +23,9 @@ DEFAULT_OBJECT_STORAGE_PROFILE = {
     "namespace": "",
     "bucket_name": "",
     "bucket_prefix": "",
+    "upload_validation_max_bytes": DEFAULT_MAX_UPLOAD_BYTES,
 }
+LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF = date(2027, 2, 28)
 
 
 def normalize_region(value):
@@ -29,6 +33,23 @@ def normalize_region(value):
     if region and not re.fullmatch(r"[a-z0-9-]+", region):
         raise ValueError("Object Storage region must use only lowercase letters, numbers, and hyphens.")
     return region
+
+
+def normalize_upload_validation_max_bytes(payload):
+    raw_mib = (payload or {}).get("upload_validation_max_mib")
+    raw_bytes = (payload or {}).get("upload_validation_max_bytes")
+    value = raw_mib if raw_mib not in (None, "") else raw_bytes
+    if value in (None, ""):
+        return DEFAULT_MAX_UPLOAD_BYTES
+    try:
+        max_bytes = int(value) * 1024 * 1024 if raw_mib not in (None, "") else int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Upload validation limit must be a whole number of MiB.") from error
+    if max_bytes < 1024 * 1024 or max_bytes > MAX_CONFIGURABLE_UPLOAD_BYTES:
+        raise ValueError(
+            f"Upload validation limit must be between 1 MiB and {MAX_CONFIGURABLE_UPLOAD_BYTES // (1024 * 1024)} MiB."
+        )
+    return max_bytes
 
 
 def normalize_object_prefix(value):
@@ -44,11 +65,18 @@ def normalize_object_prefix(value):
 
 
 def _legacy_value(payload, current_key, legacy_key):
+    if payload.get(legacy_key) and date.today() > LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF:
+        raise ValueError(
+            f"The legacy `{legacy_key}` Object Storage setting is no longer supported; migrate to `{current_key}`."
+        )
     return payload.get(current_key) or payload.get(legacy_key) or ""
 
 
 def _normalize_object_storage_entry(payload, *, default_region=""):
     payload = payload or {}
+    legacy_profile_key = next((key for key in ("config_profile", "oci_config_profile") if payload.get(key)), "")
+    if legacy_profile_key and date.today() > LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF:
+        raise ValueError("Legacy Object Storage profile aliases are no longer supported; use `profile_name`.")
     profile_name = str(
         payload.get("profile_name")
         or payload.get("config_profile")
@@ -63,6 +91,7 @@ def _normalize_object_storage_entry(payload, *, default_region=""):
         "namespace": str(_legacy_value(payload, "namespace", "oci_namespace")).strip(),
         "bucket_name": str(payload.get("bucket_name") or "").strip(),
         "bucket_prefix": normalize_object_prefix(payload.get("bucket_prefix") or ""),
+        "upload_validation_max_bytes": normalize_upload_validation_max_bytes(payload),
     }
 
 
@@ -297,7 +326,10 @@ def list_object_storage_files(config, folder_prefix):
 def validate_object_storage_upload(config, folder_prefix, upload_storage):
     target = validate_object_storage_target(config)
     folder = normalize_folder_for_target(target, folder_prefix)
-    upload = oci_validate_object_storage_upload(upload_storage)
+    upload = oci_validate_object_storage_upload(
+        upload_storage,
+        max_upload_bytes=target["upload_validation_max_bytes"],
+    )
     return {"target": target, "folder": folder, "upload": upload}
 
 

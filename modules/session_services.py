@@ -7,6 +7,16 @@ from modules.core_util import chmod_private_file
 from modules.session_util import SessionManager
 
 
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def session_cookie_secure_for_transport(value, listener_scheme=""):
+    """Resolve the cookie flag without permitting HTTPS to be downgraded."""
+    if str(listener_scheme or "").strip().lower() == "https":
+        return True
+    return str(value or "").strip().lower() in _TRUE_VALUES
+
+
 def load_flask_secret_key(secret_key_file):
     configured_secret = os.environ.get("FLASK_SECRET_KEY", "").strip()
     if configured_secret:
@@ -129,16 +139,6 @@ class DbConsoleSessionService:
     def set_logged_in(self, value):
         session["logged_in"] = bool(value)
 
-    def local_admin_profile_needs_bootstrap(self):
-        profile = self.profile_service.get_profile_by_name(self.local_admin_profile_name)
-        if not profile:
-            return True
-        return not (
-            profile.get("socket_enabled")
-            and str(profile.get("socket_path") or "").strip()
-            and not str(profile.get("host") or "").strip()
-        )
-
     def is_local_admin_profile_session(self):
         profile = self.get_session_profile()
         return (
@@ -171,21 +171,18 @@ class DbConsoleSessionService:
     def nav_groups_for_current_session(self):
         if self.is_local_admin_profile_session():
             return self.nav_groups
-        can_bootstrap_update = self.local_admin_profile_needs_bootstrap()
         filtered_groups = []
         for group in self.nav_groups:
             filtered_items = []
             for item in group["items"]:
-                if item["endpoint"] == "profile_page":
-                    continue
-                if item["endpoint"] == "update_dbconsole_page" and not can_bootstrap_update:
+                if item["endpoint"] in {"profile_page", "update_dbconsole_page"}:
                     continue
                 filtered_items.append(item)
             filtered_groups.append({**group, "items": filtered_items})
         return filtered_groups
 
     def can_access_update_page(self):
-        return self.is_local_admin_profile_session() or self.local_admin_profile_needs_bootstrap()
+        return self.is_local_admin_profile_session()
 
     def require_local_admin_profile_session(self):
         if not self.is_local_admin_profile_session():

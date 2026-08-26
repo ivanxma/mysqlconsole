@@ -7,20 +7,18 @@ import subprocess
 import urllib.error
 import urllib.request
 
-from modules.core_util import chmod_private_file, parse_iso_datetime, utc_now_iso
+from modules.core_util import parse_iso_datetime, utc_now_iso
+from modules.runtime_util import append_private_text, atomic_write_private_text, ensure_private_regular_file
 
 
 RUNNING_STATES = {"starting", "running", "restarting"}
-SECRET_ENV_KEYS = ("LOCAL_MYSQL_ADMIN_USER", "LOCAL_MYSQL_ADMIN_PASSWORD", "LOCAL_MYSQL_PROFILE_NAME")
 
 
 def append_update_log(log_file, message):
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    with log_file.open("a", encoding="utf-8") as handle:
-        handle.write(str(message or ""))
-        if not str(message or "").endswith("\n"):
-            handle.write("\n")
-    chmod_private_file(log_file)
+    text = str(message or "")
+    if not text.endswith("\n"):
+        text += "\n"
+    append_private_text(log_file, text)
 
 
 def default_update_status():
@@ -40,14 +38,9 @@ def default_update_status():
 
 
 def write_update_status(status_file, payload):
-    status_file.parent.mkdir(parents=True, exist_ok=True)
     data = dict(payload)
     data["updated_at"] = utc_now_iso()
-    temp_path = status_file.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    chmod_private_file(temp_path)
-    temp_path.replace(status_file)
-    chmod_private_file(status_file)
+    atomic_write_private_text(status_file, json.dumps(data, indent=2, ensure_ascii=False))
     return data
 
 
@@ -71,6 +64,7 @@ def read_update_log_tail(log_file, max_lines):
     if not log_file.exists():
         return []
     try:
+        ensure_private_regular_file(log_file)
         lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
@@ -83,6 +77,7 @@ def load_update_status_payload(status_file):
     if not status_file.exists():
         return default_update_status()
     try:
+        ensure_private_regular_file(status_file)
         payload = json.loads(status_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default_update_status()
@@ -95,9 +90,7 @@ def load_update_status_payload(status_file):
 
 
 def public_update_status(status):
-    public_status = dict(status or {})
-    public_status.pop("poll_token", None)
-    return public_status
+    return dict(status or {})
 
 
 def maybe_finalize_update_status(status_file, log_file, process_started_at, status):
@@ -149,10 +142,8 @@ def start_update_job(
     log_file,
     python_executable,
     service_pid,
-    poll_token,
     process_started_at,
     max_log_lines,
-    local_admin_password_reset=None,
 ):
     current_status = get_update_status(status_file, log_file, process_started_at, max_log_lines)
     if not current_status.get("can_start"):
@@ -160,8 +151,7 @@ def start_update_job(
     if not worker_script.exists():
         raise ValueError(f"Update worker script was not found at {worker_script}.")
 
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_file.write_text("", encoding="utf-8")
+    atomic_write_private_text(log_file, "")
 
     status_payload = write_update_status(
         status_file,
@@ -176,23 +166,12 @@ def start_update_job(
             "worker_pid": None,
             "service_names": [],
             "restart_requested_at": "",
-            "poll_token": poll_token,
         },
     )
     append_update_log(log_file, "Launching the DBConsole update worker.")
 
     worker_env = os.environ.copy()
     worker_env["PYTHONUNBUFFERED"] = "1"
-    local_admin_password_reset = dict(local_admin_password_reset or {})
-    for key in SECRET_ENV_KEYS:
-        value = str(local_admin_password_reset.get(key, "") or "")
-        if value:
-            worker_env[key] = value
-    if local_admin_password_reset:
-        append_update_log(
-            log_file,
-            "Localadmin first-time bootstrap credentials were supplied for this update. The password is not logged or saved.",
-        )
     worker = subprocess.Popen(
         [
             python_executable,

@@ -87,6 +87,7 @@
   {% if deployment_region_default %}
   <p class="helper-text">Deployment region default: <code>{{ deployment_region_default }}</code>. Saved profile regions remain authoritative and may target another region.</p>
   {% endif %}
+  <p class="helper-text">Legacy OCI configuration aliases are accepted only until 28 February 2027. Open and save any upgraded profile before that date to persist its Instance Principal settings.</p>
   <form method="post" class="form-grid">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label>
@@ -108,6 +109,11 @@
     <label class="full-span">
       Bucket Prefix
       <input name="bucket_prefix" type="text" value="{{ object_storage_config.bucket_prefix }}" placeholder="lakehouse/input">
+    </label>
+    <label>
+      Upload Validation Limit (MiB) *
+      <input name="upload_validation_max_mib" type="number" min="1" max="10240" step="1" required value="{{ (object_storage_config.upload_validation_max_bytes / (1024 * 1024)) | int }}">
+      <span class="helper-text">Default: 2048 MiB (2 GiB). CSV and JSON are validated completely before upload; maximum: 10240 MiB.</span>
     </label>
     <div class="form-actions">
       <button class="button primary" type="submit" name="setup_action" value="save_object_storage_profile">Save Object Storage Profile</button>

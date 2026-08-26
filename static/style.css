@@ -1946,6 +1946,40 @@ tbody tr:hover td {
   stroke-linejoin: round;
 }
 
+/* Shared action-control contract: familiar icon actions are keyboard-visible
+   and meet the 44px minimum target regardless of their page-specific role. */
+.icon-button,
+.icon-link,
+.panel-icon-button,
+.chart-icon-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.icon-button:focus-visible,
+.icon-link:focus-visible,
+.panel-icon-button:focus-visible,
+.chart-icon-button:focus-visible {
+  outline: 3px solid rgba(26, 105, 174, 0.9);
+  outline-offset: 3px;
+}
+
+.icon-button.danger,
+.icon-link.danger,
+.panel-icon-button.danger,
+.chart-icon-button.danger {
+  background: linear-gradient(135deg, #b42318 0%, #7a1510 100%);
+}
+
+.icon-button.danger:hover:not(:disabled),
+.icon-link.danger:hover:not(.disabled),
+.panel-icon-button.danger:hover:not(:disabled),
+.chart-icon-button.danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d92d20 0%, #921b14 100%);
+}
+
 h4 {
   margin: 18px 0 10px;
   font-size: 1rem;
@@ -2130,19 +2164,6 @@ h4 {
   margin-bottom: 20px;
 }
 
-.oci-config-layout {
-  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
-}
-
-.oci-source-panel {
-  position: sticky;
-  top: 18px;
-}
-
-.oci-source-options {
-  display: grid;
-  gap: 12px;
-}
 
 .radio-card {
   display: grid;
@@ -2504,10 +2525,6 @@ code {
   .oci-overview-row,
   .oci-profile-detail-list {
     grid-template-columns: 1fr;
-  }
-
-  .oci-source-panel {
-    position: static;
   }
 
   .workspace-toolbar {

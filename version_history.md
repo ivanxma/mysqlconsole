@@ -1,6 +1,10 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.4c`.
+Version summary from `1.0.2a` to `1.0.4d`.
+
+## 1.0.4d Summary
+
+Version `1.0.4d` completes the Instance Principal, runtime-state, update authorization, Object Storage validation, and shared destructive-action hardening work. It adds a 2 GiB default Object Storage validation limit, session-bound import plans, secure HTTPS cookies, private systemd runtime state, release metadata assertions, and regression coverage for the security boundaries.
 
 ## 1.0.4c Summary
 

@@ -44,7 +44,14 @@ class ObjectStorageStoreTests(unittest.TestCase):
         self.assertEqual(config["namespace"], "example-namespace")
         self.assertEqual(
             set(persisted["profiles"][0]),
-            {"profile_name", "region", "namespace", "bucket_name", "bucket_prefix"},
+            {
+                "profile_name",
+                "region",
+                "namespace",
+                "bucket_name",
+                "bucket_prefix",
+                "upload_validation_max_bytes",
+            },
         )
         self.assertNotIn("ocid1.user.example", json.dumps(persisted))
         self.assertNotIn("/private/key.pem", json.dumps(persisted))
@@ -75,6 +82,24 @@ class ObjectStorageStoreTests(unittest.TestCase):
 
         self.assertEqual(seeded["region"], "us-phoenix-1")
         self.assertEqual(loaded["region"], "us-phoenix-1")
+
+    def test_profile_upload_validation_limit_defaults_to_two_gib_and_is_configurable(self):
+        profile = object_storage_util.normalize_object_storage(
+            {
+                "profile_name": "primary",
+                "region": "uk-london-1",
+                "namespace": "example-ns",
+                "bucket_name": "lakehouse",
+                "upload_validation_max_mib": "3072",
+            }
+        )
+        self.assertEqual(
+            object_storage_util.normalize_object_storage({})["upload_validation_max_bytes"],
+            2 * 1024 * 1024 * 1024,
+        )
+        self.assertEqual(profile["upload_validation_max_bytes"], 3072 * 1024 * 1024)
+        with self.assertRaisesRegex(ValueError, "between 1 MiB"):
+            object_storage_util.normalize_object_storage({"upload_validation_max_mib": "0"})
 
     def test_folder_must_remain_inside_configured_prefix(self):
         target = {
@@ -189,6 +214,18 @@ class UploadValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "supported Lakehouse file"):
             oci_util.validate_object_storage_upload(self.upload("table.delta", b"not-a-delta-table"))
 
+    def test_text_validation_reads_beyond_the_old_64_kib_prefix(self):
+        payload = b"name,value\n" + (b"valid,row\n" * 7000) + b"bad,\x00\n"
+        self.assertGreater(len(payload), 65536)
+        with self.assertRaisesRegex(ValueError, "binary NUL at byte"):
+            oci_util.validate_object_storage_upload(self.upload("late-error.csv", payload))
+
+    def test_json_reports_its_syntax_location(self):
+        with self.assertRaisesRegex(ValueError, r"line 4, column"):
+            oci_util.validate_object_storage_upload(
+                self.upload("invalid.json", b"{\n  \"name\": \"Ada\",\n  \"active\":\n}\n")
+            )
+
     def test_parquet_and_avro_signatures_are_checked(self):
         parquet = oci_util.validate_object_storage_upload(self.upload("sample.parquet", b"PAR1payloadPAR1"))
         avro = oci_util.validate_object_storage_upload(self.upload("sample.avro", b"Obj\x01payload"))
@@ -295,7 +332,14 @@ class ObjectStorageRouteTests(unittest.TestCase):
         self.assertEqual(persisted["profiles"][0]["region"], "us-phoenix-1")
         self.assertEqual(
             set(persisted["profiles"][0]),
-            {"profile_name", "region", "namespace", "bucket_name", "bucket_prefix"},
+            {
+                "profile_name",
+                "region",
+                "namespace",
+                "bucket_name",
+                "bucket_prefix",
+                "upload_validation_max_bytes",
+            },
         )
 
 

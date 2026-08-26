@@ -1,5 +1,4 @@
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,7 +96,13 @@ from modules.monitoring_queries import (
     run_report_query,
 )
 from modules.query_service import DatabaseQueryService, build_csv_response, quote_identifier, quote_sql_string
-from modules.session_services import DbConsoleSessionService, load_flask_secret_key, normalize_credential_ttl_seconds
+from modules.runtime_util import get_runtime_directory
+from modules.session_services import (
+    DbConsoleSessionService,
+    load_flask_secret_key,
+    normalize_credential_ttl_seconds,
+    session_cookie_secure_for_transport,
+)
 from modules.status_variables import (
     build_empty_status_variable_page as module_build_empty_status_variable_page,
     fetch_grouped_status_variables as module_fetch_grouped_status_variables,
@@ -117,8 +122,9 @@ OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
 FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
 PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
-DBCONSOLE_UPDATE_STATUS_FILE = Path(tempfile.gettempdir()) / "dbconsole-update-status.json"
-DBCONSOLE_UPDATE_LOG_FILE = Path(tempfile.gettempdir()) / "dbconsole-update.log"
+DBCONSOLE_RUNTIME_DIRECTORY = get_runtime_directory()
+DBCONSOLE_UPDATE_STATUS_FILE = DBCONSOLE_RUNTIME_DIRECTORY / "update-status.json"
+DBCONSOLE_UPDATE_LOG_FILE = DBCONSOLE_RUNTIME_DIRECTORY / "update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
 DBCONSOLE_UPDATE_MAX_LOG_LINES = 400
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
@@ -128,7 +134,6 @@ DBCONSOLE_SESSION_VERSION_KEY = "_dbconsole_session_version"
 DBCONSOLE_SESSION_VERSION = 1
 DBCONSOLE_CREDENTIAL_SESSION_KEY = "dbconsole_server_session_id"
 DBCONSOLE_VERSION_CHECK_SESSION_KEY = "dbconsole_version_check"
-DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY = "dbconsole_update_poll_token"
 DBCONSOLE_CSRF_SESSION_KEY = "dbconsole_csrf_token"
 DBCONSOLE_CREDENTIAL_TTL_SECONDS = normalize_credential_ttl_seconds(
     os.environ.get("DBCONSOLE_CREDENTIAL_TTL_SECONDS", "43200")
@@ -137,7 +142,11 @@ DBCONSOLE_SESSION_COOKIE_NAME = os.environ.get("DBCONSOLE_SESSION_COOKIE_NAME", 
 DBCONSOLE_SESSION_COOKIE_PATH = os.environ.get("DBCONSOLE_SESSION_COOKIE_PATH", "/").strip() or "/"
 DBCONSOLE_SESSION_COOKIE_SAMESITE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
 DBCONSOLE_SESSION_COOKIE_SECURE_VALUE = os.environ.get("DBCONSOLE_SESSION_COOKIE_SECURE", "").strip().lower()
-DBCONSOLE_SESSION_COOKIE_SECURE = DBCONSOLE_SESSION_COOKIE_SECURE_VALUE in {"1", "true", "yes", "on"}
+DBCONSOLE_LISTENER_SCHEME = os.environ.get("DBCONSOLE_LISTENER_SCHEME", "").strip().lower()
+DBCONSOLE_SESSION_COOKIE_SECURE = session_cookie_secure_for_transport(
+    DBCONSOLE_SESSION_COOKIE_SECURE_VALUE,
+    DBCONSOLE_LISTENER_SCHEME,
+)
 DBCONSOLE_OBJECT_STORAGE_REGION = os.environ.get("DBCONSOLE_OBJECT_STORAGE_REGION", "").strip().lower()
 
 DB_ADMIN_TABS = {"create", "select", "missing-primary-key", "event", "routine", "charset-collation"}
@@ -269,7 +278,7 @@ app.config["SESSION_COOKIE_PATH"] = DBCONSOLE_SESSION_COOKIE_PATH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = DBCONSOLE_SESSION_COOKIE_SAMESITE
 app.config["SESSION_COOKIE_SECURE"] = DBCONSOLE_SESSION_COOKIE_SECURE
-app.config["MAX_CONTENT_LENGTH"] = object_storage_util.DEFAULT_MAX_UPLOAD_BYTES + (1024 * 1024)
+app.config["MAX_CONTENT_LENGTH"] = object_storage_util.MAX_CONFIGURABLE_UPLOAD_BYTES + (1024 * 1024)
 
 profile_service = ProfileConfigService(
     profile_store_path=PROFILE_STORE,
@@ -303,12 +312,8 @@ update_service = DbConsoleUpdateService(
     status_file=DBCONSOLE_UPDATE_STATUS_FILE,
     log_file=DBCONSOLE_UPDATE_LOG_FILE,
     process_started_at=PROCESS_STARTED_AT,
-    poll_token_session_key=DBCONSOLE_UPDATE_POLL_TOKEN_SESSION_KEY,
     version_check_session_key=DBCONSOLE_VERSION_CHECK_SESSION_KEY,
-    local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
-    can_access_update_page=session_service.can_access_update_page,
     is_local_admin_profile_session=session_service.is_local_admin_profile_session,
-    get_session_profile=session_service.get_session_profile,
     max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
 )
 
@@ -360,18 +365,16 @@ get_session_username = session_service.get_session_username
 has_active_login_state = session_service.has_active_login_state
 clear_login_state = session_service.clear_login_state
 _get_server_session_entry = session_service.get_server_session_entry
+get_server_session_id = session_service.get_server_session_id
 _redirect_to_login_for_mysql_unavailable = session_service.redirect_to_login_for_mysql_unavailable
 session_login_required = session_service.session_login_required
 login_required = session_service.login_required
-local_admin_profile_needs_bootstrap = session_service.local_admin_profile_needs_bootstrap
 is_local_admin_profile_session = session_service.is_local_admin_profile_session
 local_admin_password_change_required = session_service.local_admin_password_change_required
 clear_local_admin_password_change_required = session_service.clear_local_admin_password_change_required
 nav_groups_for_current_session = session_service.nav_groups_for_current_session
 can_access_update_page = session_service.can_access_update_page
 
-UPDATE_LOCAL_ADMIN_RESET_FIELDS = update_service.update_local_admin_reset_fields
-normalize_update_local_admin_bootstrap_credentials = update_service.normalize_local_admin_bootstrap_credentials
 start_dbconsole_update_job = update_service.start_job
 get_local_app_version = update_service.get_local_app_version
 infer_app_version_url = update_service.infer_app_version_url
@@ -379,8 +382,6 @@ refresh_repo_version_check = update_service.refresh_repo_version_check
 should_show_update_page_after_login = update_service.should_show_update_page_after_login
 _public_dbconsole_update_status = update_service.public_status
 get_dbconsole_update_status = update_service.get_status
-_ensure_dbconsole_update_poll_token = update_service.ensure_poll_token
-_update_status_poll_token_is_valid = update_service.status_poll_token_is_valid
 
 
 def is_system_schema_name(schema_name):
@@ -585,7 +586,6 @@ register_auth_routes(
         "mysql_connection": mysql_connection,
         "local_admin_password_change_required": local_admin_password_change_required,
         "is_local_admin_profile_session": is_local_admin_profile_session,
-        "local_admin_profile_needs_bootstrap": local_admin_profile_needs_bootstrap,
         "refresh_repo_version_check": refresh_repo_version_check,
         "should_show_update_page_after_login": should_show_update_page_after_login,
         "change_local_admin_profile_password": change_local_admin_profile_password,
@@ -635,19 +635,14 @@ register_update_routes(
         "render_dashboard": render_dashboard,
         "local_admin_profile_name": LOCAL_ADMIN_PROFILE_NAME,
         "version_check_session_key": DBCONSOLE_VERSION_CHECK_SESSION_KEY,
-        "update_local_admin_reset_fields": UPDATE_LOCAL_ADMIN_RESET_FIELDS,
-        "local_admin_profile_needs_bootstrap": local_admin_profile_needs_bootstrap,
         "is_local_admin_profile_session": is_local_admin_profile_session,
-        "normalize_update_local_admin_bootstrap_credentials": normalize_update_local_admin_bootstrap_credentials,
         "start_dbconsole_update_job": start_dbconsole_update_job,
         "refresh_repo_version_check": refresh_repo_version_check,
         "public_dbconsole_update_status": _public_dbconsole_update_status,
         "get_dbconsole_update_status": get_dbconsole_update_status,
-        "ensure_dbconsole_update_poll_token": _ensure_dbconsole_update_poll_token,
         "get_session_profile": get_session_profile,
         "get_local_app_version": get_local_app_version,
         "infer_app_version_url": infer_app_version_url,
-        "update_status_poll_token_is_valid": _update_status_poll_token_is_valid,
     },
 )
 
@@ -695,6 +690,7 @@ register_mysql_import_routes(
         "render_dashboard": render_dashboard,
         "fetch_database_inventory": fetch_database_inventory,
         "load_mysql_import_plan": module_load_mysql_import_plan,
+        "get_server_session_id": get_server_session_id,
         "build_mysql_import_page_state": module_build_mysql_import_page_state,
         "fetch_table_exists": fetch_table_exists,
         "delete_mysql_import_plan": module_delete_mysql_import_plan,

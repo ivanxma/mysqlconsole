@@ -110,7 +110,7 @@
   <p class="helper-text error-text">{{ missing_primary_key_report.error }}</p>
   {% else %}
   <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
-  <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form onsubmit="return confirm('Apply the primary-key fix to the selected eligible tables?');">
+  <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form data-confirm-message="Apply the primary-key fix to the selected eligible tables?">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="missing-primary-key">
     <div class="table-wrap">
@@ -229,14 +229,14 @@
           </svg>
         </button>
         <button
-          class="icon-button db-admin-event-action"
+          class="icon-button danger db-admin-event-action"
           type="submit"
           name="db_action"
           value="delete_events"
           title="Delete selected events"
           aria-label="Delete selected events"
           data-event-selection-action
-          onclick="return confirm('Delete the selected events?');"
+          data-confirm-message="Delete the selected events?"
           {% if not event_rows %}disabled{% endif %}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -619,7 +619,7 @@
               name="db_action"
               value="modify_charset_collation"
               data-charset-collation-action
-              onclick="return confirm('Apply the selected charset/collation changes? Foreign keys selected for drop will be recreated after the ALTER statements.');"
+              data-confirm-message="Apply the selected charset/collation changes? Foreign keys selected for drop will be recreated after the ALTER statements."
               {% if not charset_collation_report.rows %}disabled{% endif %}
             >
               Modify Charset / Collation
@@ -842,7 +842,7 @@
         </label>
       </form>
       {% if selected_database and selected_database not in ['information_schema', 'mysql', 'performance_schema', 'sys'] %}
-      <form method="post" onsubmit="return confirm('Drop database {{ selected_database }}?');">
+      <form method="post" data-confirm-message="Drop database {{ selected_database }}?">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="db_admin_tab" value="select">
         <input type="hidden" name="db_action" value="drop_database">
@@ -1430,6 +1430,11 @@
         if (tableDeleteCount) {
           tableDeleteCount.textContent = `${checkedCount} selected`;
         }
+        if (checkedCount > 0) {
+          tableDeleteForm.dataset.confirmMessage = "Delete the selected table(s)? This cannot be undone.";
+        } else {
+          delete tableDeleteForm.dataset.confirmMessage;
+        }
       };
       if (tableDeleteSelectAll) {
         tableDeleteSelectAll.addEventListener("change", () => {
@@ -1448,9 +1453,6 @@
           event.preventDefault();
           syncTableDeleteState();
           return;
-        }
-        if (!confirm("Delete the selected table(s)? This cannot be undone.")) {
-          event.preventDefault();
         }
       });
       syncTableDeleteState();
