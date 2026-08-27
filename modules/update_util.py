@@ -1,10 +1,13 @@
 import base64
+import hmac
 import json
 import os
 import re
+import secrets
 import ssl
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from modules.core_util import parse_iso_datetime, utc_now_iso
@@ -12,6 +15,7 @@ from modules.runtime_util import append_private_text, atomic_write_private_text,
 
 
 RUNNING_STATES = {"starting", "running", "restarting"}
+VERSION_ALLOWED_HOSTS = {"api.github.com", "github.com", "raw.githubusercontent.com"}
 
 
 def append_update_log(log_file, message):
@@ -24,6 +28,7 @@ def append_update_log(log_file, message):
 def default_update_status():
     return {
         "job_id": "",
+        "poll_token": "",
         "state": "idle",
         "step": "Ready",
         "message": "No update has been started.",
@@ -90,7 +95,15 @@ def load_update_status_payload(status_file):
 
 
 def public_update_status(status):
-    return dict(status or {})
+    public_status = dict(status or {})
+    public_status.pop("poll_token", None)
+    return public_status
+
+
+def update_poll_token_matches(status_file, candidate):
+    expected = str(load_update_status_payload(status_file).get("poll_token") or "")
+    supplied = str(candidate or "")
+    return bool(expected and supplied and hmac.compare_digest(expected, supplied))
 
 
 def maybe_finalize_update_status(status_file, log_file, process_started_at, status):
@@ -157,6 +170,7 @@ def start_update_job(
         status_file,
         {
             "job_id": utc_now_iso().replace(":", "").replace("-", ""),
+            "poll_token": secrets.token_urlsafe(32),
             "state": "starting",
             "step": "Starting",
             "message": "Launching the DBConsole update worker.",
@@ -279,6 +293,27 @@ def normalize_repository_version_request_url(version_url):
     return version_url
 
 
+def validate_repository_version_url(version_url):
+    candidate = str(version_url or "").strip()
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError("Repository version checks require an HTTPS URL.")
+    if parsed.username or parsed.password:
+        raise ValueError("Repository version URLs must not contain credentials.")
+    allowed_hosts = set(VERSION_ALLOWED_HOSTS)
+    allowed_hosts.update(
+        item.strip().lower()
+        for item in os.environ.get("DBCONSOLE_VERSION_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    )
+    if parsed.hostname.lower() not in allowed_hosts:
+        raise ValueError(
+            f"Repository version host `{parsed.hostname}` is not approved. "
+            "Use DBCONSOLE_VERSION_ALLOWED_HOSTS only for a trusted internal HTTPS host."
+        )
+    return candidate
+
+
 def build_repository_version_ssl_context():
     ca_bundle = os.environ.get("DBCONSOLE_VERSION_CA_BUNDLE", "").strip()
     if ca_bundle:
@@ -310,7 +345,7 @@ def fetch_repository_app_version(repo_dir, timeout=2):
             "error": "Set DBCONSOLE_VERSION_URL to enable repository version checks.",
         }
     try:
-        request_url = normalize_repository_version_request_url(version_url)
+        request_url = validate_repository_version_url(normalize_repository_version_request_url(version_url))
         request_object = urllib.request.Request(
             request_url,
             headers={
@@ -319,7 +354,7 @@ def fetch_repository_app_version(repo_dir, timeout=2):
                 "Pragma": "no-cache",
             },
         )
-        ssl_context = build_repository_version_ssl_context() if request_url.lower().startswith("https://") else None
+        ssl_context = build_repository_version_ssl_context()
         with urllib.request.urlopen(request_object, timeout=timeout, context=ssl_context) as response:
             payload = read_repository_version_payload(response.read())
     except ssl.SSLError as error:
@@ -328,7 +363,7 @@ def fetch_repository_app_version(repo_dir, timeout=2):
             "version_url": version_url,
             "error": f"TLS certificate verification failed. Set DBCONSOLE_VERSION_CA_BUNDLE to a valid CA bundle path. Details: {error}",
         }
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
         reason = getattr(error, "reason", None)
         if isinstance(reason, ssl.SSLError):
             error_message = (

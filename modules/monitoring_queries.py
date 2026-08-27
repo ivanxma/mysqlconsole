@@ -170,13 +170,6 @@ def _coerce_bool(value):
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _coerce_float(value, default=None):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _extract_numeric(value, default=None):
     if value is None:
         return default
@@ -248,20 +241,6 @@ def _format_milliseconds(value):
     if number >= 1000:
         return f"{number / 1000.0:.1f} s"
     return f"{number:.0f} ms"
-
-
-def _duration_value_to_ms(column_name, value):
-    number = _extract_numeric(value, None)
-    if number is None:
-        return None
-    lowered = str(column_name or "").lower()
-    if "nanosecond" in lowered or lowered.endswith("_ns"):
-        return number / 1_000_000.0
-    if "microsecond" in lowered or lowered.endswith("_us"):
-        return number / 1000.0
-    if (lowered.endswith("_sec") or lowered.endswith("_secs") or lowered.endswith("_seconds")) and not lowered.endswith("_ms"):
-        return number * 1000.0
-    return number
 
 
 def _report_row_map(report, key_column, value_column):
@@ -580,60 +559,6 @@ def fetch_monitoring_lock_waits():
     )
 
 
-def fetch_monitoring_lock_table_detail(lock_schema, lock_table):
-    return run_report_query(
-        """
-        SELECT
-          object_schema,
-          object_name,
-          index_name,
-          lock_type,
-          lock_mode,
-          lock_status,
-          lock_data,
-          thread.processlist_id AS connection_id,
-          thread.processlist_user AS user_name,
-          thread.processlist_db AS database_name,
-          thread.processlist_time AS elapsed_seconds
-        FROM performance_schema.data_locks AS locks
-        LEFT JOIN performance_schema.threads AS thread
-          ON locks.thread_id = thread.thread_id
-        WHERE locks.object_schema = %s
-          AND locks.object_name = %s
-        ORDER BY connection_id, index_name, lock_mode
-        LIMIT 200
-        """,
-        [lock_schema, lock_table],
-    )
-
-
-def fetch_monitoring_lock_connection_detail(connection_id):
-    return run_report_query(
-        """
-        SELECT
-          thread.processlist_id AS connection_id,
-          thread.processlist_user AS user_name,
-          thread.processlist_db AS database_name,
-          thread.processlist_state AS state_name,
-          thread.processlist_time AS elapsed_seconds,
-          locks.object_schema,
-          locks.object_name,
-          locks.index_name,
-          locks.lock_type,
-          locks.lock_mode,
-          locks.lock_status,
-          locks.lock_data
-        FROM performance_schema.data_locks AS locks
-        JOIN performance_schema.threads AS thread
-          ON locks.thread_id = thread.thread_id
-        WHERE thread.processlist_id = %s
-        ORDER BY locks.object_schema, locks.object_name, locks.index_name
-        LIMIT 200
-        """,
-        [connection_id],
-    )
-
-
 def fetch_monitoring_metadata_locks():
     return run_report_query(
         """
@@ -657,61 +582,6 @@ def fetch_monitoring_metadata_locks():
         ORDER BY CASE WHEN lock_status = 'PENDING' THEN 0 ELSE 1 END, object_schema, object_name
         LIMIT 200
         """
-    )
-
-
-def fetch_monitoring_metadata_object_detail(lock_schema, lock_name):
-    return run_report_query(
-        """
-        SELECT
-          object_type,
-          object_schema,
-          object_name,
-          lock_type,
-          lock_duration,
-          lock_status,
-          source,
-          owner_thread_id,
-          thread.processlist_id AS owner_connection_id,
-          thread.processlist_user AS owner_user,
-          thread.processlist_db AS owner_database,
-          thread.processlist_time AS owner_elapsed_seconds
-        FROM performance_schema.metadata_locks AS locks
-        LEFT JOIN performance_schema.threads AS thread
-          ON locks.owner_thread_id = thread.thread_id
-        WHERE locks.object_schema = %s
-          AND locks.object_name = %s
-        ORDER BY CASE WHEN lock_status = 'PENDING' THEN 0 ELSE 1 END, owner_connection_id
-        LIMIT 200
-        """,
-        [lock_schema, lock_name],
-    )
-
-
-def fetch_monitoring_metadata_connection_detail(connection_id):
-    return run_report_query(
-        """
-        SELECT
-          object_type,
-          object_schema,
-          object_name,
-          lock_type,
-          lock_duration,
-          lock_status,
-          source,
-          owner_thread_id,
-          thread.processlist_id AS owner_connection_id,
-          thread.processlist_user AS owner_user,
-          thread.processlist_db AS owner_database,
-          thread.processlist_time AS owner_elapsed_seconds
-        FROM performance_schema.metadata_locks AS locks
-        JOIN performance_schema.threads AS thread
-          ON locks.owner_thread_id = thread.thread_id
-        WHERE thread.processlist_id = %s
-        ORDER BY CASE WHEN lock_status = 'PENDING' THEN 0 ELSE 1 END, object_schema, object_name
-        LIMIT 200
-        """,
-        [connection_id],
     )
 
 

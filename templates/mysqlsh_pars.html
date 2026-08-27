@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div><h2>MySQL Shell PAR Setup</h2><p class="helper-text">Create and manage reusable PARs for the Operations page using DB Console Object Storage settings and Instance Principal authentication.</p></div>
+    <div class="panel-actions"><a class="button secondary" href="{{ url_for('setup_object_storage_page') }}">Setup Object Storage</a><a class="button secondary" href="{{ url_for('mysqlsh_operations_page') }}">Dump/Load</a></div>
+  </div>
+  <form method="get" class="field-row">
+    <label>Object Storage Profile
+      <select name="object_storage_profile">{% for profile in object_storage_profiles %}<option value="{{ profile.profile_name }}" {% if profile.profile_name == form.object_storage_profile %}selected{% endif %}>{{ profile.profile_name }} — {{ profile.region }} — {{ profile.bucket_name }}</option>{% endfor %}</select>
+    </label>
+    <div class="field-actions-inline"><button class="button secondary" type="submit">Select</button></div>
+  </form>
+  <dl class="detail-list oci-overview-row">
+    <div><dt>Authentication</dt><dd>Instance Principal</dd></div><div><dt>Region</dt><dd>{{ selected_target.region or '-' }}</dd></div><div><dt>Namespace</dt><dd>{{ selected_target.namespace or '-' }}</dd></div><div><dt>Bucket</dt><dd>{{ selected_target.bucket_name or '-' }}</dd></div><div><dt>Base Prefix</dt><dd>{{ selected_target.bucket_prefix or '-' }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <h3>Create PAR</h3>
+  {% if not storage_configured %}
+  <p class="error-text">{{ storage_configuration_error or 'Complete the Object Storage profile before creating a PAR.' }}</p>
+  <a class="button primary" href="{{ url_for('setup_object_storage_page') }}">Setup Object Storage</a>
+  {% else %}
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="object_storage_profile" value="{{ form.object_storage_profile }}"><input type="hidden" name="par_action" value="create">
+    <label>PAR Name *<input name="name" required maxlength="120" value="{{ form.name }}" placeholder="nightly-dump-target"></label>
+    <label>Prefix *<input name="prefix" required value="{{ form.prefix }}" placeholder="dumps/nightly"></label>
+    <label>Available For *<select name="access_type"><option value="AnyObjectReadWrite" {% if form.access_type == 'AnyObjectReadWrite' %}selected{% endif %}>Dump and Load (read/write)</option><option value="AnyObjectRead" {% if form.access_type == 'AnyObjectRead' %}selected{% endif %}>Load only (read)</option></select></label>
+    <fieldset class="mysqlsh-par-setup">
+      <legend>PAR Lifecycle</legend>
+      <label class="checkbox-field"><input id="delete-after-use" name="delete_after_use" type="checkbox" value="1" {% if form.delete_after_use %}checked{% endif %}><span>Delete after used</span></label>
+      <p id="par-policy-status" class="mysqlsh-par-policy-status" aria-live="polite"></p>
+      <label id="par-expiry-field">PAR Expiry (hours) *<input id="par-expiry-hours" name="expiry_hours" type="number" min="1" max="168" value="{{ form.expiry_hours }}"><span class="helper-text">Required only when Delete after used is not selected.</span></label>
+    </fieldset>
+    <div class="form-actions mysqlsh-form-actions"><button class="button primary" type="submit">Create PAR</button></div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h3>Available PARs</h3>
+  {% if par_entries %}<div class="table-wrap"><table><thead><tr><th>Name</th><th>Target</th><th>Available For</th><th>Expires</th><th>Lifecycle</th><th>Status</th><th>Action</th></tr></thead><tbody>
+  {% for entry in par_entries %}<tr><td>{{ entry.name }}</td><td>{{ entry.target_display }}</td><td>{{ 'Dump and Load' if entry.access_type == 'AnyObjectReadWrite' else 'Load only' }}</td><td>{{ entry.expires_at }}</td><td>{{ 'Delete after used' if entry.delete_after_use else 'Keep until expiry' }}</td><td><span class="hw-load-badge hw-load-{{ 'loaded' if entry.is_active else 'neutral' }}">{{ entry.status_label }}</span></td><td><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="object_storage_profile" value="{{ form.object_storage_profile }}"><input type="hidden" name="par_entry_id" value="{{ entry.id }}"><button class="button secondary danger" type="submit" name="par_action" value="delete" data-confirm-message="Revoke and remove this PAR?">Revoke</button></form></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p>No PARs are available for this Object Storage profile.</p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}{{ super() }}<script nonce="{{ csp_nonce }}">(()=>{const toggle=document.getElementById("delete-after-use"),field=document.getElementById("par-expiry-field"),input=document.getElementById("par-expiry-hours"),status=document.getElementById("par-policy-status");if(!toggle||!field||!input||!status)return;const sync=()=>{const retained=!toggle.checked;input.disabled=!retained;input.required=retained;field.classList.toggle("is-disabled",!retained);status.textContent=retained?"The PAR remains available until its required expiry.":"The PAR is revoked and removed after the selected job finishes; no expiry entry is required (24-hour OCI safety expiry).";};toggle.addEventListener("change",sync);sync();})();</script>{% endblock %}

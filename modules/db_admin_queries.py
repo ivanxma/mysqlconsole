@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 
@@ -11,6 +12,10 @@ _quote_identifier = None
 _quote_sql_string = None
 _mysql_connection = None
 _is_system_schema_name = None
+_fetch_database_exists = None
+_fetch_tables_for_database = None
+_fetch_table_column_names = None
+_run_report_query = None
 _db_admin_preview_masked_base_types = set()
 
 
@@ -26,10 +31,15 @@ def configure_db_admin_queries(
     mysql_connection,
     is_system_schema_name,
     db_admin_preview_masked_base_types,
+    fetch_database_exists=None,
+    fetch_tables_for_database=None,
+    fetch_table_column_names=None,
+    run_report_query=None,
 ):
     global _execute_query, _execute_statement, _fetch_scalar, _fetch_table_column_lookup
     global _get_event_schedule_option, _quote_identifier, _quote_sql_string
     global _mysql_connection, _is_system_schema_name
+    global _fetch_database_exists, _fetch_tables_for_database, _fetch_table_column_names, _run_report_query
     global _db_admin_preview_masked_base_types, DB_ADMIN_PREVIEW_MASKED_BASE_TYPES
     _execute_query = execute_query
     _execute_statement = execute_statement
@@ -40,6 +50,10 @@ def configure_db_admin_queries(
     _quote_sql_string = quote_sql_string
     _mysql_connection = mysql_connection
     _is_system_schema_name = is_system_schema_name
+    _fetch_database_exists = fetch_database_exists
+    _fetch_tables_for_database = fetch_tables_for_database
+    _fetch_table_column_names = fetch_table_column_names
+    _run_report_query = run_report_query
     _db_admin_preview_masked_base_types = set(db_admin_preview_masked_base_types or [])
     DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = _db_admin_preview_masked_base_types
 
@@ -96,6 +110,30 @@ def is_system_schema_name(*args, **kwargs):
     if _is_system_schema_name is None:
         raise RuntimeError("DB Admin query dependencies are not configured")
     return _is_system_schema_name(*args, **kwargs)
+
+
+def fetch_database_exists(*args, **kwargs):
+    if _fetch_database_exists is None:
+        raise RuntimeError("DB Admin database-existence dependency is not configured")
+    return _fetch_database_exists(*args, **kwargs)
+
+
+def fetch_tables_for_database(*args, **kwargs):
+    if _fetch_tables_for_database is None:
+        raise RuntimeError("DB Admin table-list dependency is not configured")
+    return _fetch_tables_for_database(*args, **kwargs)
+
+
+def fetch_table_column_names(*args, **kwargs):
+    if _fetch_table_column_names is None:
+        raise RuntimeError("DB Admin column-list dependency is not configured")
+    return _fetch_table_column_names(*args, **kwargs)
+
+
+def run_report_query(*args, **kwargs):
+    if _run_report_query is None:
+        raise RuntimeError("DB Admin report-query dependency is not configured")
+    return _run_report_query(*args, **kwargs)
 
 
 DB_ADMIN_PREVIEW_MASKED_BASE_TYPES = _db_admin_preview_masked_base_types
@@ -617,40 +655,6 @@ def _build_column_charset_definition(current_definition, column_type, charset_na
     if remainder:
         new_definition = f"{new_definition} {remainder}"
     return new_definition
-
-
-def _fetch_outgoing_foreign_key_names(database_name, table_name, *, selected_columns=None):
-    params = [database_name, table_name]
-    selected_column_set = {
-        str(column_name or "").strip()
-        for column_name in selected_columns or []
-        if str(column_name or "").strip()
-    }
-    rows = execute_query(
-        """
-        SELECT
-          constraint_name AS constraint_name_value,
-          column_name AS column_name_value
-        FROM information_schema.key_column_usage
-        WHERE table_schema = %s
-          AND table_name = %s
-          AND referenced_table_name IS NOT NULL
-        ORDER BY constraint_name, ordinal_position
-        """,
-        params,
-    )
-    foreign_key_names = []
-    seen = set()
-    for row in rows:
-        column_name = row["column_name_value"]
-        if selected_column_set and column_name not in selected_column_set:
-            continue
-        constraint_name = row["constraint_name_value"]
-        if constraint_name in seen:
-            continue
-        seen.add(constraint_name)
-        foreign_key_names.append(constraint_name)
-    return foreign_key_names
 
 
 def _quote_existing_mysql_identifier(identifier):
@@ -1248,6 +1252,12 @@ def fix_table_without_primary_key(database_name, table_name):
             "message": f"Table `{normalized_database}.{normalized_table}` already has a primary key.",
         }
 
+    if str(primary_key_status.get("engine") or "").strip().lower() == "lakehouse":
+        raise ValueError(
+            f"Lakehouse table `{normalized_database}.{normalized_table}` requires a manually selected primary key. "
+            "Use DB Admin > Select Database and Table > Modify Columns."
+        )
+
     safe_database = quote_identifier(normalized_database)
     safe_table = quote_identifier(normalized_table)
     auto_increment_column_name = primary_key_status["auto_increment_column_name"]
@@ -1380,12 +1390,14 @@ def fetch_table_indexes(database_name, table_name):
                 "cardinality": row["cardinality_value"] if row["cardinality_value"] is not None else "-",
                 "index_comment": row["index_comment_value"] or "-",
                 "columns": [],
+                "column_names": [],
             }
             ordered_indexes.append(index_lookup[index_name])
         column_name = row["column_name_value"] or "-"
         if row["sub_part_value"] is not None:
             column_name = f"{column_name}({row['sub_part_value']})"
         index_lookup[index_name]["columns"].append(column_name)
+        index_lookup[index_name]["column_names"].append(row["column_name_value"] or "")
     return ordered_indexes
 
 

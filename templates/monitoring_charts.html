@@ -72,7 +72,7 @@
 
 <section class="chart-grid" id="chart-grid" aria-live="polite"></section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const initialSnapshot = {{ chart_snapshot | tojson }};
     const dataUrl = {{ charts_data_url | tojson }};
@@ -536,7 +536,7 @@
           <head>
             <meta charset="utf-8">
             <title>${escapeHtml(card.title)}</title>
-            <style>
+            <style nonce="{{ csp_nonce }}">
               body { margin: 0; padding: 24px; background: #f4eee7; color: #211d18; font: 16px/1.4 "Avenir Next", "Segoe UI", sans-serif; }
               .popup-card { background: rgba(255, 251, 246, 0.96); border: 1px solid rgba(33, 29, 24, 0.11); border-radius: 24px; padding: 24px; box-shadow: 0 20px 50px rgba(67, 42, 15, 0.12); }
               .popup-card h1 { margin: 0 0 6px; font-family: Georgia, "Times New Roman", serif; }

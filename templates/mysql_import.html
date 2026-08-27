@@ -358,7 +358,7 @@
 
 {% block scripts %}
 {{ super() }}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const toggleForms = Array.from(document.querySelectorAll("[data-import-toggle-form]"));
     toggleForms.forEach((form) => {

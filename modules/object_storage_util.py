@@ -1,9 +1,6 @@
 import json
 import re
-from datetime import date
-from uuid import uuid4
-
-from modules.core_util import chmod_private_file
+from modules.runtime_util import atomic_write_private_text, ensure_private_regular_file
 from modules.oci_util import (
     DEFAULT_MAX_UPLOAD_BYTES,
     MAX_CONFIGURABLE_UPLOAD_BYTES,
@@ -25,7 +22,12 @@ DEFAULT_OBJECT_STORAGE_PROFILE = {
     "bucket_prefix": "",
     "upload_validation_max_bytes": DEFAULT_MAX_UPLOAD_BYTES,
 }
-LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF = date(2027, 2, 28)
+LEGACY_OBJECT_STORAGE_KEYS = {
+    "config_profile",
+    "oci_config_profile",
+    "oci_region",
+    "oci_namespace",
+}
 
 
 def normalize_region(value):
@@ -64,31 +66,28 @@ def normalize_object_prefix(value):
     return "/".join(segments)
 
 
-def _legacy_value(payload, current_key, legacy_key):
-    if payload.get(legacy_key) and date.today() > LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF:
+def _reject_legacy_object_storage_keys(payload):
+    legacy_keys = sorted(key for key in LEGACY_OBJECT_STORAGE_KEYS if key in payload)
+    if legacy_keys:
         raise ValueError(
-            f"The legacy `{legacy_key}` Object Storage setting is no longer supported; migrate to `{current_key}`."
+            "Legacy Object Storage settings are not supported; use canonical fields: "
+            + ", ".join(legacy_keys)
         )
-    return payload.get(current_key) or payload.get(legacy_key) or ""
 
 
 def _normalize_object_storage_entry(payload, *, default_region=""):
     payload = payload or {}
-    legacy_profile_key = next((key for key in ("config_profile", "oci_config_profile") if payload.get(key)), "")
-    if legacy_profile_key and date.today() > LEGACY_OBJECT_STORAGE_MIGRATION_CUTOFF:
-        raise ValueError("Legacy Object Storage profile aliases are no longer supported; use `profile_name`.")
+    _reject_legacy_object_storage_keys(payload)
     profile_name = str(
         payload.get("profile_name")
-        or payload.get("config_profile")
-        or payload.get("oci_config_profile")
         or DEFAULT_OBJECT_STORAGE_PROFILE["profile_name"]
     ).strip()
     if not profile_name:
         profile_name = DEFAULT_OBJECT_STORAGE_PROFILE["profile_name"]
     return {
         "profile_name": profile_name[:80],
-        "region": normalize_region(_legacy_value(payload, "region", "oci_region") or default_region),
-        "namespace": str(_legacy_value(payload, "namespace", "oci_namespace")).strip(),
+        "region": normalize_region(payload.get("region") or default_region),
+        "namespace": str(payload.get("namespace") or "").strip(),
         "bucket_name": str(payload.get("bucket_name") or "").strip(),
         "bucket_prefix": normalize_object_prefix(payload.get("bucket_prefix") or ""),
         "upload_validation_max_bytes": normalize_upload_validation_max_bytes(payload),
@@ -128,6 +127,7 @@ def _dedupe_profiles(profiles, *, default_region=""):
 
 def normalize_object_storage_store(payload, *, default_region=""):
     payload = payload if isinstance(payload, dict) else {}
+    _reject_legacy_object_storage_keys(payload)
     raw_profiles = payload.get("profiles")
     profiles = [row for row in raw_profiles if isinstance(row, dict)] if isinstance(raw_profiles, list) else []
     if not profiles:
@@ -139,8 +139,6 @@ def normalize_object_storage_store(payload, *, default_region=""):
     active_name = str(
         payload.get("active_profile_name")
         or payload.get("profile_name")
-        or payload.get("config_profile")
-        or payload.get("oci_config_profile")
         or ""
     ).strip()
     active_profile = next(
@@ -156,6 +154,7 @@ def normalize_object_storage_store(payload, *, default_region=""):
 
 def _load_object_storage_payload(store_path):
     try:
+        ensure_private_regular_file(store_path)
         payload = json.loads(store_path.read_text(encoding="utf-8"))
         return payload if isinstance(payload, dict) else {}
     except (OSError, json.JSONDecodeError):
@@ -164,11 +163,7 @@ def _load_object_storage_payload(store_path):
 
 def _write_object_storage_store(store_path, store, *, default_region=""):
     normalized_store = normalize_object_storage_store(store, default_region=default_region)
-    temp_path = store_path.with_name(f".{store_path.name}.{uuid4().hex}.tmp")
-    temp_path.write_text(json.dumps(normalized_store, indent=2) + "\n", encoding="utf-8")
-    chmod_private_file(temp_path)
-    temp_path.replace(store_path)
-    chmod_private_file(store_path)
+    atomic_write_private_text(store_path, json.dumps(normalized_store, indent=2) + "\n")
     return normalized_store
 
 
@@ -178,7 +173,7 @@ def ensure_object_storage_store(store_path, *, default_region=""):
     if not store_path.exists() or payload != normalized:
         _write_object_storage_store(store_path, normalized, default_region=default_region)
     else:
-        chmod_private_file(store_path)
+        ensure_private_regular_file(store_path)
 
 
 def load_object_storage_config(store_path, *, default_region=""):

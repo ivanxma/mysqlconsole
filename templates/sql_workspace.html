@@ -37,7 +37,7 @@
 {% endmacro %}
 
 {% macro render_result_export_payload(tab) %}
-<script type="application/json" data-workspace-result-export="{{ tab.key }}">
+<script nonce="{{ csp_nonce }}" type="application/json" data-workspace-result-export="{{ tab.key }}">
 {{ {"label": tab.label, "columns": tab.columns, "rows": tab.export_rows}|tojson }}
 </script>
 {% endmacro %}
@@ -216,7 +216,7 @@
     <pre class="sql-block">{{ tab.text_output }}</pre>
     {% elif tab.kind == "plan" %}
     <div class="plan-visual-shell" data-plan-visual>
-      <script type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
+      <script nonce="{{ csp_nonce }}" type="application/json" data-plan-json>{{ tab.plan_json | safe }}</script>
       <p class="helper-text" data-plan-status>Rendering execution plan...</p>
       <div class="plan-canvas" data-plan-canvas hidden></div>
     </div>
@@ -335,7 +335,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const openDialog = (dialog) => {
       if (!dialog) {
@@ -454,7 +454,7 @@
   <head>
     <meta charset="utf-8">
     <title>${escapeHtml(label)}</title>
-    <style>
+    <style nonce="{{ csp_nonce }}">
       body { font-family: "Avenir Next", "Segoe UI", sans-serif; margin: 24px; color: #211d18; }
       h1 { margin: 0 0 16px; font-size: 1.35rem; }
       table { width: 100%; border-collapse: collapse; }

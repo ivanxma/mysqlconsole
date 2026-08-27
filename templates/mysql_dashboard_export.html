@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>{{ app_title }} Admin Dashboard Export</title>
-  <style>
+  <style nonce="{{ csp_nonce }}">
     :root {
       color: #211d18;
       background: #fffaf4;
@@ -566,7 +566,7 @@
   </table>
     </div>
   </details>
-  <script>
+  <script nonce="{{ csp_nonce }}">
     (() => {
       const filter = document.getElementById("error-log-priority-filter");
       const rows = Array.from(document.querySelectorAll("[data-error-log-row]"));

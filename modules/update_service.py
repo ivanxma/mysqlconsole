@@ -19,6 +19,7 @@ class DbConsoleUpdateService:
         process_started_at,
         version_check_session_key,
         is_local_admin_profile_session,
+        active_job_count,
         max_log_lines=400,
     ):
         self.repo_dir = repo_dir
@@ -29,10 +30,14 @@ class DbConsoleUpdateService:
         self.process_started_at = process_started_at
         self.version_check_session_key = version_check_session_key
         self.is_local_admin_profile_session = is_local_admin_profile_session
+        self.active_job_count = active_job_count
         self.max_log_lines = max_log_lines
 
     def public_status(self, status):
         return update_util.public_update_status(status)
+
+    def poll_token_matches(self, candidate):
+        return update_util.update_poll_token_matches(self.status_file, candidate)
 
     def get_status(self):
         return update_util.get_update_status(
@@ -43,6 +48,12 @@ class DbConsoleUpdateService:
         )
 
     def start_job(self):
+        active_count = self.active_job_count()
+        if active_count:
+            raise ValueError(
+                f"Auto-update is blocked while {active_count} MySQL Shell job(s) are active. "
+                "Wait for completion or cancel them first."
+            )
         return update_util.start_update_job(
             repo_dir=self.repo_dir,
             worker_script=self.worker_script,

@@ -117,10 +117,11 @@
 
 {% block scripts %}
 {{ super() }}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const statusUrl = {{ url_for("update_dbconsole_status")|tojson }};
     const initialStatus = {{ update_status|tojson }};
+    const updatePollToken = {{ update_poll_token|tojson }};
     const restartWaitLimitMs = 30000;
     const pollIntervalMs = 2000;
     const state = {
@@ -178,11 +179,17 @@
       }
     };
 
+    const activeStates = new Set(["starting", "running", "restarting"]);
+    let nextPollDelayMs = pollIntervalMs;
     const pollStatus = async () => {
+      let continuePolling = false;
       try {
         const response = await window.fetch(statusUrl, {
           method: "GET",
-          headers: { "Accept": "application/json" },
+          headers: {
+            "Accept": "application/json",
+            "X-DBConsole-Update-Poll-Token": updatePollToken,
+          },
           cache: "no-store",
           credentials: "same-origin",
         });
@@ -197,8 +204,12 @@
         state.lastStatus = payload;
         state.restartWaitStartedAt = null;
         renderStatus(payload);
+        continuePolling = activeStates.has(payload.state);
+        nextPollDelayMs = pollIntervalMs;
       } catch (error) {
         const currentState = (state.lastStatus && state.lastStatus.state) || "idle";
+        continuePolling = activeStates.has(currentState);
+        nextPollDelayMs = Math.min(Math.max(nextPollDelayMs * 2, pollIntervalMs), 30000);
         if (currentState === "restarting") {
           if (!state.restartWaitStartedAt) {
             state.restartWaitStartedAt = Date.now();
@@ -212,12 +223,16 @@
           renderStatus(state.lastStatus, "Unable to refresh the update status right now.");
         }
       } finally {
-        window.setTimeout(pollStatus, pollIntervalMs);
+        if (continuePolling) {
+          window.setTimeout(pollStatus, nextPollDelayMs);
+        }
       }
     };
 
     renderStatus(initialStatus);
-    window.setTimeout(pollStatus, pollIntervalMs);
+    if (activeStates.has(initialStatus.state)) {
+      window.setTimeout(pollStatus, pollIntervalMs);
+    }
   })();
 </script>
 {% endblock %}

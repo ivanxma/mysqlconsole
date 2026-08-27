@@ -1,4 +1,5 @@
 import os
+import atexit
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,12 +66,16 @@ from modules.mysql_import import (
     validate_mysql_import_request as module_validate_mysql_import_request,
 )
 from modules.mysql_import_routes import register_mysql_import_routes
+from modules.mysqlsh_routes import register_mysqlsh_routes
+from modules.mysqlsh_configuration_routes import register_mysqlsh_configuration_routes
+from modules.mysqlsh_jobs import active_job_count, reconcile_jobs
 from modules.mysql_util import (
     DEFAULT_PROFILE,
     InterfaceError as MySQLInterfaceError,
     OperationalError as MySQLOperationalError,
     borrow_connection,
     close_cached_connection,
+    has_system_user_privilege,
     normalize_profile,
     public_profile,
     public_profiles,
@@ -96,7 +101,7 @@ from modules.monitoring_queries import (
     run_report_query,
 )
 from modules.query_service import DatabaseQueryService, build_csv_response, quote_identifier, quote_sql_string
-from modules.runtime_util import get_runtime_directory
+from modules.runtime_util import get_runtime_directory, get_state_directory
 from modules.session_services import (
     DbConsoleSessionService,
     load_flask_secret_key,
@@ -109,7 +114,6 @@ from modules.status_variables import (
 )
 from modules.sql_workspace import (
     apply_query_session_options as _apply_query_session_options,
-    normalize_sql_workspace_secondary_engine,
     register_sql_workspace_routes,
 )
 from modules.update_routes import register_update_routes
@@ -117,14 +121,17 @@ from modules.update_service import DbConsoleUpdateService
 
 APP_TITLE = "MySQL DBConsole"
 ROOT_DIR = Path(__file__).resolve().parent
-PROFILE_STORE = ROOT_DIR / "profiles.json"
-OBJECT_STORAGE_STORE = ROOT_DIR / "object_storage.json"
+DBCONSOLE_STATE_DIRECTORY = get_state_directory()
+PROFILE_STORE = DBCONSOLE_STATE_DIRECTORY / "profiles.json"
+OBJECT_STORAGE_STORE = DBCONSOLE_STATE_DIRECTORY / "object_storage.json"
+MYSQLSH_OPTION_PROFILE_STORE = DBCONSOLE_STATE_DIRECTORY / "mysqlsh_option_profiles.json"
+MYSQLSH_PAR_STORE = DBCONSOLE_STATE_DIRECTORY / "mysqlsh_par_registry.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
-FLASK_SECRET_KEY_FILE = ROOT_DIR / ".flask_secret_key"
-PROFILE_SSH_KEY_DIR = ROOT_DIR / "profile_ssh_keys"
+FLASK_SECRET_KEY_FILE = DBCONSOLE_STATE_DIRECTORY / ".flask_secret_key"
+PROFILE_SSH_KEY_DIR = DBCONSOLE_STATE_DIRECTORY / "profile_ssh_keys"
 DBCONSOLE_RUNTIME_DIRECTORY = get_runtime_directory()
-DBCONSOLE_UPDATE_STATUS_FILE = DBCONSOLE_RUNTIME_DIRECTORY / "update-status.json"
-DBCONSOLE_UPDATE_LOG_FILE = DBCONSOLE_RUNTIME_DIRECTORY / "update.log"
+DBCONSOLE_UPDATE_STATUS_FILE = DBCONSOLE_STATE_DIRECTORY / "update-status.json"
+DBCONSOLE_UPDATE_LOG_FILE = DBCONSOLE_STATE_DIRECTORY / "update.log"
 DBCONSOLE_UPDATE_WORKER = ROOT_DIR / "dbconsole_update_worker.py"
 DBCONSOLE_UPDATE_MAX_LOG_LINES = 400
 SYSTEM_SCHEMAS = {"information_schema", "mysql", "performance_schema", "sys"}
@@ -250,6 +257,16 @@ NAV_GROUPS = [
         ],
     },
     {
+        "label": "MySQL Shell",
+        "items": [
+            {"endpoint": "mysqlsh_operations_page", "label": "Dump/Load"},
+            {"endpoint": "mysqlsh_option_profiles_page", "label": "Option Profiles"},
+            {"endpoint": "mysqlsh_pars_page", "label": "PAR Setup"},
+            {"endpoint": "mysqlsh_jobs_page", "label": "Jobs"},
+            {"endpoint": "mysqlsh_validation_page", "label": "Validation"},
+        ],
+    },
+    {
         "label": "HeatWave",
         "items": [
             {"endpoint": "hw_table_page", "label": "HW Table"},
@@ -305,6 +322,8 @@ session_service = DbConsoleSessionService(
     local_admin_profile_name=LOCAL_ADMIN_PROFILE_NAME,
     nav_groups=NAV_GROUPS,
 )
+session_service.start_cleanup_worker()
+atexit.register(session_service.stop_cleanup_worker)
 update_service = DbConsoleUpdateService(
     repo_dir=ROOT_DIR,
     app_version_file=APP_VERSION_FILE,
@@ -314,8 +333,16 @@ update_service = DbConsoleUpdateService(
     process_started_at=PROCESS_STARTED_AT,
     version_check_session_key=DBCONSOLE_VERSION_CHECK_SESSION_KEY,
     is_local_admin_profile_session=session_service.is_local_admin_profile_session,
+    active_job_count=active_job_count,
     max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
 )
+
+try:
+    reconcile_jobs()
+except Exception:
+    # Startup must remain available so an administrator can inspect and recover
+    # state even when OCI PAR finalization is temporarily unavailable.
+    pass
 
 
 def csrf_token():
@@ -334,7 +361,7 @@ def validate_csrf_token():
 
 @app.context_processor
 def inject_security_helpers():
-    return {"csrf_token": csrf_token}
+    return {"csrf_token": csrf_token, "csp_nonce": session_service.csp_nonce()}
 
 
 @app.after_request
@@ -366,6 +393,8 @@ has_active_login_state = session_service.has_active_login_state
 clear_login_state = session_service.clear_login_state
 _get_server_session_entry = session_service.get_server_session_entry
 get_server_session_id = session_service.get_server_session_id
+set_server_session_state = session_service.set_server_session_state
+pop_server_session_state = session_service.pop_server_session_state
 _redirect_to_login_for_mysql_unavailable = session_service.redirect_to_login_for_mysql_unavailable
 session_login_required = session_service.session_login_required
 login_required = session_service.login_required
@@ -382,6 +411,7 @@ refresh_repo_version_check = update_service.refresh_repo_version_check
 should_show_update_page_after_login = update_service.should_show_update_page_after_login
 _public_dbconsole_update_status = update_service.public_status
 get_dbconsole_update_status = update_service.get_status
+update_poll_token_matches = update_service.poll_token_matches
 
 
 def is_system_schema_name(schema_name):
@@ -447,6 +477,15 @@ def mysql_connection(database_override=None, connect_timeout=5, autocommit=True)
 session_service.configure_auth_callbacks(mysql_connection=mysql_connection)
 
 
+def _mysqlsh_system_user_authorized():
+    with mysql_connection(database_override="mysql") as connection:
+        return has_system_user_privilege(connection)
+
+
+session_service.configure_mysqlsh_authorizer(_mysqlsh_system_user_authorized)
+can_access_mysqlsh = session_service.can_access_mysqlsh
+
+
 @app.errorhandler(MySQLOperationalError)
 def handle_mysql_operational_error(error):
     if not session.get("logged_in"):
@@ -491,6 +530,10 @@ configure_db_admin_queries(
     mysql_connection=mysql_connection,
     is_system_schema_name=is_system_schema_name,
     db_admin_preview_masked_base_types=DB_ADMIN_PREVIEW_MASKED_BASE_TYPES,
+    fetch_database_exists=fetch_database_exists,
+    fetch_tables_for_database=fetch_tables_for_database,
+    fetch_table_column_names=fetch_table_column_names,
+    run_report_query=run_report_query,
 )
 
 configure_dashboard_queries(
@@ -542,11 +585,6 @@ def change_local_admin_profile_password(new_password):
 def render_dashboard(template_name, **context):
     profile = get_session_profile()
     overview = context.pop("server_overview", None)
-    if session.get("logged_in") and overview is None:
-        try:
-            overview = fetch_server_overview()
-        except Exception:
-            overview = None
     return render_template(
         template_name,
         app_title=APP_TITLE,
@@ -610,6 +648,7 @@ register_admin_routes(
         "set_session_profile": set_session_profile,
         "clear_login_state": clear_login_state,
         "is_local_admin_profile_session": is_local_admin_profile_session,
+        "local_admin_required": session_service.local_admin_required,
         "change_local_admin_profile_password": change_local_admin_profile_password,
         "clear_local_admin_password_change_required": clear_local_admin_password_change_required,
         "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
@@ -636,6 +675,8 @@ register_update_routes(
         "local_admin_profile_name": LOCAL_ADMIN_PROFILE_NAME,
         "version_check_session_key": DBCONSOLE_VERSION_CHECK_SESSION_KEY,
         "is_local_admin_profile_session": is_local_admin_profile_session,
+        "has_active_login_state": has_active_login_state,
+        "update_poll_token_matches": update_poll_token_matches,
         "start_dbconsole_update_job": start_dbconsole_update_job,
         "refresh_repo_version_check": refresh_repo_version_check,
         "public_dbconsole_update_status": _public_dbconsole_update_status,
@@ -702,6 +743,45 @@ register_mysql_import_routes(
         "run_mysql_import": module_run_mysql_import,
         "execute_statement": execute_statement,
         "mysql_connection": mysql_connection,
+    },
+)
+
+register_mysqlsh_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "get_session_profile": get_session_profile,
+        "get_session_credentials": get_session_credentials,
+        "get_server_session_id": get_server_session_id,
+        "get_session_username": get_session_username,
+        "is_local_admin_profile_session": is_local_admin_profile_session,
+        "can_access_mysqlsh": can_access_mysqlsh,
+        "set_server_session_state": set_server_session_state,
+        "pop_server_session_state": pop_server_session_state,
+        "load_object_storage_config": load_object_storage_config,
+        "select_object_storage_config": select_object_storage_config,
+        "validate_object_storage_target": object_storage_util.validate_object_storage_target,
+        "test_instance_principal_access": test_instance_principal_access,
+        "mysql_connection": mysql_connection,
+        "option_profile_store": MYSQLSH_OPTION_PROFILE_STORE,
+        "par_store": MYSQLSH_PAR_STORE,
+    },
+)
+
+register_mysqlsh_configuration_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_dashboard": render_dashboard,
+        "load_object_storage_config": load_object_storage_config,
+        "select_object_storage_config": select_object_storage_config,
+        "validate_object_storage_target": object_storage_util.validate_object_storage_target,
+        "option_profile_store": MYSQLSH_OPTION_PROFILE_STORE,
+        "par_store": MYSQLSH_PAR_STORE,
+        "mysql_connection": mysql_connection,
+        "is_local_admin_profile_session": is_local_admin_profile_session,
+        "can_access_mysqlsh": can_access_mysqlsh,
     },
 )
 
@@ -799,4 +879,8 @@ register_monitoring_routes(
 if __name__ == "__main__":
     ensure_profile_store()
     ensure_object_storage_store()
-    app.run(debug=True, host="127.0.0.1", port=5001)
+    app.run(
+        debug=os.environ.get("DBCONSOLE_DEVELOPMENT_DEBUG", "").strip().lower() in {"1", "true", "yes"},
+        host="127.0.0.1",
+        port=5001,
+    )

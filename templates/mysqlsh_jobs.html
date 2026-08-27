@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>MySQL Shell Jobs</h2>
+      <p class="helper-text">Only jobs owned by the current DB Console session and MySQL profile are shown.</p>
+    </div>
+    <a class="button secondary" href="{{ url_for('mysqlsh_operations_page') }}">Dump/Load</a>
+  </div>
+  {% if jobs %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Operation</th><th>Status</th><th>Progress</th><th>Object Storage</th><th>Submitted</th><th>Cleanup</th></tr></thead>
+      <tbody>
+        {% for job in jobs %}
+        {% set status_class = 'loaded' if job.status == 'succeeded' else ('progress' if job.status in ['submitted', 'running', 'finalizing', 'cancel_requested'] else ('error' if job.status == 'failed' else 'neutral')) %}
+        <tr>
+          <td><a href="{{ url_for('mysqlsh_job_detail_page', job_id=job.job_id) }}"><code>{{ job.job_id }}</code></a></td>
+          <td>{{ job.operation_label }}</td>
+          <td><span class="hw-load-badge hw-load-{{ status_class }}">{{ job.status }}</span></td>
+          <td>{% if job.progress_percent is not none %}<span class="mysqlsh-progress-value">{{ job.progress_percent }}%</span>{% else %}<span class="helper-text">—</span>{% endif %}</td>
+          <td>{{ job.storage_profile_name }} / {{ job.storage_prefix }}</td>
+          <td>{{ job.submitted_at }}</td>
+          <td>{{ job.cleanup_status or "pending" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No MySQL Shell jobs have been submitted from this session.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+{% if has_active_jobs %}
+<script nonce="{{ csp_nonce }}">window.setTimeout(() => window.location.reload(), 5000);</script>
+{% endif %}
+{% endblock %}

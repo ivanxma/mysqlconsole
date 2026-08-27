@@ -124,6 +124,7 @@ def register_db_admin_routes(app, deps):
                     system_schemas=deps["system_schemas"],
                     fetch_create_table_statement=deps["fetch_create_table_statement"],
                     fetch_table_columns=deps["fetch_table_columns"],
+                    fetch_table_indexes=deps["fetch_table_indexes"],
                     fetch_tables_for_database=deps["fetch_tables_for_database"],
                     fetch_missing_primary_key_rows=deps["fetch_tables_without_primary_key"],
                     fix_missing_primary_key_table=deps["fix_table_without_primary_key"],

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% macro option_checkbox(key, label, help='') %}
+<label class="checkbox-field mysqlsh-option-check"><input name="{{ key }}" type="checkbox" value="1" {% if state[key] %}checked{% endif %}><span>{{ label }}{% if help %}<small>{{ help }}</small>{% endif %}</span></label>
+{% endmacro %}
+
+{% macro filter_picker(item, label) %}
+{% set include_key = 'include_' ~ item ~ '_json' %}
+{% set exclude_key = 'exclude_' ~ item ~ '_json' %}
+<section class="mysqlsh-filter-picker" data-filter-picker data-label="{{ label }}">
+  <div class="mysqlsh-filter-heading">
+    <strong>{{ label }}</strong>
+    <div class="field-actions-inline">
+      <label class="checkbox-field"><input type="radio" name="{{ item }}_mode" value="include" checked data-filter-mode><span>Include</span></label>
+      <label class="checkbox-field"><input type="radio" name="{{ item }}_mode" value="exclude" data-filter-mode><span>Exclude</span></label>
+    </div>
+  </div>
+  <div class="field-row mysqlsh-filter-add-row">
+    <label>Select existing {{ label|lower }}
+      <select data-filter-select {% if not filter_catalog[item] %}disabled{% endif %}>
+        <option value="">Choose {{ label|lower }}</option>
+        {% for entry in filter_catalog[item] %}<option value="{{ entry.value }}">{{ entry.label }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="field-actions-inline"><button class="button primary" type="button" data-filter-add {% if not filter_catalog[item] %}disabled{% endif %}>Add</button></div>
+  </div>
+  {% if filter_catalog.errors.get(item) %}<p class="warning-note">Could not load {{ label|lower }}: {{ filter_catalog.errors[item] }}</p>{% elif not filter_catalog[item] %}<p class="helper-text">No accessible {{ label|lower }} found for this connection.</p>{% endif %}
+  <input type="hidden" name="{{ include_key }}" value='{{ state[include_key]|e }}' data-filter-values="include">
+  <input type="hidden" name="{{ exclude_key }}" value='{{ state[exclude_key]|e }}' data-filter-values="exclude">
+  <div class="mysqlsh-filter-lists">
+    <div><span class="meta-label">Include</span><ul data-filter-list="include"></ul><p class="helper-text" data-filter-empty="include">No include selections.</p></div>
+    <div><span class="meta-label">Exclude</span><ul data-filter-list="exclude"></ul><p class="helper-text" data-filter-empty="exclude">No exclude selections.</p></div>
+  </div>
+</section>
+{% endmacro %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div><h2>MySQL Shell Option Profiles</h2><p class="helper-text">Construct reusable mysqlsh option JSON with typed controls and live object selectors. Object Storage, PAR URLs, OCI authentication, and load progress files remain managed by DB Console.</p></div>
+    <a class="button secondary" href="{{ url_for('mysqlsh_operations_page') }}">Dump/Load</a>
+  </div>
+  <nav class="tab-bar" aria-label="Option profile type">
+    <a class="tab-link {% if form.kind == 'dump' %}active{% endif %}" href="{{ url_for('mysqlsh_option_profiles_page', kind='dump') }}">Dump Profiles</a>
+    <a class="tab-link {% if form.kind == 'load' %}active{% endif %}" href="{{ url_for('mysqlsh_option_profiles_page', kind='load') }}">Load Profiles</a>
+  </nav>
+  <form method="get" class="field-row mysqlsh-profile-picker">
+    <input type="hidden" name="kind" value="{{ form.kind }}">
+    <label>Saved {{ form.kind|title }} Profile<select name="profile_name"><option value="">New profile</option>{% for profile in profiles %}<option value="{{ profile.name }}" {% if profile.name == selected_profile_name %}selected{% endif %}>{{ profile.name }}</option>{% endfor %}</select></label>
+    <div class="field-actions-inline"><button class="button secondary" type="submit">Open</button></div>
+  </form>
+</section>
+
+<form method="post" class="panel mysqlsh-option-profile-form" data-option-profile-form>
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="kind" value="{{ form.kind }}">
+  <input type="hidden" name="profile_name" value="{{ selected_profile_name }}">
+  <div class="panel-header"><div><h3>{{ form.kind|title }} Option Profile</h3><p class="helper-text">Fields are converted to the exact camel-case option names consumed by MySQL Shell 26.7.</p></div></div>
+  <div class="form-grid">
+    <label>Profile Name *<input name="edit_name" required maxlength="80" value="{{ form.name }}" placeholder="{{ 'nightly-dump' if form.kind == 'dump' else 'restore-fast' }}"></label>
+
+    {% if form.kind == 'dump' %}
+    <label>Threads *<input name="threads" type="number" min="1" max="1024" required value="{{ state.threads }}"></label>
+    <label>Max Rate<input name="maxRate" value="{{ state.maxRate }}" placeholder="0 or 100M"></label>
+    <label>Compression<select name="compression">{% for value in compression_options %}<option value="{{ value }}" {% if state.compression == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+    <label>Dialect<select name="dialect">{% for value in dialect_options %}<option value="{{ value }}" {% if state.dialect == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+    <label>Bytes Per Chunk<input name="bytesPerChunk" value="{{ state.bytesPerChunk }}" placeholder="64M"></label>
+    <label>Target Version<input name="targetVersion" value="{{ state.targetVersion or '' }}" placeholder="8.4.0"></label>
+    <label>Default Character Set<input name="defaultCharacterSet" value="{{ state.defaultCharacterSet }}"></label>
+
+    <div class="mysqlsh-control-section-grid full-span">
+      <details class="form-section" open><summary>Execution controls</summary><div class="mysqlsh-option-grid">
+        {{ option_checkbox('showProgress', 'Show progress') }}{{ option_checkbox('dryRun', 'Dry run') }}{{ option_checkbox('consistent', 'Consistent dump') }}{{ option_checkbox('skipConsistencyChecks', 'Skip consistency checks') }}{{ option_checkbox('skipUpgradeChecks', 'Skip upgrade checks') }}{{ option_checkbox('checksum', 'Checksums') }}{{ option_checkbox('chunking', 'Chunking') }}{{ option_checkbox('tzUtc', 'Convert timestamps to UTC') }}
+      </div></details>
+      <details class="form-section" open><summary>Content controls</summary><div class="mysqlsh-option-grid">
+        {{ option_checkbox('ddlOnly', 'DDL only') }}{{ option_checkbox('dataOnly', 'Data only') }}{{ option_checkbox('users', 'Users') }}{{ option_checkbox('events', 'Events') }}{{ option_checkbox('routines', 'Routines') }}{{ option_checkbox('triggers', 'Triggers') }}{{ option_checkbox('libraries', 'Libraries') }}{{ option_checkbox('ocimds', 'HeatWave Service compatibility checks') }}{{ option_checkbox('excludeLakehouseTables', 'Exclude Lakehouse tables', 'Build excludeTables from the connected server when this dump runs.') }}
+      </div></details>
+      <details class="form-section" open><summary>Compatibility transforms</summary><label>Compatibility options<select name="compatibility" multiple size="8">{% for value in compatibility_options %}<option value="{{ value }}" {% if value in state.compatibility %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label></details>
+    </div>
+    {% else %}
+    <label>Threads *<input name="threads" type="number" min="1" max="1024" required value="{{ state.threads }}"></label>
+    <label>Background Threads<input name="backgroundThreads" type="number" min="1" max="1024" value="{{ state.backgroundThreads or '' }}"></label>
+    <label>Wait Dump Timeout<input name="waitDumpTimeout" type="number" min="0" step="any" value="{{ state.waitDumpTimeout }}"></label>
+    <label>Target Schema<input name="schema" value="{{ state.schema or '' }}"></label>
+    <label>Character Set<input name="characterSet" value="{{ state.characterSet or '' }}"></label>
+    <label>Max Bytes Per Transaction<input name="maxBytesPerTransaction" value="{{ state.maxBytesPerTransaction or '' }}" placeholder="64M"></label>
+    <div class="mysqlsh-control-section-grid full-span">
+      <details class="form-section" open><summary>Execution controls</summary><div class="mysqlsh-option-grid">
+        {{ option_checkbox('showProgress', 'Show progress') }}{{ option_checkbox('dryRun', 'Dry run') }}{{ option_checkbox('resetProgress', 'Reset progress') }}{{ option_checkbox('skipBinlog', 'Skip binary log') }}{{ option_checkbox('ignoreVersion', 'Ignore version') }}{{ option_checkbox('checksum', 'Verify checksums') }}{{ option_checkbox('showMetadata', 'Show metadata') }}
+      </div></details>
+      <details class="form-section" open><summary>Content controls</summary><div class="mysqlsh-option-grid">
+        {{ option_checkbox('loadDdl', 'Load DDL') }}{{ option_checkbox('loadData', 'Load data') }}{{ option_checkbox('loadUsers', 'Load users') }}{{ option_checkbox('loadIndexes', 'Load indexes') }}
+      </div></details>
+      <details class="form-section" open><summary>Load and compatibility controls</summary><div class="mysqlsh-transform-grid">
+        <label>Analyze Tables<select name="analyzeTables">{% for value in analyze_options %}<option value="{{ value }}" {% if state.analyzeTables == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        <label>Defer Table Indexes<select name="deferTableIndexes">{% for value in defer_index_options %}<option value="{{ value }}" {% if state.deferTableIndexes == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        <label>Handle Grant Errors<select name="handleGrantErrors">{% for value in grant_error_options %}<option value="{{ value }}" {% if state.handleGrantErrors == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        <label>Update GTID Set<select name="updateGtidSet">{% for value in gtid_options %}<option value="{{ value }}" {% if state.updateGtidSet == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        {{ option_checkbox('createInvisiblePKs', 'Create invisible primary keys') }}{{ option_checkbox('dropExistingObjects', 'Drop existing objects') }}{{ option_checkbox('ignoreExistingObjects', 'Ignore existing objects') }}
+      </div></details>
+    </div>
+    <label class="full-span">Session initialization SQL<textarea name="sessionInitSql" rows="5" class="sql-workspace-editor" placeholder="SET SESSION foreign_key_checks=0;">{{ state.sessionInitSql }}</textarea><span class="helper-text">One SQL statement per line; applied to every load worker session.</span></label>
+    {% endif %}
+
+    <details class="form-section full-span" open><summary>Include and exclude existing objects</summary>
+      <p class="helper-text">Choose objects visible through the current authenticated DB Console connection. Each item may be included or excluded, but not both.</p>
+      <div class="mysqlsh-filter-grid">{% for item in filter_types %}{{ filter_picker(item, item|title) }}{% endfor %}</div>
+    </details>
+
+    <details class="form-section full-span"><summary>Advanced options</summary>
+      <label>Additional options JSON<textarea name="advanced_json" rows="8" spellcheck="false" class="sql-workspace-editor" placeholder='{"where": {"sales.orders": "status = \\"OPEN\\""}}'>{{ state.advanced_json }}</textarea><span class="helper-text">Use only documented options without a field above. Structured, storage, OCI authentication, PAR URL, progress-file, and sensitive keys are rejected.</span></label>
+    </details>
+  </div>
+  <div class="form-actions mysqlsh-form-actions">
+    {% if selected_profile_name %}<button class="button secondary danger" type="submit" name="profile_action" value="delete" data-confirm-message="Delete this option profile?">Delete Profile</button>{% endif %}
+    <button class="button primary" type="submit" name="profile_action" value="save">Construct JSON and Save Profile</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}{{ super() }}
+<script nonce="{{ csp_nonce }}">
+(() => {
+  const parseValues = input => { try { const value = JSON.parse(input.value || "[]"); return Array.isArray(value) ? value.map(String) : []; } catch (_) { return []; } };
+  document.querySelectorAll("[data-filter-picker]").forEach(picker => {
+    const select = picker.querySelector("[data-filter-select]");
+    const inputs = Object.fromEntries(["include", "exclude"].map(mode => [mode, picker.querySelector(`[data-filter-values="${mode}"]`)]));
+    const lists = Object.fromEntries(["include", "exclude"].map(mode => [mode, picker.querySelector(`[data-filter-list="${mode}"]`)]));
+    const values = {include: parseValues(inputs.include), exclude: parseValues(inputs.exclude)};
+    const sync = () => ["include", "exclude"].forEach(mode => {
+      inputs[mode].value = JSON.stringify(values[mode]); lists[mode].replaceChildren();
+      picker.querySelector(`[data-filter-empty="${mode}"]`).hidden = values[mode].length > 0;
+      values[mode].forEach(value => { const li = document.createElement("li"), text = document.createElement("span"), remove = document.createElement("button"); text.textContent = value; remove.type = "button"; remove.className = "button secondary compact"; remove.textContent = "Remove"; remove.setAttribute("aria-label", `Remove ${value}`); remove.addEventListener("click", () => { values[mode] = values[mode].filter(item => item !== value); sync(); }); li.append(text, remove); lists[mode].append(li); });
+    });
+    picker.querySelector("[data-filter-add]").addEventListener("click", () => { const value = select.value, mode = picker.querySelector("[data-filter-mode]:checked").value, other = mode === "include" ? "exclude" : "include"; if (!value || values[mode].includes(value)) return; values[other] = values[other].filter(item => item !== value); values[mode].push(value); sync(); });
+    sync();
+  });
+})();
+</script>
+{% endblock %}

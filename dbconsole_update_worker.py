@@ -23,6 +23,8 @@ ALLOWED_LOCAL_STATE_PATHS = {
     ".runtime.env",
     "etc/my.cnf",
     "object_storage.json",
+    "mysqlsh_option_profiles.json",
+    "mysqlsh_par_registry.json",
     "profiles.json",
     "security_vulnerability_report.html",
     "security_vulnerability_review.html",
@@ -365,6 +367,8 @@ class UpdateWorker:
             ".flask_secret_key": 0o600,
             ".runtime.env": 0o600,
             "object_storage.json": 0o600,
+            "mysqlsh_option_profiles.json": 0o600,
+            "mysqlsh_par_registry.json": 0o600,
             "profiles.json": 0o600,
         }
         for relative_path, mode in file_modes.items():
@@ -404,6 +408,22 @@ class UpdateWorker:
         if mysql_config.is_file():
             self.chmod_path(mysql_config, 0o600)
             self.append_log("Hardened local MySQL config file permissions.")
+
+        state_dir_value = os.environ.get("DBCONSOLE_STATE_DIR", "").strip()
+        if state_dir_value:
+            state_dir = Path(state_dir_value).expanduser()
+            if state_dir.is_symlink():
+                raise RuntimeError(f"DBConsole state directory must not be a symlink: {state_dir}")
+            if state_dir.is_dir():
+                self.chmod_path(state_dir, 0o700)
+                for path in state_dir.rglob("*"):
+                    if path.is_symlink():
+                        raise RuntimeError(f"DBConsole state path must not be a symlink: {path}")
+                    if path.is_dir():
+                        self.chmod_path(path, 0o700)
+                    elif path.is_file():
+                        self.chmod_path(path, 0o600)
+                self.append_log("Hardened durable DBConsole state directory permissions.")
 
     def current_user_group(self):
         try:
@@ -486,6 +506,16 @@ class UpdateWorker:
     def passwordless_sudo_available(self):
         if os.geteuid() == 0:
             return True, ""
+        try:
+            process_status = Path("/proc/self/status").read_text(encoding="utf-8")
+        except OSError:
+            process_status = ""
+        if any(
+            line.split(":", 1)[-1].strip() == "1"
+            for line in process_status.splitlines()
+            if line.startswith("NoNewPrivs:")
+        ):
+            return False, "The DBConsole service is intentionally running with NoNewPrivileges enabled."
         if not shutil.which("sudo"):
             return False, "sudo is not installed."
         true_command = "/bin/true" if Path("/bin/true").exists() else (shutil.which("true") or "true")

@@ -1,7 +1,56 @@
+import hashlib
+import time
+from threading import RLock
+
 from flask import abort, flash, redirect, render_template, request, url_for
 
 
 def register_auth_routes(app, deps):
+    login_failures = {}
+    login_failures_lock = RLock()
+
+    def login_attempt_key(profile_name, username):
+        identity = "\0".join(
+            (
+                str(request.remote_addr or "unknown"),
+                str(profile_name or "").strip().lower(),
+                str(username or "").strip().lower(),
+            )
+        )
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    def enforce_login_rate_limit(key):
+        now = time.monotonic()
+        with login_failures_lock:
+            entry = login_failures.get(key, {})
+            failures = [timestamp for timestamp in entry.get("failures", []) if now - timestamp < 300]
+            blocked_until = float(entry.get("blocked_until") or 0)
+            if blocked_until > now:
+                abort(429, "Too many login failures. Wait before trying again.")
+            login_failures[key] = {"failures": failures, "blocked_until": 0}
+
+    def record_login_failure(key):
+        now = time.monotonic()
+        with login_failures_lock:
+            failures = [timestamp for timestamp in login_failures.get(key, {}).get("failures", []) if now - timestamp < 300]
+            failures.append(now)
+            login_failures[key] = {
+                "failures": failures,
+                "blocked_until": now + 60 if len(failures) >= 5 else 0,
+            }
+            if len(login_failures) > 5000:
+                stale_keys = [
+                    item_key
+                    for item_key, item in login_failures.items()
+                    if not item.get("failures") or now - item["failures"][-1] >= 300
+                ]
+                for stale_key in stale_keys:
+                    login_failures.pop(stale_key, None)
+
+    def clear_login_failures(key):
+        with login_failures_lock:
+            login_failures.pop(key, None)
+
     @app.route("/", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
@@ -15,6 +64,8 @@ def register_auth_routes(app, deps):
             if username:
                 profile["username"] = username
             password = request.form.get("password", "")
+            attempt_key = login_attempt_key(profile.get("name"), username)
+            enforce_login_rate_limit(attempt_key)
             if not profile.get("socket_enabled") and not profile["host"]:
                 flash("Choose a saved profile.", "error")
             elif not username:
@@ -27,6 +78,7 @@ def register_auth_routes(app, deps):
                     with deps["mysql_connection"](connect_timeout=5):
                         pass
                     deps["set_logged_in"](True)
+                    clear_login_failures(attempt_key)
                     flash("Connected to MySQL.", "success")
                     if deps["local_admin_password_change_required"]():
                         return redirect(url_for("local_admin_password_page"))
@@ -53,9 +105,10 @@ def register_auth_routes(app, deps):
                     if deps["should_show_update_page_after_login"](version_check):
                         return redirect(url_for("update_dbconsole_page"))
                     return redirect(url_for("mysql_dashboard_page"))
-                except Exception as error:
+                except Exception:
+                    record_login_failure(attempt_key)
                     deps["clear_login_state"](keep_profile=True)
-                    flash(f"Unable to connect: {error}", "error")
+                    flash("Unable to connect with the supplied profile and credentials.", "error")
 
         selected_name = str(request.args.get("profile", "")).strip()
         selected_profile = deps["get_profile_by_name"](selected_name) or deps["get_session_profile"]()

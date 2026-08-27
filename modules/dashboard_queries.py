@@ -1,6 +1,6 @@
-import os
 import re
-import subprocess
+
+from modules.mysqlsh_runner import mysqlsh_version_label
 
 
 ERROR_LOG_PRIORITY_OPTIONS = ("Note", "System", "Warning", "Error")
@@ -952,63 +952,7 @@ def fetch_recent_error_log_rows(hours=24, limit=50, priorities=None, error_code=
 
 
 def fetch_mysql_shell_version():
-    package_checks = [
-        (["rpm", "-q", "--qf", "%{VERSION}", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
-        (["dpkg-query", "-W", "-f=${Version}", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
-        (["brew", "list", "--cask", "--versions", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
-        (["brew", "list", "--formula", "--versions", "mysql-shell"], r"[0-9]+(?:\.[0-9]+){2}"),
-    ]
-    for command, version_pattern in package_checks:
-        try:
-            result = subprocess.run(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-        if result.returncode != 0:
-            continue
-        package_output = (result.stdout or result.stderr or "").strip()
-        version_match = re.search(version_pattern, package_output)
-        if version_match:
-            return version_match.group(0)
-
-    mysqlsh_command = (
-        os.environ.get("DBCONSOLE_MYSQLSH")
-        or os.environ.get("MYSQLSH")
-        or "mysqlsh"
-    )
-    try:
-        mysqlsh_timeout = max(1, int(os.environ.get("DBCONSOLE_MYSQLSH_TIMEOUT", "5")))
-    except (TypeError, ValueError):
-        mysqlsh_timeout = 5
-    try:
-        result = subprocess.run(
-            [mysqlsh_command, "--version"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=mysqlsh_timeout,
-            check=False,
-        )
-    except FileNotFoundError:
-        return "Not found"
-    except subprocess.TimeoutExpired:
-        return f"Timed out after {mysqlsh_timeout}s"
-    except Exception as error:  # pragma: no cover - depends on host runtime
-        return f"Unavailable: {error}"
-
-    version_output = (result.stdout or result.stderr or "").strip()
-    if not version_output:
-        return "Unavailable"
-    version_match = re.search(r"\b[0-9]+(?:\.[0-9]+){2}\b", version_output)
-    if version_match:
-        return version_match.group(0)
-    return version_output.splitlines()[0]
+    return mysqlsh_version_label()
 
 
 def fetch_server_overview(

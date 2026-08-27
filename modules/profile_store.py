@@ -1,17 +1,19 @@
 import json
 import re
-from uuid import uuid4
-
-from modules.core_util import chmod_private_file
 from modules.mysql_util import normalize_profile
+from modules.runtime_util import (
+    atomic_write_private_bytes,
+    atomic_write_private_text,
+    ensure_private_directory,
+    ensure_private_regular_file,
+)
 
 
 def ensure_profile_store(profile_store):
     if profile_store.exists():
-        chmod_private_file(profile_store)
+        ensure_private_regular_file(profile_store)
         return
-    profile_store.write_text(json.dumps({"profiles": []}, indent=2), encoding="utf-8")
-    chmod_private_file(profile_store)
+    atomic_write_private_text(profile_store, json.dumps({"profiles": []}, indent=2) + "\n")
 
 
 def load_profiles(profile_store):
@@ -40,8 +42,7 @@ def save_profiles(profile_store, profiles):
             continue
         seen.add(key)
         normalized_profiles.append(profile)
-    profile_store.write_text(json.dumps({"profiles": normalized_profiles}, indent=2), encoding="utf-8")
-    chmod_private_file(profile_store)
+    atomic_write_private_text(profile_store, json.dumps({"profiles": normalized_profiles}, indent=2) + "\n")
 
 
 def get_profile_by_name(profile_store, profile_name):
@@ -71,18 +72,7 @@ def save_uploaded_profile_ssh_key(profile_key_dir, profile_name, upload_storage)
     if "PRIVATE KEY" not in key_text:
         raise ValueError("Upload a valid SSH private key file.")
 
-    profile_dir = profile_key_dir / safe_profile_key_dir_name(profile_name)
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        profile_key_dir.chmod(0o700)
-        profile_dir.chmod(0o700)
-    except OSError:
-        pass
-
+    profile_dir = ensure_private_directory(profile_key_dir / safe_profile_key_dir_name(profile_name))
     key_path = profile_dir / "ssh_private_key"
-    temp_path = profile_dir / f".{uuid4().hex}.tmp"
-    temp_path.write_bytes(key_payload)
-    temp_path.chmod(0o600)
-    temp_path.replace(key_path)
-    chmod_private_file(key_path)
+    atomic_write_private_bytes(key_path, key_payload)
     return str(key_path)

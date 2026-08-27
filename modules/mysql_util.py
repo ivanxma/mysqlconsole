@@ -1,4 +1,5 @@
 import os
+import re
 from contextlib import contextmanager
 from threading import RLock
 
@@ -33,10 +34,34 @@ DEFAULT_PROFILE = {
 MYSQL_SSL_MODES = {"DISABLED", "REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY"}
 MYSQL_CONNECTION_CACHE_KEY = "mysql_connection_cache"
 MYSQL_CONNECTION_LOCK_KEY = "mysql_connection_lock"
+SYSTEM_USER_GRANT_PATTERN = re.compile(r"\bGRANT\b.*\bSYSTEM_USER\b.*\bON\s+\*\.\*", re.IGNORECASE)
 
 OperationalError = mysql.connector.OperationalError
 InterfaceError = mysql.connector.InterfaceError
 ProgrammingError = mysql.connector.ProgrammingError
+
+
+def has_system_user_privilege(connection):
+    """Check the effective privileges of the authenticated MySQL account.
+
+    A failed privilege query must reach the caller as an error so access can
+    fail closed. The SHOW GRANTS fallback covers servers exposing effective
+    role grants there rather than through USER_PRIVILEGES.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 AS has_system_user "
+            "FROM information_schema.user_privileges "
+            "WHERE privilege_type = 'SYSTEM_USER' LIMIT 1"
+        )
+        if cursor.fetchone():
+            return True
+        cursor.execute("SHOW GRANTS")
+        for row in cursor.fetchall() or []:
+            values = row.values() if isinstance(row, dict) else row
+            if any(SYSTEM_USER_GRANT_PATTERN.search(str(value or "")) for value in values):
+                return True
+    return False
 
 
 def _normalize_int(value, default, minimum=None):
@@ -234,7 +259,6 @@ def build_connect_kwargs(profile, credentials, database_name, target_host, targe
 
 
 def open_connection(profile, credentials, database_name, connect_timeout, autocommit):
-    use_unix_socket = bool(profile.get("socket_enabled") and profile.get("socket_path"))
     tunnel = None
     target_host = profile["host"]
     target_port = profile["port"]

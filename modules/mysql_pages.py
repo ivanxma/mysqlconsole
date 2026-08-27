@@ -183,11 +183,26 @@ def _compose_column_definition(column_definition, column_comment):
     return normalized_definition
 
 
-def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
+def _primary_key_columns(indexes, columns):
+    for index in indexes or []:
+        if str(index.get("index_name") or "").upper() == "PRIMARY":
+            values = index.get("column_names") or index.get("columns") or []
+            return [str(value or "").strip() for value in values if str(value or "").strip()]
+    return [
+        str(row.get("column_name") or "").strip()
+        for row in columns or []
+        if str(row.get("column_key") or "").upper() == "PRI"
+    ]
+
+
+def _build_db_admin_column_edit_rows(columns, ddl_statement, *, indexes=None, payload=None):
     definition_lookup = _extract_column_definitions_from_create_statement(ddl_statement)
     submitted_name_by_source = {}
     submitted_definition_by_source = {}
     submitted_comment_by_source = {}
+    current_primary_key_columns = _primary_key_columns(indexes, columns)
+    selected_primary_key_columns = list(current_primary_key_columns)
+    submitted_primary_key_positions = {}
 
     if payload is not None and hasattr(payload, "getlist"):
         source_values = payload.getlist("source_column_name")
@@ -207,6 +222,21 @@ def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
             submitted_comment_by_source[source_column_name] = _normalize_db_admin_comment_text(
                 comment_values[index] if index < len(comment_values) else ""
             )
+        if str(payload.get("primary_key_definition_present") or "") == "1":
+            selected_primary_key_columns = [
+                str(value or "").strip() for value in payload.getlist("primary_key_column")
+                if str(value or "").strip()
+            ]
+            for source_name, position in zip(
+                payload.getlist("primary_key_source_order"),
+                payload.getlist("primary_key_position"),
+            ):
+                submitted_primary_key_positions[str(source_name or "").strip()] = str(position or "").strip()
+
+    selected_primary_key_set = set(selected_primary_key_columns)
+    default_primary_positions = {
+        column_name: index for index, column_name in enumerate(current_primary_key_columns, start=1)
+    }
 
     rows = []
     unsupported_columns = []
@@ -233,6 +263,13 @@ def _build_db_admin_column_edit_rows(columns, ddl_statement, *, payload=None):
                 "is_nullable": row.get("is_nullable") or "",
                 "column_key": row.get("column_key") or "",
                 "extra": row.get("extra") or "",
+                "is_primary_key": source_column_name in selected_primary_key_set,
+                "currently_primary_key": source_column_name in default_primary_positions,
+                "current_primary_key_position": default_primary_positions.get(source_column_name, ""),
+                "primary_key_position": submitted_primary_key_positions.get(
+                    source_column_name,
+                    default_primary_positions.get(source_column_name, ""),
+                ),
             }
         )
     return rows, unsupported_columns
@@ -263,6 +300,7 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload, *, current_
     if not source_values:
         return {
             "column_change_requests": [],
+            "final_name_by_source": {column_name: column_name for column_name in current_columns},
             "table_comment_changed": submitted_table_comment != normalized_current_table_comment,
             "new_table_comment": submitted_table_comment,
         }
@@ -320,6 +358,7 @@ def _build_db_admin_change_requests(columns, ddl_statement, payload, *, current_
 
     return {
         "column_change_requests": change_requests,
+        "final_name_by_source": final_name_by_source,
         "table_comment_changed": submitted_table_comment != normalized_current_table_comment,
         "new_table_comment": submitted_table_comment,
     }
@@ -336,6 +375,53 @@ def _build_db_admin_change_column_clauses(change_requests, *, quote_identifier):
             )
         )
     return clauses
+
+
+def _build_db_admin_primary_key_clauses(columns, indexes, payload, final_name_by_source, *, quote_identifier):
+    if payload is None or str(payload.get("primary_key_definition_present") or "") != "1":
+        return [], []
+    current_columns = [str(row.get("column_name") or "").strip() for row in columns]
+    current_column_set = set(current_columns)
+    selected = []
+    seen = set()
+    for value in payload.getlist("primary_key_column"):
+        source_name = str(value or "").strip()
+        if source_name not in current_column_set:
+            raise ValueError(f"Primary key column `{source_name}` was not found on the selected table.")
+        if source_name not in seen:
+            selected.append(source_name)
+            seen.add(source_name)
+
+    positions = {}
+    for source_name, raw_position in zip(
+        payload.getlist("primary_key_source_order"),
+        payload.getlist("primary_key_position"),
+    ):
+        normalized_source = str(source_name or "").strip()
+        if normalized_source not in current_column_set:
+            continue
+        try:
+            position = int(raw_position)
+        except (TypeError, ValueError):
+            position = current_columns.index(normalized_source) + 1
+        positions[normalized_source] = max(1, position)
+    selected.sort(key=lambda name: (positions.get(name, current_columns.index(name) + 1), current_columns.index(name)))
+    selected_positions = [positions.get(name, current_columns.index(name) + 1) for name in selected]
+    if len(selected_positions) != len(set(selected_positions)):
+        raise ValueError("Primary key column positions must be unique.")
+
+    current_primary = _primary_key_columns(indexes, columns)
+    current_after_rename = [final_name_by_source.get(name, name) for name in current_primary]
+    desired_after_rename = [final_name_by_source.get(name, name) for name in selected]
+    if current_after_rename == desired_after_rename:
+        return [], desired_after_rename
+
+    clauses = []
+    if current_primary:
+        clauses.append("DROP PRIMARY KEY")
+    if desired_after_rename:
+        clauses.append("ADD PRIMARY KEY (" + ", ".join(quote_identifier(name) for name in desired_after_rename) + ")")
+    return clauses, desired_after_rename
 
 
 def _empty_missing_primary_key_report():
@@ -357,11 +443,16 @@ def _build_missing_primary_key_report(raw_rows):
         table_name = str(raw_row.get("table_name") or "").strip()
         auto_increment_column_name = str(raw_row.get("auto_increment_column_name") or "").strip()
         has_my_row_id = bool(raw_row.get("has_my_row_id"))
+        engine = str(raw_row.get("engine") or "-").strip()
 
         fix_method = "add_invisible_my_row_id"
         fix_method_label = "Add invisible `my_row_id` AUTO_INCREMENT primary key"
         is_fixable = True
-        if auto_increment_column_name:
+        if engine.lower() == "lakehouse":
+            fix_method = "manual_review"
+            fix_method_label = "Manual repair required: select existing column(s) for the PRIMARY KEY"
+            is_fixable = False
+        elif auto_increment_column_name:
             fix_method = "use_auto_increment"
             fix_method_label = f"Add PRIMARY KEY on existing AUTO_INCREMENT column `{auto_increment_column_name}`"
         elif has_my_row_id:
@@ -373,7 +464,7 @@ def _build_missing_primary_key_report(raw_rows):
             "database_name": database_name,
             "table_name": table_name,
             "full_table_name": f"{database_name}.{table_name}" if database_name and table_name else table_name,
-            "engine": raw_row.get("engine") or "-",
+            "engine": engine,
             "row_count": raw_row.get("row_count") if raw_row.get("row_count") not in (None, "") else "-",
             "auto_increment_column_name": auto_increment_column_name,
             "has_my_row_id": has_my_row_id,
@@ -578,6 +669,7 @@ def handle_db_admin_action(
     system_schemas,
     fetch_create_table_statement=None,
     fetch_table_columns=None,
+    fetch_table_indexes=None,
     fetch_tables_for_database=None,
     fetch_missing_primary_key_rows=None,
     fix_missing_primary_key_table=None,
@@ -661,10 +753,11 @@ def handle_db_admin_action(
     if normalized_action == "modify_table_columns":
         if not normalized_name or not normalized_table:
             raise ValueError("Choose both a database and table before modifying columns.")
-        if fetch_create_table_statement is None or fetch_table_columns is None:
+        if fetch_create_table_statement is None or fetch_table_columns is None or fetch_table_indexes is None:
             raise ValueError("Column metadata helpers are not available.")
 
         current_columns = fetch_table_columns(normalized_name, normalized_table)
+        current_indexes = fetch_table_indexes(normalized_name, normalized_table)
         ddl_statement = fetch_create_table_statement(normalized_name, normalized_table)
         current_table_comment = ""
         if fetch_tables_for_database is not None:
@@ -680,6 +773,14 @@ def handle_db_admin_action(
         )
         change_requests = change_request_payload["column_change_requests"]
         alter_clauses = _build_db_admin_change_column_clauses(change_requests, quote_identifier=quote_identifier)
+        primary_key_clauses, primary_key_columns = _build_db_admin_primary_key_clauses(
+            current_columns,
+            current_indexes,
+            payload,
+            change_request_payload["final_name_by_source"],
+            quote_identifier=quote_identifier,
+        )
+        alter_clauses.extend(primary_key_clauses)
         if change_request_payload["table_comment_changed"]:
             alter_clauses.append(f"COMMENT = {_quote_sql_string_literal(change_request_payload['new_table_comment'])}")
         if not alter_clauses:
@@ -691,6 +792,10 @@ def handle_db_admin_action(
         updated_parts = []
         if change_requests:
             updated_parts.append(f"{len(change_requests)} column definition(s)")
+        if primary_key_clauses:
+            updated_parts.append(
+                "primary key " + (f"({', '.join(primary_key_columns)})" if primary_key_columns else "removed")
+            )
         if change_request_payload["table_comment_changed"]:
             updated_parts.append("table comment")
         return {
@@ -1093,7 +1198,7 @@ def build_db_admin_context(
                 metadata_errors.append(f"Column metadata failed: {error}")
             except MySQLOperationalError as error:
                 metadata_errors.append(f"Column metadata failed: {error}")
-        if active_table_info_tab == "indexes":
+        if active_table_info_tab in {"indexes", "modify-columns"}:
             try:
                 indexes = fetch_table_indexes(normalized_database, normalized_table)
             except MySQLProgrammingError as error:
@@ -1125,6 +1230,7 @@ def build_db_admin_context(
             column_edit_rows, column_edit_unsupported_columns = _build_db_admin_column_edit_rows(
                 columns,
                 ddl_statement,
+                indexes=indexes,
                 payload=column_edit_payload,
             )
         if active_table_info_tab == "preview":

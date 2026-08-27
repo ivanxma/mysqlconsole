@@ -157,6 +157,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${VENV_DIR:-$SCRIPT_DIR/.venv}"
 RUNTIME_ENV_FILE="${RUNTIME_ENV_FILE:-$SCRIPT_DIR/.runtime.env}"
+DBCONSOLE_STATE_DIR_INPUT="${DBCONSOLE_STATE_DIR:-}"
+DBCONSOLE_STATE_DIR="${DBCONSOLE_STATE_DIR:-}"
 DBCONSOLE_PYTHON_MIN_VERSION="${DBCONSOLE_PYTHON_MIN_VERSION:-3.12}"
 DBCONSOLE_PYTHON_BIN="${DBCONSOLE_PYTHON_BIN:-${PYTHON_BIN:-}}"
 OS_FAMILY_INPUT="${OS_FAMILY:-}"
@@ -751,6 +753,11 @@ prepare_virtualenv() {
   local os_family="$2"
   local existing_version=""
 
+  if [[ -d "$VENV_DIR" && ! -x "$VENV_DIR/bin/python" ]]; then
+    echo "Existing virtual environment has no executable Python; rebuilding it."
+    rm -rf "$VENV_DIR"
+  fi
+
   if [[ -x "$VENV_DIR/bin/python" ]]; then
     existing_version="$(python_version_for_command "$VENV_DIR/bin/python" 2>/dev/null || true)"
     if [[ -z "$existing_version" ]] || ! version_major_minor_ge "$existing_version" "$DBCONSOLE_PYTHON_MIN_VERSION"; then
@@ -785,7 +792,7 @@ load_existing_runtime_env() {
     return 0
   fi
 
-  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE DBCONSOLE_MYSQLSH DBCONSOLE_OBJECT_STORAGE_REGION
+  unset DEFAULT_HTTP_PORT DEFAULT_HTTPS_PORT HOST SSL_CERT_FILE SSL_KEY_FILE DBCONSOLE_MYSQLSH DBCONSOLE_OBJECT_STORAGE_REGION DBCONSOLE_STATE_DIR
   # shellcheck disable=SC1090
   source "$RUNTIME_ENV_FILE"
   EXISTING_DEFAULT_HTTP_PORT="${DEFAULT_HTTP_PORT:-}"
@@ -1219,6 +1226,7 @@ close_firewall_port() {
     fi
     if ! run_as_root_with_timeout 20 firewall-cmd --permanent --query-port="${port_value}/tcp" >/dev/null 2>&1; then
       echo "Firewall port ${port_value}/tcp for ${protocol_label} was not open in firewall-cmd."
+      return 0
     elif run_as_root_with_timeout 20 firewall-cmd --permanent --remove-port="${port_value}/tcp"; then
       if run_as_root_with_timeout 20 firewall-cmd --reload; then
         echo "Removed firewall port ${port_value}/tcp for ${protocol_label} with firewall-cmd."
@@ -1360,6 +1368,7 @@ write_runtime_env() {
     echo "DEFAULT_HTTP_PORT=$http_port"
     echo "DEFAULT_HTTPS_PORT=$https_port"
     echo "DBCONSOLE_PYTHON_MIN_VERSION=$DBCONSOLE_PYTHON_MIN_VERSION"
+    echo "DBCONSOLE_STATE_DIR=$DBCONSOLE_STATE_DIR"
     if [[ -n "$object_storage_region" ]]; then
       echo "DBCONSOLE_OBJECT_STORAGE_REGION=$object_storage_region"
     fi
@@ -1461,28 +1470,77 @@ run_dependency_audit() {
   return 0
 }
 
+prepare_state_directory() {
+  local os_family="$1"
+  local service_user="$2"
+  local service_group="$3"
+  local legacy_name
+
+  case "$os_family" in
+    ol8|ol9|ubuntu)
+      if skip_privileged_setup_enabled; then
+        mkdir -p "$DBCONSOLE_STATE_DIR"
+      else
+        run_as_root install -d -m 0700 -o "$service_user" -g "$service_group" "$DBCONSOLE_STATE_DIR"
+      fi
+      ;;
+    *)
+      mkdir -p "$DBCONSOLE_STATE_DIR"
+      chmod 700 "$DBCONSOLE_STATE_DIR"
+      ;;
+  esac
+
+  for legacy_name in .flask_secret_key profiles.json object_storage.json mysqlsh_option_profiles.json mysqlsh_par_registry.json; do
+    if [[ "$SCRIPT_DIR/$legacy_name" != "$DBCONSOLE_STATE_DIR/$legacy_name" && -f "$SCRIPT_DIR/$legacy_name" && ! -e "$DBCONSOLE_STATE_DIR/$legacy_name" ]]; then
+      if skip_privileged_setup_enabled; then
+        mv "$SCRIPT_DIR/$legacy_name" "$DBCONSOLE_STATE_DIR/$legacy_name"
+      else
+        run_as_root mv "$SCRIPT_DIR/$legacy_name" "$DBCONSOLE_STATE_DIR/$legacy_name"
+      fi
+    fi
+  done
+  if [[ "$SCRIPT_DIR/profile_ssh_keys" != "$DBCONSOLE_STATE_DIR/profile_ssh_keys" && -d "$SCRIPT_DIR/profile_ssh_keys" && ! -e "$DBCONSOLE_STATE_DIR/profile_ssh_keys" ]]; then
+    if skip_privileged_setup_enabled; then
+      mv "$SCRIPT_DIR/profile_ssh_keys" "$DBCONSOLE_STATE_DIR/profile_ssh_keys"
+    else
+      run_as_root mv "$SCRIPT_DIR/profile_ssh_keys" "$DBCONSOLE_STATE_DIR/profile_ssh_keys"
+    fi
+  fi
+  if [[ "$os_family" =~ ^(ol8|ol9|ubuntu)$ ]] && ! skip_privileged_setup_enabled; then
+    run_as_root chown -R "$service_user:$service_group" "$DBCONSOLE_STATE_DIR"
+  fi
+}
+
 harden_local_file_permissions() {
   local file_path
   local dir_path
 
   for file_path in \
     "$RUNTIME_ENV_FILE" \
-    "$SCRIPT_DIR/.flask_secret_key" \
-    "$SCRIPT_DIR/profiles.json" \
-    "$SCRIPT_DIR/object_storage.json"; do
+    "$DBCONSOLE_STATE_DIR/.flask_secret_key" \
+    "$DBCONSOLE_STATE_DIR/profiles.json" \
+    "$DBCONSOLE_STATE_DIR/object_storage.json" \
+    "$DBCONSOLE_STATE_DIR/mysqlsh_option_profiles.json" \
+    "$DBCONSOLE_STATE_DIR/mysqlsh_par_registry.json" \
+    "$DBCONSOLE_STATE_DIR/update-status.json" \
+    "$DBCONSOLE_STATE_DIR/update.log"; do
     if [[ -f "$file_path" ]]; then
       chmod 600 "$file_path" 2>/dev/null || true
     fi
   done
 
-  if [[ -d "$SCRIPT_DIR/profile_ssh_keys" ]]; then
-    chmod 700 "$SCRIPT_DIR/profile_ssh_keys" 2>/dev/null || true
+  if [[ -d "$DBCONSOLE_STATE_DIR/profile_ssh_keys" ]]; then
+    chmod 700 "$DBCONSOLE_STATE_DIR/profile_ssh_keys" 2>/dev/null || true
     while IFS= read -r -d '' dir_path; do
       chmod 700 "$dir_path" 2>/dev/null || true
-    done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type d -print0 2>/dev/null)
+    done < <(find "$DBCONSOLE_STATE_DIR/profile_ssh_keys" -type d -print0 2>/dev/null)
     while IFS= read -r -d '' file_path; do
       chmod 600 "$file_path" 2>/dev/null || true
-    done < <(find "$SCRIPT_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
+    done < <(find "$DBCONSOLE_STATE_DIR/profile_ssh_keys" -type f -print0 2>/dev/null)
+  fi
+
+  if [[ -d "$DBCONSOLE_STATE_DIR" ]]; then
+    chmod 700 "$DBCONSOLE_STATE_DIR" 2>/dev/null || true
   fi
 
   if [[ -d "$SCRIPT_DIR/.data" ]]; then
@@ -1632,7 +1690,17 @@ WorkingDirectory=$SCRIPT_DIR
 EnvironmentFile=-$RUNTIME_ENV_FILE
 RuntimeDirectory=dbconsole
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
+StateDirectory=dbconsole
+StateDirectoryMode=0700
 Environment=DBCONSOLE_RUNTIME_DIR=/run/dbconsole
+Environment=DBCONSOLE_STATE_DIR=$DBCONSOLE_STATE_DIR
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+ReadWritePaths=$SCRIPT_DIR $DBCONSOLE_STATE_DIR /run/dbconsole
 ExecStart=$bash_bin $exec_script
 Restart=on-failure
 RestartSec=5
@@ -1640,7 +1708,12 @@ EOF
 
     if [[ "$needs_privileged_bind" == "yes" ]]; then
       cat <<EOF
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
+EOF
+    else
+      cat <<EOF
+CapabilityBoundingSet=
 EOF
     fi
 
@@ -2053,17 +2126,13 @@ install_embedded_mysql_shell() {
   fi
 }
 
-ensure_mysqlsh_target_version() {
-  local os_family="$1"
-  local required_version
+select_existing_mysqlsh() {
+  local required_version="$1"
   local mysqlsh_command
   local mysqlsh_version
   local embedded_command
 
-  required_version="$(resolve_mysql_shell_min_version)" || return 1
-  echo "Verifying MySQL Shell target version $required_version."
-
-  for mysqlsh_command in "${DBCONSOLE_MYSQLSH:-}" "${MYSQLSH:-}" "mysqlsh"; do
+  for mysqlsh_command in "${DBCONSOLE_MYSQLSH:-}" "mysqlsh"; do
     if [[ -z "$mysqlsh_command" ]]; then
       continue
     fi
@@ -2087,6 +2156,21 @@ ensure_mysqlsh_target_version() {
     fi
   fi
 
+  return 1
+}
+
+ensure_mysqlsh_target_version() {
+  local os_family="$1"
+  local required_version
+  local mysqlsh_version
+  local embedded_command
+
+  required_version="$(resolve_mysql_shell_min_version)" || return 1
+  echo "Verifying MySQL Shell target version $required_version."
+  if select_existing_mysqlsh "$required_version"; then
+    return 0
+  fi
+
   echo "No mysqlsh $required_version or newer was found. Installing embedded MySQL Shell with the application." >&2
   install_embedded_mysql_shell "$os_family" "$required_version"
   embedded_command="$(embedded_mysqlsh_path)" || {
@@ -2108,6 +2192,13 @@ run_mysqlsh_installer() {
   local os_family="$1"
   local platform_dir
   local installer
+  local required_version
+
+  required_version="$(resolve_mysql_shell_min_version)" || return 1
+  export MYSQL_SHELL_MIN_VERSION="$required_version"
+  if select_existing_mysqlsh "$required_version"; then
+    return 0
+  fi
 
   if skip_privileged_setup_enabled; then
     case "$os_family" in
@@ -2135,7 +2226,7 @@ local_mysql_bootstrap_requested() {
 }
 
 local_admin_profile_needs_patch() {
-  PROFILE_STORE="$SCRIPT_DIR/profiles.json" \
+  PROFILE_STORE="$DBCONSOLE_STATE_DIR/profiles.json" \
   LOCAL_MYSQL_PROFILE_NAME="$LOCAL_MYSQL_PROFILE_NAME_INPUT" \
   LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET_INPUT" \
   python3 - <<'PY'
@@ -2709,6 +2800,9 @@ write_local_mysql_socket_only_config() {
     echo "datadir=$datadir"
     echo "skip-networking"
     echo "mysqlx=0"
+    # MySQL Shell loadDump() requires LOCAL INFILE. This server is owned by
+    # DBConsole, socket-only, and reachable only by local filesystem access.
+    echo "local_infile=ON"
     echo "socket=$LOCAL_MYSQL_SOCKET_INPUT"
     echo "pid-file=$pid_file"
     echo "log-error=$error_log"
@@ -3243,7 +3337,7 @@ write_local_admin_profile() {
     return 0
   fi
 
-  PROFILE_STORE="$SCRIPT_DIR/profiles.json" \
+  PROFILE_STORE="$DBCONSOLE_STATE_DIR/profiles.json" \
   LOCAL_MYSQL_PROFILE_NAME="$LOCAL_MYSQL_PROFILE_NAME_INPUT" \
   LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT_INPUT" \
   LOCAL_MYSQL_SOCKET="$LOCAL_MYSQL_SOCKET_INPUT" \
@@ -3252,6 +3346,7 @@ write_local_admin_profile() {
   "$VENV_DIR/bin/python" - <<'PY'
 import json
 import os
+import tempfile
 from pathlib import Path
 
 profile_store = Path(os.environ["PROFILE_STORE"])
@@ -3286,8 +3381,15 @@ remaining = [
     if str((row or {}).get("name", "")).strip().lower() != profile_name.lower()
 ]
 remaining.insert(0, profile)
-profile_store.write_text(json.dumps({"profiles": remaining}, indent=2) + "\n", encoding="utf-8")
-profile_store.chmod(0o600)
+profile_store.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+descriptor, temporary_name = tempfile.mkstemp(prefix=f".{profile_store.name}.", dir=profile_store.parent)
+try:
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps({"profiles": remaining}, indent=2) + "\n")
+    Path(temporary_name).replace(profile_store)
+finally:
+    Path(temporary_name).unlink(missing_ok=True)
 PY
 }
 
@@ -3323,6 +3425,7 @@ main() {
   local tls_assets
   local python_command
   local object_storage_region
+  local default_host
 
   load_existing_runtime_env
   parse_args "$@"
@@ -3336,6 +3439,16 @@ main() {
   else
     os_family="$(normalize_os_family "$os_family")"
   fi
+
+  if [[ -n "$DBCONSOLE_STATE_DIR_INPUT" ]]; then
+    DBCONSOLE_STATE_DIR="$DBCONSOLE_STATE_DIR_INPUT"
+  elif [[ -z "${DBCONSOLE_STATE_DIR:-}" ]]; then
+    case "$os_family" in
+      ol8|ol9|ubuntu) DBCONSOLE_STATE_DIR="/var/lib/dbconsole" ;;
+      *) DBCONSOLE_STATE_DIR="$SCRIPT_DIR/.state" ;;
+    esac
+  fi
+  export DBCONSOLE_STATE_DIR
 
   if [[ -z "$LOCAL_MYSQL_SOCKET_INPUT" ]]; then
     LOCAL_MYSQL_SOCKET_INPUT="$(default_local_mysql_socket "$os_family")"
@@ -3352,7 +3465,15 @@ main() {
     deploy_mode="$(normalize_deploy_mode "$DEPLOY_MODE_INPUT")"
   fi
 
-  host_value="$(resolve_value "$HOST_INPUT" "$EXISTING_HOST" "0.0.0.0")"
+  default_host="0.0.0.0"
+  if [[ "$deploy_mode" == "http" || "$deploy_mode" == "both" ]]; then
+    default_host="127.0.0.1"
+  fi
+  host_value="$(resolve_value "$HOST_INPUT" "$EXISTING_HOST" "$default_host")"
+  if [[ ( "$deploy_mode" == "http" || "$deploy_mode" == "both" ) && "$host_value" != "127.0.0.1" && "$host_value" != "::1" && "$host_value" != "localhost" ]]; then
+    echo "Remote HTTP deployment is disabled because the login carries database credentials. Use HTTPS, or bind HTTP to loopback behind a trusted TLS reverse proxy." >&2
+    return 1
+  fi
   if is_interactive_terminal && [[ -z "$HOST_INPUT" ]]; then
     host_value="$(prompt_for_text_value "Host bind address" "$host_value" "no")"
   fi
@@ -3394,6 +3515,8 @@ main() {
       SERVICE_GROUP_INPUT="$service_group"
       ;;
   esac
+
+  prepare_state_directory "$os_family" "$service_user" "$service_group"
 
   tls_assets="$(ensure_https_tls_assets "$deploy_mode" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$service_user" "$service_group")"
   ssl_cert_file="$(printf '%s\n' "$tls_assets" | sed -n '1p')"

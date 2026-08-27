@@ -1,13 +1,23 @@
-from flask import flash, redirect, request, session, url_for
+from flask import abort, flash, redirect, request, session, url_for
+from werkzeug.exceptions import RequestEntityTooLarge
+
+from modules.mysql_import import MAX_IMPORT_REQUEST_BYTES
 
 
 def register_mysql_import_routes(app, deps):
     login_required = deps["login_required"]
     render_dashboard = deps["render_dashboard"]
 
-    @app.route("/mysql/imprt", methods=["GET", "POST"])
+    @app.route("/mysql/imprt")
+    @login_required
+    def mysql_import_legacy_redirect():
+        return redirect(url_for("mysql_import_page"), code=308)
+
+    @app.route("/mysql/import", methods=["GET", "POST"])
     @login_required
     def mysql_import_page():
+        if request.content_length and request.content_length > MAX_IMPORT_REQUEST_BYTES:
+            abort(413)
         database_inventory = [row for row in deps["fetch_database_inventory"]() if not row["is_system"]]
         server_session_id = deps["get_server_session_id"]()
         existing_plan_id = str(session.get("mysql_import_plan_id", "")).strip()
@@ -48,6 +58,8 @@ def register_mysql_import_routes(app, deps):
                         deps["delete_mysql_import_plan"](existing_plan_id, server_session_id)
                     flash(f"Loaded {plan['row_count']} rows from `{plan['source_filename']}`.", "success")
                     return redirect(url_for("mysql_import_page"))
+                except RequestEntityTooLarge:
+                    raise
                 except Exception as error:
                     page_state = deps["build_mysql_import_page_state"](
                         plan,

@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.0.4d`
+Current version: `1.1.0`
 
 Version history: `version_history.md`.
 
@@ -40,8 +40,9 @@ Key files:
 - `setup.sh`: environment setup and MySQL Shell Innovation install
 - `oci_compute_init.sh`: reusable OCI Compute first-boot installer with login-banner status
 - `reset_localadmin_password.sh`: support utility to create or reset only the local `localadmin@localhost` password when recovery is needed
-- `start_http.sh`: start on the saved HTTP default port, `80` unless changed by `setup.sh`
-- `start_https.sh`: start on the saved HTTPS default port, `443` unless changed by `setup.sh`
+- `start_http.sh`: start Gunicorn on the saved HTTP default port, `80` unless changed by `setup.sh`
+- `start_https.sh`: start Gunicorn with TLS on the saved HTTPS default port, `443` unless changed by `setup.sh`
+- `wsgi.py`: production WSGI entry point used by both launchers
 
 Current feature modules:
 
@@ -53,6 +54,9 @@ Current feature modules:
 - `modules/mysql_util.py`: MySQL Connector/Python boundary for profile normalization, TLS options, cached connections, health checks, transactions, and SQL literal escaping
 - `modules/status_variables.py`
 - `modules/mysql_pages.py`
+- `modules/mysqlsh_option_profiles.py`: private reusable dump/load mysqlsh option sets
+- `modules/mysqlsh_par_store.py`: private reusable Instance Principal PAR registry and purpose filtering
+- `modules/mysqlsh_configuration_routes.py`: Option Profiles and PAR Setup pages
 - `modules/heatwave_pages.py`
 - `modules/monitoring_pages.py`
 
@@ -122,7 +126,7 @@ Interactive runs prompt for omitted values. Non-interactive runs should pass the
 
 When `./setup.sh` is run interactively without parameters, it also prompts for the default local MySQL admin username and password. Providing those values makes setup install MySQL Server binaries where supported, write an app-local socket-only MySQL config at `etc/my.cnf`, initialize the DBConsole-managed datadir under `.data/mysql`, rename the initialized `root@localhost` account to the submitted `user@localhost`, set the submitted password, and generate the first `local-admin-profile`.
 
-On Linux, package managers such as `dnf` or `apt` provide the MySQL binaries, but DBConsole does not use the package-created `/var/lib/mysql` datadir for local admin bootstrap. The generated `etc/my.cnf` records the installed MySQL `basedir` such as `/usr`, `.data/mysql` as `datadir`, `.data/log/mysqld.err` as `log-error`, `.data/run/mysql.sock` as the socket, and `skip-networking` plus disabled MySQL X Plugin settings. Setup runs `mysqld --initialize`, reads the temporary password from the app-local error log, then renames `root@localhost` to the submitted local admin account. It does not leave a usable MySQL `root` account in the DBConsole-managed local instance.
+On Linux, package managers such as `dnf` or `apt` provide the MySQL binaries, but DBConsole does not use the package-created `/var/lib/mysql` datadir for local admin bootstrap. The generated `etc/my.cnf` records the installed MySQL `basedir` such as `/usr`, `.data/mysql` as `datadir`, `.data/log/mysqld.err` as `log-error`, `.data/run/mysql.sock` as the socket, and `skip-networking` plus disabled MySQL X Plugin settings. It enables `local_infile` because MySQL Shell `loadDump()` requires it; the managed server remains socket-only and the socket/datadir are private to the service owner. Setup runs `mysqld --initialize`, reads the temporary password from the app-local error log, then renames `root@localhost` to the submitted local admin account. It does not leave a usable MySQL `root` account after initialization.
 
 Interactive setup also checks whether `local-admin-profile` is missing or not configured as the expected socket-only profile. If it needs repair and admin credentials were not supplied, setup prompts for the local MySQL admin username and password, then patches `profiles.json` after provisioning the socket-only local MySQL account.
 
@@ -309,7 +313,7 @@ The login banner is installed at `/etc/profile.d/dbconsole-login-banner.sh`. Dur
 
 The OCI init script requires `LOCAL_MYSQL_ADMIN_PASSWORD` to be set to a real password value in the pasted initialization script. It refuses to generate or log a password automatically, and first boot fails if the variable is empty or omitted. Setup uses `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` to install MySQL Server binaries where supported, write DBConsole's app-local socket-only MySQL config, initialize `.data/mysql`, rename the initialized `root@localhost` account to the submitted local admin account, set the submitted password, and write the first non-secret login profile named `local-admin-profile` into `profiles.json`. `localadmin` is the DBConsole-managed local administrator account; the DBConsole-managed local instance does not keep a usable `root@localhost` account after initialization. Do not enable shell xtrace (`set -x`) in wrappers that pass these passwords, because cloud-init and console logs can retain command traces.
 
-OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use platform packages for MySQL Server binaries but run a DBConsole-managed socket-only MySQL instance from `etc/my.cnf` and `.data/`; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute. The HTTP and HTTPS start scripts run Flask with threaded request handling so repeated health checks do not fill a single-threaded listener backlog.
+OCI first boot defaults the local admin username to `localadmin` and passes through MySQL Shell embedded fallback settings such as `MYSQL_SHELL_MIN_VERSION`, `MYSQL_SHELL_EMBEDDED_URL`, `MYSQL_SHELL_EMBEDDED_PACKAGE`, and `EMBEDDED_MYSQL_SHELL_DIR` when they are set. Linux OCI deployments use platform packages for MySQL Server binaries but run a DBConsole-managed socket-only MySQL instance from `etc/my.cnf` and `.data/`; the macOS embedded MySQL Server tar flow is for local macOS installs, not OCI Compute. The HTTP and HTTPS start scripts run one Gunicorn worker with a threaded request pool. The single worker preserves DBConsole's server-owned in-memory credential sessions, while threads prevent repeated health checks from filling a single-threaded listener backlog.
 
 On the first DBConsole login with `local-admin-profile`, use the `LOCAL_MYSQL_ADMIN_USER` and `LOCAL_MYSQL_ADMIN_PASSWORD` values supplied to setup. DBConsole sends that session directly to the local-admin password-change screen. After the password is changed, DBConsole logs the user out so the old setup password is no longer active in the browser session. Sign in again with `local-admin-profile` and the new password to manage profiles. For OCI Compute instances that already have `local-admin-profile`, change the existing `localadmin` password from the local-admin password change page; Auto-Update does not collect localadmin password fields after bootstrap is complete.
 
@@ -361,16 +365,14 @@ If `setup.sh` generated the default TLS assets, they are stored at `tls/dbconsol
 
 On Linux systemd hosts, `setup.sh` writes unit files to `/etc/systemd/system/` and uses the same `.runtime.env` values for host, ports, and optional TLS paths.
 
-The `Admin > Auto-Update` page works best when the DBConsole service user can run `sudo` non-interactively for the privileged steps in `setup.sh` and for service restarts. When passwordless `sudo` is unavailable from the running service, the updater falls back to:
+The Linux systemd service is deliberately installed with `NoNewPrivileges=true`, so the `Admin > Auto-Update` page always uses its unprivileged update path. It performs:
 
 - `git fetch` and `git pull`
 - selecting or installing Python 3.12 or newer and reinstalling Python packages inside `.venv`
 - refreshing `.runtime.env`
 - restarting the current DBConsole systemd service by letting systemd recover after the running service process exits
 
-In that fallback mode, privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed.
-
-When passwordless `sudo` is available, auto-update reruns the full `setup.sh` path, upgrades the app virtual environment to Python 3.12 or newer when needed, and upgrades MySQL Shell Innovation to the latest package available for the platform before restarting DBConsole.
+Privileged changes such as MySQL Shell package installation, firewall updates, TLS ownership fixes, and systemd unit rewrites are skipped by the in-app updater. Re-run `./setup.sh` from an SSH shell with sudo access when those changes are needed. Direct, non-systemd development launches can still use the worker's full setup path when they run as root or have explicitly configured passwordless sudo, but production service deployments do not depend on that capability.
 
 Auto-update is available from a session logged in through `local-admin-profile`. A first-time bootstrap exception is also available for older DBConsole deployments where `local-admin-profile` is missing or not socket-only: an authenticated session can open `Admin > Auto-Update`, but the start action requires a new localadmin password, password confirmation, and an explicit setup confirmation. That bootstrap path creates or resets only `localadmin@localhost`; it does not create a MySQL `root` user and does not reset `root@localhost`. Once `local-admin-profile` exists and is in use, Auto-Update no longer displays or accepts localadmin password setup fields; use the local-admin password change page to change the existing password. The update worker also verifies the configured git `origin` and branch before it fetches or pulls. By default it expects `https://github.com/ivanxma/mysqlconsole.git` on `main`; set `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL` and `DBCONSOLE_UPDATE_ALLOWED_BRANCH` only after verifying the intended deployment source.
 
@@ -392,7 +394,7 @@ DBConsole stores the local application version in `appver.json`. On successful l
 
 `setup.sh` runs a dependency vulnerability audit with `pip-audit` after installing Python dependencies. The default mode is warn-only so setup can continue if the advisory service is unavailable or an issue is reported. Set `DBCONSOLE_DEPENDENCY_AUDIT=off` to skip the audit, or set `DBCONSOLE_DEPENDENCY_AUDIT_STRICT=1` to fail setup on audit setup errors or reported vulnerabilities.
 
-If your Linux service was installed by an older `setup.sh` that wrote `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to rewrite the unit files. After that one-time refresh, `Admin > Auto-Update` can use the new updater behavior on later releases.
+If your Linux service was installed by an older `setup.sh`, run `git pull --ff-only` and `./setup.sh ...` once from an SSH shell to install the hardened unit with `NoNewPrivileges=true`. After that one-time refresh, `Admin > Auto-Update` uses the restricted updater behavior for later application releases.
 
 ### Environment Overrides
 
@@ -437,6 +439,7 @@ For `setup.sh`:
 - `DBCONSOLE_UPDATE_ALLOWED_REMOTE_URL`
 - `DBCONSOLE_UPDATE_ALLOWED_BRANCH`
 - `DBCONSOLE_OBJECT_STORAGE_REGION`
+- `DBCONSOLE_STATE_DIR` (Linux default: `/var/lib/dbconsole`)
 - `LOCAL_MYSQL_PROFILE_NAME`
 - `LOCAL_MYSQL_ADMIN_USER`
 - `LOCAL_MYSQL_ADMIN_PASSWORD`
@@ -452,6 +455,10 @@ For `start_http.sh` and `start_https.sh`:
 - `PORT`
 - `RUNTIME_ENV_FILE`
 - `HOST`
+- `DBCONSOLE_RUNTIME_DIR`
+- `DBCONSOLE_STATE_DIR`
+- `DBCONSOLE_WEB_THREADS`
+- `DBCONSOLE_WEB_TIMEOUT`
 - `DBCONSOLE_MYSQLSH`
 - `DBCONSOLE_PYTHON_BIN`
 - `DBCONSOLE_PYTHON_MIN_VERSION`
@@ -469,24 +476,27 @@ For `start_http.sh` and `start_https.sh`:
 - `SSL_CERT_FILE`
 - `SSL_KEY_FILE`
 
-## Default Config Files
+## Default Config and State Files
 
 - `.runtime.env`: saved host, port, TLS, and optional deployment-region defaults written by `setup.sh`
-- `.flask_secret_key`: generated Flask session signing key used when `FLASK_SECRET_KEY` is not set
+- `/var/lib/dbconsole/.flask_secret_key`: generated Flask session signing key used when `FLASK_SECRET_KEY` is not set on Linux
 - `.embedded/mysql-shell/`: app-local embedded MySQL Shell fallback used when the platform `mysqlsh` is missing or below the required version
 - `.embedded/mysql-server/`: app-local MySQL Server installed from the public Oracle macOS tar archive for socket-only local admin use
 - `.data/`: DBConsole-managed local MySQL datadir, socket, PID, temporary files, and error log
 - `etc/my.cnf`: generated app-local MySQL config for the DBConsole-managed local MySQL instance; only this file is ignored, not the whole `etc/` directory
-- `profiles.json`: non-secret saved connection defaults created locally by the app
-- `profile_ssh_keys/`: uploaded SSH private keys for SSH tunnel profiles; paths are stored server-side only and keys are written with restrictive file permissions
+- `/var/lib/dbconsole/profiles.json`: non-secret saved connection defaults created locally by the app on Linux
+- `/var/lib/dbconsole/profile_ssh_keys/`: uploaded SSH private keys for SSH tunnel profiles; paths are stored server-side only and keys are written with restrictive file permissions
 - `tls/`: default self-signed TLS assets generated by `setup.sh` when you do not supply your own certificate and key
-- `object_storage.json`: object storage settings used by HeatWave-related screens
+- `/var/lib/dbconsole/object_storage.json`: object storage settings used by HeatWave-related screens on Linux
+- `/var/lib/dbconsole/mysqlsh_option_profiles.json`: non-secret reusable dump/load option profiles on Linux
+- `/var/lib/dbconsole/mysqlsh_par_registry.json`: private reusable PAR metadata and bearer URLs on Linux; never expose or commit this file
+- `/var/lib/dbconsole/mysqlsh_jobs/`: durable job metadata and logs; secret one-time requests are kept under `/run/dbconsole/mysqlsh_job_requests/`
 
-`.runtime.env`, `.flask_secret_key`, `.data/`, `.embedded/`, `etc/my.cnf`, `profiles.json`, `object_storage.json`, `profile_ssh_keys/`, and `tls/` are git-ignored local state. `etc/` itself is not ignored, so future checked-in configuration templates can be added there without changing `.gitignore`. `setup.sh` repairs local sensitive file permissions on every run: runtime config, Flask secret key, profiles, object storage config, and generated MySQL config are written as owner-readable files, uploaded SSH-key directories are owner-only, and TLS private key material is owner-readable only. The auto-update worker allows local changes to these files during the repository clean-check.
+`.runtime.env`, `.state/` (the non-Linux fallback), `.data/`, `.embedded/`, `etc/my.cnf`, and `tls/` are git-ignored local state. `etc/` itself is not ignored, so future checked-in configuration templates can be added there without changing `.gitignore`. `setup.sh` repairs sensitive state permissions on every run: runtime config, Flask secret key, profiles, object storage config, MySQL Shell profiles/PAR registry, and generated MySQL config are owner-readable only; state and uploaded SSH-key directories are owner-only; TLS private key material is owner-readable only.
 
 `profiles.json` must not contain database passwords. The generated `local-admin-profile` stores only the local socket path, default database, default username, and first-login password-change marker. SSH private keys are also not stored in `profiles.json`; uploaded key files are kept under `profile_ssh_keys/` with restrictive permissions and only the server-side path is retained.
 
-On systemd deployments, `setup.sh` provisions an owner-only `/run/dbconsole` runtime directory for update status/log state and session-bound import plans. Rerun setup once after upgrading to this release so existing units receive the runtime-directory settings.
+On systemd deployments, `setup.sh` provisions owner-only `/var/lib/dbconsole` durable state and `/run/dbconsole` ephemeral secret requests. Update status/logs and MySQL Shell job metadata survive service restarts; passwords and one-time operation requests do not. Rerun setup once after upgrading so existing units receive both directory settings and legacy repository-root state is migrated.
 
 Object Storage uses OCI Compute Instance Principal authentication exclusively. DBConsole does not read or generate `~/.oci/config`, store API-key fingerprints, or upload OCI private keys. `setup.sh` resolves the optional `DBCONSOLE_OBJECT_STORAGE_REGION` default in this order: explicit environment override, saved `.runtime.env` value, OCI IMDSv2 deployment region, then an empty value completed in `Admin > Setup Object Storage`. The deployment default seeds only a missing first-run region; each saved Object Storage profile remains authoritative and may target another region.
 
@@ -494,7 +504,21 @@ Object Storage uses OCI Compute Instance Principal authentication exclusively. D
 
 For a deployment upgraded from API-key authentication, the legacy app-local `oci_config/` and `oci_private_keys/` directories remain ignored so they do not block the first Auto-Update. DBConsole no longer reads either directory. After Instance Principal access, folder population, file population, and a test upload have succeeded, remove those two app-local directories according to your credential-retention procedure. Do not remove a user's global `~/.oci/config` as part of DBConsole cleanup.
 
-For upgrades that still contain the old JSON keys `config_profile`, `oci_config_profile`, `oci_region`, or `oci_namespace`, DBConsole reads and rewrites them as canonical Object Storage profile fields only through **28 February 2027**. Before that date, open and save each profile in `Admin > Setup Object Storage`; after the cutoff, legacy aliases are rejected.
+Object Storage configuration accepts only the canonical fields `profile_name`, `region`, `namespace`, `bucket_name`, and `bucket_prefix`. Legacy API-key-era aliases (`config_profile`, `oci_config_profile`, `oci_region`, and `oci_namespace`) are rejected; migrate them through `Admin > Setup Object Storage` before deploying this release.
+
+## MySQL Shell Dump/Load
+
+The MySQL Shell menu includes `Dump/Load`, `Option Profiles`, `PAR Setup`, `Jobs`, and `Validation` for the socket-only `local-admin-profile` and for authenticated MySQL accounts that hold the `SYSTEM_USER` privilege. Sessions without that privilege cannot see or invoke MySQL Shell routes. Object Storage setup, DB Console profile administration, and Auto-Update remain local-admin-only.
+
+- Dump option profiles are reusable by `dumpInstance` and `dumpSchemas`; load option profiles are separate reusable `loadDump` option objects. Typed controls construct the MySQL Shell 26.7 option JSON, while live schema, table/view, user, event, routine, trigger, and library catalogs build include/exclude arrays from the authenticated connection.
+- Instance Dump and Schema Dump can exclude visible `ENGINE=LAKEHOUSE` tables. DB Console resolves those tables for the active connection and constructs MySQL Shell's qualified `excludeTables` option at preview/submit time; Load Dump is unaffected.
+- Advanced JSON is limited to documented options without a structured control. It cannot override structured controls or introduce DB Console-managed or sensitive fields.
+- Option profiles store mysqlsh options only. DB Console rejects Object Storage authentication, PAR URL, password, and progress-file fields in these profiles.
+- PAR Setup creates reusable prefix-scoped PARs with the selected DB Console Object Storage profile and Compute Instance Principal. It never reads an OCI API-key configuration.
+- Read/write PARs appear for dump and load. Read-only PARs appear only for load. Expired registry entries are purged and never appear in Operations selectors.
+- `Delete after used` PARs use a 24-hour OCI safety expiry and are revoked and removed from the registry when their job reaches a terminal state. Otherwise expiry is required and the PAR remains active until that time.
+- The selected option profile and PAR identifier are included in the one-time server-side preview plan. Bearer PAR URLs stay server-side and are not rendered in operations, history, logs, or previews.
+- The Jobs table displays live percentage progress from redacted MySQL Shell output, refreshing while a job is active. Completed jobs display `100%`; when MySQL Shell has not emitted a percentage yet, the table shows `—` alongside its lifecycle state.
 
 ## Main Screens
 

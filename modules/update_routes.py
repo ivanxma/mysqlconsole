@@ -31,10 +31,12 @@ def register_update_routes(app, deps):
                     flash("Repository version matches the local app version.", "success")
             return redirect(url_for("update_dbconsole_page"))
 
+        raw_update_status = deps["get_dbconsole_update_status"]()
         return render_dashboard(
             "update_dbconsole.html",
             page_title="Auto-Update",
-            update_status=deps["public_dbconsole_update_status"](deps["get_dbconsole_update_status"]()),
+            update_status=deps["public_dbconsole_update_status"](raw_update_status),
+            update_poll_token=str(raw_update_status.get("poll_token") or ""),
             local_admin_profile_name=deps["local_admin_profile_name"],
             app_version_info=session.get(deps["version_check_session_key"])
             or {
@@ -48,9 +50,12 @@ def register_update_routes(app, deps):
         )
 
     @app.route("/admin/update-dbconsole/status")
-    @session_login_required
     def update_dbconsole_status():
-        if not deps["is_local_admin_profile_session"]():
-            abort(403)
+        poll_token = request.headers.get("X-DBConsole-Update-Poll-Token", "")
+        if not deps["update_poll_token_matches"](poll_token):
+            if not deps["has_active_login_state"]():
+                abort(401)
+            if not deps["is_local_admin_profile_session"]():
+                abort(403)
         update_status = deps["get_dbconsole_update_status"]()
         return jsonify(deps["public_dbconsole_update_status"](update_status))

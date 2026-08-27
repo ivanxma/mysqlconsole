@@ -1,5 +1,6 @@
 import csv
 import io
+import itertools
 import json
 import re
 import time
@@ -8,8 +9,14 @@ from pathlib import Path
 from uuid import uuid4
 
 from modules.runtime_util import ensure_private_directory, ensure_private_regular_file, get_runtime_directory, write_new_private_text
+from werkzeug.exceptions import RequestEntityTooLarge
 
 IMPORT_PLAN_TTL_SECONDS = 60 * 60
+MAX_IMPORT_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_IMPORT_REQUEST_BYTES = MAX_IMPORT_UPLOAD_BYTES + (1024 * 1024)
+MAX_IMPORT_ROWS = 100_000
+MAX_IMPORT_COLUMNS = 512
+MAX_IMPORT_CELL_BYTES = 1024 * 1024
 IMPORT_SQL_TYPE_RE = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)*(?:\([0-9, ]+\))?$")
 IMPORT_TYPE_OPTIONS = [
     "BIGINT",
@@ -214,6 +221,20 @@ def _normalize_json_row(item):
     return {"value": _normalize_upload_value(item)}
 
 
+def _validate_import_shape(rows, column_order):
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise ValueError(f"Import files may contain at most {MAX_IMPORT_ROWS:,} rows.")
+    if len(column_order) > MAX_IMPORT_COLUMNS:
+        raise ValueError(f"Import files may contain at most {MAX_IMPORT_COLUMNS} columns.")
+    for row in rows:
+        for value in row.values():
+            if value is None:
+                continue
+            rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+            if len(rendered.encode("utf-8")) > MAX_IMPORT_CELL_BYTES:
+                raise ValueError("An import value exceeds the 1 MiB per-cell limit.")
+
+
 def parse_json_upload(text):
     payload = json.loads(text)
     if isinstance(payload, list):
@@ -240,6 +261,7 @@ def parse_json_upload(text):
         raise ValueError("The JSON file did not contain tabular rows.")
 
     normalized_rows = [{column_name: row.get(column_name) for column_name in column_order} for row in rows]
+    _validate_import_shape(normalized_rows, column_order)
     return {"file_format": "json", "column_order": column_order, "rows": normalized_rows}
 
 
@@ -256,27 +278,32 @@ def parse_csv_upload(text):
         has_header = True
 
     stream = io.StringIO(text, newline="")
-    reader = list(csv.reader(stream, dialect))
-    if not reader:
+    reader = iter(csv.reader(stream, dialect))
+    try:
+        first_row = next(reader)
+    except StopIteration:
         raise ValueError("The CSV file is empty.")
 
     if has_header:
-        raw_headers = _make_unique_labels(reader[0], "column")
-        data_rows = reader[1:]
-    else:
-        raw_headers = []
+        raw_headers = _make_unique_labels(first_row, "column")
         data_rows = reader
+    else:
+        raw_headers = [f"column_{index + 1}" for index in range(len(first_row))]
+        data_rows = itertools.chain((first_row,), reader)
 
-    max_columns = max((len(row) for row in ([reader[0]] + data_rows)), default=0)
-    if not raw_headers:
-        raw_headers = [f"column_{index + 1}" for index in range(max_columns)]
-    elif len(raw_headers) < max_columns:
-        raw_headers.extend([f"column_{index + 1}" for index in range(len(raw_headers), max_columns)])
+    if len(raw_headers) > MAX_IMPORT_COLUMNS:
+        raise ValueError(f"Import files may contain at most {MAX_IMPORT_COLUMNS} columns.")
 
     rows = []
     for row_values in data_rows:
         if not row_values or all(str(value or "").strip() == "" for value in row_values):
             continue
+        if len(row_values) > MAX_IMPORT_COLUMNS:
+            raise ValueError(f"Import files may contain at most {MAX_IMPORT_COLUMNS} columns.")
+        if len(row_values) > len(raw_headers):
+            raw_headers.extend(
+                f"column_{index + 1}" for index in range(len(raw_headers), len(row_values))
+            )
         padded_values = list(row_values) + [""] * (len(raw_headers) - len(row_values))
         rows.append(
             {
@@ -284,7 +311,10 @@ def parse_csv_upload(text):
                 for index, header in enumerate(raw_headers)
             }
         )
+        if len(rows) > MAX_IMPORT_ROWS:
+            raise ValueError(f"Import files may contain at most {MAX_IMPORT_ROWS:,} rows.")
 
+    _validate_import_shape(rows, raw_headers)
     return {"file_format": "csv", "column_order": raw_headers, "rows": rows}
 
 
@@ -293,7 +323,11 @@ def parse_import_upload(upload_storage):
     if not filename:
         raise ValueError("Choose a CSV or JSON file to upload.")
 
-    payload = upload_storage.read()
+    payload = upload_storage.read(MAX_IMPORT_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_IMPORT_UPLOAD_BYTES:
+        raise RequestEntityTooLarge(
+            description=f"MySQL Import files may not exceed {MAX_IMPORT_UPLOAD_BYTES // (1024 * 1024)} MiB."
+        )
     if not payload:
         raise ValueError("The uploaded file is empty.")
 

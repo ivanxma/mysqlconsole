@@ -21,6 +21,12 @@ html_doc/
 # DBConsole generated runtime state
 .runtime.env
 .runtime.env.*
+.runtime/
+.state/
+mysqlsh_option_profiles.json
+mysqlsh_par_registry.json
+mysqlsh_option_profiles.json.lock
+mysqlsh_par_registry.json.lock
 .flask_secret_key
 .data/
 .embedded/

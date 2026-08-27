@@ -366,7 +366,7 @@
       <input type="hidden" name="tab" value="refresh">
       <label>
         Database
-        <select name="refresh_database" onchange="this.form.submit()">
+        <select name="refresh_database" data-submit-on-change>
           {% for database_name in lakehouse_databases %}
           <option value="{{ database_name }}" {% if database_name == form.refresh_database %}selected{% endif %}>{{ database_name }}</option>
           {% endfor %}
@@ -476,7 +476,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const toggle = document.querySelector("[data-lakehouse-create-folder]");
     const folderName = document.querySelector("[data-lakehouse-folder-name]");

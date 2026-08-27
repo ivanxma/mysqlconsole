@@ -5,6 +5,11 @@
   <p class="eyebrow">MySQL</p>
   <h2>DB Admin</h2>
   <p>Create databases, inspect table definitions, manage scheduler events, and browse live rows from the connected server.</p>
+  {% if db_admin_tab in ('select', 'missing-primary-key') %}
+  <div class="form-actions">
+    <a class="button primary" href="{{ url_for('db_admin_download', database=selected_database, db_admin_tab=db_admin_tab) }}">Download CSV</a>
+  </div>
+  {% endif %}
 </section>
 
 <section class="tab-shell">
@@ -109,7 +114,7 @@
   {% if missing_primary_key_report.error %}
   <p class="helper-text error-text">{{ missing_primary_key_report.error }}</p>
   {% else %}
-  <p class="helper-text">If a table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code> and makes it the PRIMARY KEY.</p>
+  <p class="helper-text">If an InnoDB table already has an <code>AUTO_INCREMENT</code> column, the fix adds a PRIMARY KEY on that column. Otherwise it adds invisible column <code>my_row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code>. Lakehouse tables require a manually selected primary key in Select Database and Table &gt; Modify Columns.</p>
   <form method="post" class="db-admin-missing-pk-form" data-missing-pk-selection-form data-confirm-message="Apply the primary-key fix to the selected eligible tables?">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="db_admin_tab" value="missing-primary-key">
@@ -164,7 +169,7 @@
             <td>{{ row.engine }}</td>
             <td>{{ row.row_count }}</td>
             <td>{{ row.auto_increment_column_name or '-' }}</td>
-            <td>{{ row.fix_method_label }}</td>
+            <td>{{ row.fix_method_label }}{% if row.engine|lower == 'lakehouse' %}<div><a class="text-link" href="{{ url_for('db_admin_page', db_admin_tab='select', database=row.database_name, table=row.table_name, table_info_tab='modify-columns') }}">Define primary key</a></div>{% endif %}</td>
           </tr>
           {% else %}
           <tr>
@@ -301,7 +306,7 @@
     <input type="hidden" name="db_admin_tab" value="routine">
     <label>
       Database
-      <select name="routine_database" onchange="this.form.submit()">
+      <select name="routine_database" data-submit-on-change>
         <option value="">All user databases</option>
         {% for row in database_inventory %}
         <option value="{{ row.database_name }}" {% if row.database_name == selected_routine_database %}selected{% endif %}>
@@ -481,7 +486,7 @@
     <input type="hidden" name="db_admin_tab" value="charset-collation">
     <label>
       Database
-      <select name="database" onchange="this.form.submit()">
+      <select name="database" data-submit-on-change>
         <option value="">Choose a database</option>
         {% for row in database_inventory %}
         {% if not row.is_system %}
@@ -831,7 +836,7 @@
       <form method="get" class="db-admin-table-database-form">
         <input type="hidden" name="db_admin_tab" value="select">
         <label aria-label="Database">
-          <select name="database" onchange="this.form.submit()">
+          <select name="database" data-submit-on-change>
             <option value="">Choose a database</option>
             {% for row in database_inventory %}
             <option value="{{ row.database_name }}" {% if row.database_name == selected_database %}selected{% endif %}>
@@ -1146,17 +1151,22 @@
       <span class="helper-text">{{ selected_database }}.{{ selected_table }}</span>
     </div>
   </div>
-    <p class="helper-text">Edit the column name, the SQL definition fragment after the name, and the optional comments. This keeps datatype parameters like <code>decimal(10,2)</code>, <code>varchar(255)</code>, or multi-value type definitions intact while generating the required <code>ALTER TABLE</code> clauses.</p>
+    <p class="helper-text">Edit column definitions and choose the ordered table-level PRIMARY KEY. Composite keys use the numeric position values. DB Console applies coordinated column and key changes in one <code>ALTER TABLE</code>.</p>
     {% if column_edit_unsupported_columns %}
     <p class="helper-text error-text">Unable to load the current SHOW CREATE TABLE definition for: {{ column_edit_unsupported_columns|join(', ') }}.</p>
     {% endif %}
     {% set modifiable_column_rows = column_edit_rows|selectattr('supports_modify')|list %}
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" data-confirm-message="Apply the column and primary-key definition changes?">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="db_admin_tab" value="select">
       <input type="hidden" name="db_action" value="modify_table_columns">
       <input type="hidden" name="database_name" value="{{ selected_database }}">
       <input type="hidden" name="table_name" value="{{ selected_table }}">
+      <input type="hidden" name="primary_key_definition_present" value="1">
+      <section class="db-admin-primary-key-summary full-span">
+        <div><span class="meta-label">Current Primary Key</span><strong>{% set current_primary_rows = column_edit_rows|selectattr('currently_primary_key')|list %}{% if current_primary_rows %}{% for row in current_primary_rows|sort(attribute='current_primary_key_position') %}{{ row.source_column_name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}None{% endif %}</strong></div>
+        <p class="helper-text">Select one or more columns below. Use unique order values for a composite key. Clearing every selection removes the current primary key.</p>
+      </section>
       <label class="full-span">
         Table Comment
         <textarea name="table_comment" rows="3">{{ table_edit_comment }}</textarea>
@@ -1166,6 +1176,7 @@
           <thead>
             <tr>
               <th>Current Column</th>
+              <th>Primary Key Definition</th>
               <th>Column Name</th>
               <th>Column Definition</th>
               <th>Column Comment</th>
@@ -1178,6 +1189,12 @@
                 <strong>{{ row.source_column_name }}</strong>
                 <div class="helper-text">{{ row.column_type }}{% if row.extra %} • {{ row.extra }}{% endif %}</div>
                 <div class="helper-text">Comment: {{ row.current_comment or "-" }}</div>
+              </td>
+              <td class="db-admin-primary-key-cell">
+                <input type="hidden" name="primary_key_source_order" value="{{ row.source_column_name }}">
+                <label class="checkbox-field"><input type="checkbox" name="primary_key_column" value="{{ row.source_column_name }}" {% if row.is_primary_key %}checked{% endif %} data-primary-key-column><span>PRIMARY</span></label>
+                <label>Order<input type="number" name="primary_key_position" min="1" max="{{ column_edit_rows|length }}" value="{{ row.primary_key_position or loop.index }}" data-primary-key-position></label>
+                <span class="helper-text">Current key: {{ row.column_key or "-" }}</span>
               </td>
               <td>
                 {% if row.supports_modify %}
@@ -1204,14 +1221,14 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="4">Choose a table to edit its column definitions.</td>
+              <td colspan="5">Choose a table to edit its column definitions.</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       <div class="form-actions">
-        <button class="button primary" type="submit" {% if not modifiable_column_rows %}disabled{% endif %}>Update</button>
+        <button class="button primary" type="submit" {% if not column_edit_rows %}disabled{% endif %}>Update</button>
         <a class="button secondary" href="{{ url_for('db_admin_page', db_admin_tab='select', database=selected_database, table=selected_table, table_info_tab='columns') }}">Cancel</a>
       </div>
     </form>
@@ -1226,7 +1243,17 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
+  (() => {
+    document.querySelectorAll("[data-primary-key-column]").forEach((checkbox) => {
+      const cell = checkbox.closest(".db-admin-primary-key-cell");
+      const position = cell?.querySelector("[data-primary-key-position]");
+      const sync = () => cell?.classList.toggle("is-selected", checkbox.checked);
+      checkbox.addEventListener("change", sync);
+      position?.addEventListener("focus", () => { if (!checkbox.checked) { checkbox.checked = true; sync(); } });
+      sync();
+    });
+  })();
   (() => {
     const missingPkSelectionForm = document.querySelector("[data-missing-pk-selection-form]");
     if (missingPkSelectionForm) {

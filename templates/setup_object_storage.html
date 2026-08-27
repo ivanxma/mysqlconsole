@@ -53,7 +53,7 @@
           name="active_profile_choice"
           value="{{ profile.profile_name }}"
           {% if profile.profile_name == active_object_storage_profile %}checked{% endif %}
-          onchange="this.form.requestSubmit()"
+          data-submit-on-change
         >
         <span>
           <strong>{{ profile.profile_name }}</strong>

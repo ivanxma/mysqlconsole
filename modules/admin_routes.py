@@ -118,6 +118,7 @@ def register_admin_routes(app, deps):
 
     @app.route("/admin/setup-object-storage", methods=["GET", "POST"])
     @login_required
+    @deps["local_admin_required"]
     def setup_object_storage_page():
         store = deps["load_object_storage_config"]()
         if request.method == "POST":

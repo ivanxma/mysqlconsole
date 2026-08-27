@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel"><h2>MySQL Shell Dump/Load Validation</h2><ul><li>Configure and test the target under Admin → Setup Object Storage. DB Console uses the Compute Instance Principal; OCI API-key configuration is not supported.</li><li>Create reusable PAR entries under MySQL Shell → PAR Setup. Read/write PARs support dump and load; read-only PARs support load only.</li><li>Create reusable dump and load mysqlsh option sets under MySQL Shell → Option Profiles.</li><li>Dump Schemas requires at least one non-empty schema name. All operations use the active authenticated MySQL connection profile.</li><li>Jobs run through the DB Console-installed mysqlsh binary. PAR bearer URLs remain server-side and are never displayed in operation previews.</li><li>Confirm database privileges, Object Storage IAM policy, free disk space, and target compatibility before submitting production jobs.</li></ul></section>
+{% endblock %}

@@ -26,6 +26,7 @@ from modules.mysql_util import (
     MYSQL_CONNECTION_CACHE_KEY,
     borrow_connection,
     close_cached_connection,
+    has_system_user_privilege,
     profile_signature,
 )
 
@@ -40,6 +41,36 @@ class FakeConnection:
 
     def close(self):
         self.closed = True
+
+
+class PrivilegeCursor:
+    def __init__(self, direct_grant=False, show_grants=()):
+        self.direct_grant = direct_grant
+        self.show_grants = show_grants
+        self.statement = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, statement):
+        self.statement = statement
+
+    def fetchone(self):
+        return {"has_system_user": 1} if self.direct_grant and "user_privileges" in self.statement else None
+
+    def fetchall(self):
+        return list(self.show_grants) if self.statement == "SHOW GRANTS" else []
+
+
+class PrivilegeConnection:
+    def __init__(self, **kwargs):
+        self.cursor_value = PrivilegeCursor(**kwargs)
+
+    def cursor(self):
+        return self.cursor_value
 
 
 class SessionConnectionIsolationTests(unittest.TestCase):
@@ -58,6 +89,17 @@ class SessionConnectionIsolationTests(unittest.TestCase):
 
     def borrow(self, entry):
         return borrow_connection(self.profile, self.credentials, entry)
+
+    def test_system_user_privilege_accepts_effective_grant_or_show_grants_fallback(self):
+        self.assertTrue(has_system_user_privilege(PrivilegeConnection(direct_grant=True)))
+        self.assertTrue(
+            has_system_user_privilege(
+                PrivilegeConnection(show_grants=[("GRANT SELECT, SYSTEM_USER ON *.* TO 'operator'@'%'",)])
+            )
+        )
+        self.assertFalse(
+            has_system_user_privilege(PrivilegeConnection(show_grants=[("GRANT SELECT ON *.* TO 'reader'@'%'",)]))
+        )
 
     def test_same_session_connection_is_serialized(self):
         entry = self.session_entry()

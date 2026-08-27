@@ -1,5 +1,4 @@
 import unittest
-from datetime import date
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
@@ -29,20 +28,36 @@ class HardeningContractTests(unittest.TestCase):
             return guarded
 
         is_local_admin = {"value": False}
+        active_login = {"value": False}
         register_update_routes(
             app,
             {
                 "session_login_required": session_login_required,
                 "render_dashboard": lambda *args, **kwargs: "unused",
                 "is_local_admin_profile_session": lambda: is_local_admin["value"],
-                "get_dbconsole_update_status": lambda: {"state": "running", "log_text": "private log"},
-                "public_dbconsole_update_status": lambda status: status,
+                "has_active_login_state": lambda: active_login["value"],
+                "update_poll_token_matches": lambda candidate: candidate == "job-token",
+                "get_dbconsole_update_status": lambda: {
+                    "state": "running",
+                    "log_text": "private log",
+                    "poll_token": "job-token",
+                },
+                "public_dbconsole_update_status": lambda status: {
+                    key: value for key, value in status.items() if key != "poll_token"
+                },
             },
         )
         client = app.test_client()
         self.assertEqual(client.get("/admin/update-dbconsole/status").status_code, 401)
+        token_response = client.get(
+            "/admin/update-dbconsole/status",
+            headers={"X-DBConsole-Update-Poll-Token": "job-token"},
+        )
+        self.assertEqual(token_response.status_code, 200)
+        self.assertNotIn(b"job-token", token_response.data)
         with client.session_transaction() as client_session:
             client_session["allowed"] = True
+        active_login["value"] = True
         self.assertEqual(client.get("/admin/update-dbconsole/status").status_code, 403)
         is_local_admin["value"] = True
         response = client.get("/admin/update-dbconsole/status")
@@ -54,14 +69,26 @@ class HardeningContractTests(unittest.TestCase):
         self.assertIn("RuntimeDirectory=dbconsole", setup)
         self.assertIn("RuntimeDirectoryMode=0700", setup)
         self.assertIn("Environment=DBCONSOLE_RUNTIME_DIR=/run/dbconsole", setup)
+        self.assertIn("NoNewPrivileges=true", setup)
+        self.assertIn("CapabilityBoundingSet=CAP_NET_BIND_SERVICE", setup)
 
-    def test_legacy_object_storage_alias_has_a_timeboxed_reader(self):
+    def test_launchers_default_to_the_populated_virtual_environment(self):
+        for launcher_name in ("start_http.sh", "start_https.sh"):
+            launcher = (ROOT_DIR / launcher_name).read_text(encoding="utf-8")
+            self.assertIn('PYTHON_BIN="${PYTHON_BIN_INPUT:-$SCRIPT_DIR/.venv/bin/python}"', launcher)
+            self.assertNotIn('PYTHON_BIN_INPUT:-${DBCONSOLE_PYTHON_BIN', launcher)
+            self.assertIn('XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$DBCONSOLE_RUNTIME_DIR}"', launcher)
+
+    def test_socket_only_mysql_enables_mysql_shell_load_dump(self):
+        setup = (ROOT_DIR / "setup.sh").read_text(encoding="utf-8")
+        self.assertIn('echo "skip-networking"', setup)
+        self.assertIn('echo "mysqlx=0"', setup)
+        self.assertIn('echo "local_infile=ON"', setup)
+
+    def test_legacy_object_storage_alias_is_rejected(self):
         old_payload = {"oci_region": "uk-london-1"}
-        self.assertEqual(object_storage_util.normalize_object_storage(old_payload)["region"], "uk-london-1")
-        with patch("modules.object_storage_util.date") as fake_date:
-            fake_date.today.return_value = date(2027, 3, 1)
-            with self.assertRaisesRegex(ValueError, "no longer supported"):
-                object_storage_util.normalize_object_storage(old_payload)
+        with self.assertRaisesRegex(ValueError, "Legacy Object Storage settings"):
+            object_storage_util.normalize_object_storage(old_payload)
 
     def test_json_fallback_has_a_bounded_memory_limit(self):
         self.assertEqual(oci_util.STDLIB_JSON_FALLBACK_MAX_BYTES, 16 * 1024 * 1024)

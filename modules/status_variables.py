@@ -1,7 +1,3 @@
-import json
-import re
-
-
 STATUS_VARIABLE_SECTIONS = [
     {"key": "replication", "label": "Replication"},
     {"key": "performance_schema", "label": "Performance Schema"},

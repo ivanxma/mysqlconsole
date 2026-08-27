@@ -456,7 +456,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const activateManagementTab = (tabName, updateUrl = false) => {
       document.querySelectorAll("[data-management-tab-button]").forEach((button) => {

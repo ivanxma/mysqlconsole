@@ -907,7 +907,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
   (() => {
     const openDialog = (dialog) => {
       if (!dialog) {

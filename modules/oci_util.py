@@ -62,7 +62,60 @@ def build_object_storage_client(config):
     )
 
 
-def normalize_object_prefix(value):
+def resolved_object_storage_endpoint(client):
+    """Return the concrete HTTPS endpoint, never an SDK URI template."""
+    base_client = getattr(client, "base_client", None)
+    resolver = getattr(base_client, "get_endpoint", None)
+    endpoint = resolver() if callable(resolver) else ""
+    if not isinstance(endpoint, str):
+        endpoint = getattr(base_client, "endpoint", "")
+    endpoint = str(endpoint or "").strip().rstrip("/")
+    if not endpoint.startswith("https://") or "{" in endpoint or "}" in endpoint:
+        raise RuntimeError("OCI did not return a concrete HTTPS Object Storage endpoint.")
+    return endpoint
+
+
+def create_scoped_preauthenticated_request(
+    config,
+    *,
+    namespace,
+    bucket_name,
+    prefix,
+    name,
+    access_type,
+    expires_at,
+):
+    oci = _load_oci_sdk()
+    client = build_object_storage_client(config)
+    details = oci.object_storage.models.CreatePreauthenticatedRequestDetails(
+        name=name,
+        access_type=access_type,
+        time_expires=expires_at,
+        bucket_listing_action="ListObjects",
+        object_name=prefix,
+    )
+    response = client.create_preauthenticated_request(
+        namespace_name=namespace,
+        bucket_name=bucket_name,
+        create_preauthenticated_request_details=details,
+    )
+    return client, response.data
+
+
+def revoke_preauthenticated_request(config, *, namespace, bucket_name, par_id):
+    client = build_object_storage_client(config)
+    try:
+        client.delete_preauthenticated_request(
+            namespace_name=namespace,
+            bucket_name=bucket_name,
+            par_id=par_id,
+        )
+    except Exception as error:
+        if getattr(error, "status", None) != 404:
+            raise
+
+
+def normalize_folder_prefix(value):
     normalized = str(value or "").strip().strip("/")
     return f"{normalized}/" if normalized else ""
 
@@ -81,16 +134,27 @@ def build_object_storage_uri(namespace, bucket_name, object_name):
     return f"oci://{bucket_value}@{namespace_value}/{object_value}"
 
 
-def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="", limit=1000, max_folders=1000):
+def list_object_storage_folders(
+    config,
+    *,
+    namespace,
+    bucket_name,
+    base_prefix="",
+    limit=1000,
+    max_folders=1000,
+    max_pages=100,
+):
     namespace_value = str(namespace or "").strip()
     bucket_value = str(bucket_name or "").strip()
     if not namespace_value or not bucket_value:
         return []
-    prefix = normalize_object_prefix(base_prefix)
+    prefix = normalize_folder_prefix(base_prefix)
     client = build_object_storage_client(config)
     folders = [prefix]
     seen = {prefix}
     pending = [prefix]
+    seen_page_tokens = set()
+    page_count = 0
     while pending and len(folders) < max_folders:
         current_prefix = pending.pop(0)
         start = None
@@ -99,9 +163,12 @@ def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="
             if start:
                 kwargs["start"] = start
             response = client.list_objects(namespace_value, bucket_value, **kwargs)
+            page_count += 1
+            if page_count > max_pages:
+                raise RuntimeError("Object Storage folder listing exceeded the page limit.")
             data = response.data
             for item in getattr(data, "prefixes", []) or []:
-                folder = normalize_object_prefix(item)
+                folder = normalize_folder_prefix(item)
                 if prefix and not folder.startswith(prefix):
                     continue
                 if folder and folder not in seen:
@@ -110,26 +177,45 @@ def list_object_storage_folders(config, *, namespace, bucket_name, base_prefix="
                     pending.append(folder)
                     if len(folders) >= max_folders:
                         break
-            start = getattr(data, "next_start_with", None)
-            if not start:
+            next_start = getattr(data, "next_start_with", None)
+            if not next_start:
                 break
+            token_key = (current_prefix, str(next_start))
+            if token_key in seen_page_tokens or next_start == start:
+                raise RuntimeError("Object Storage folder listing returned a repeated page token.")
+            seen_page_tokens.add(token_key)
+            start = next_start
     return sorted(folders, key=lambda value: (value.count("/"), value.lower()))
 
 
-def list_object_storage_files(config, *, namespace, bucket_name, folder_prefix="", limit=1000):
+def list_object_storage_files(
+    config,
+    *,
+    namespace,
+    bucket_name,
+    folder_prefix="",
+    limit=1000,
+    max_objects=10000,
+    max_pages=100,
+):
     namespace_value = str(namespace or "").strip()
     bucket_value = str(bucket_name or "").strip()
     if not namespace_value or not bucket_value:
         return []
-    prefix = normalize_object_prefix(folder_prefix)
+    prefix = normalize_folder_prefix(folder_prefix)
     client = build_object_storage_client(config)
     files = []
     start = None
+    seen_page_tokens = set()
+    page_count = 0
     while True:
         kwargs = {"prefix": prefix, "delimiter": "/", "limit": limit}
         if start:
             kwargs["start"] = start
         response = client.list_objects(namespace_value, bucket_value, **kwargs)
+        page_count += 1
+        if page_count > max_pages:
+            raise RuntimeError("Object Storage file listing exceeded the page limit.")
         data = response.data
         for item in getattr(data, "objects", []) or []:
             object_name = str(getattr(item, "name", "") or "").strip()
@@ -145,9 +231,17 @@ def list_object_storage_files(config, *, namespace, bucket_name, folder_prefix="
                     "oci_uri": build_object_storage_uri(namespace_value, bucket_value, object_name),
                 }
             )
-        start = getattr(data, "next_start_with", None)
-        if not start:
+            if len(files) > max_objects:
+                raise RuntimeError("Object Storage file listing exceeded the object limit.")
+        next_start = getattr(data, "next_start_with", None)
+        if not next_start:
             break
+        if len(files) >= max_objects:
+            raise RuntimeError("Object Storage file listing was truncated at the object limit.")
+        if next_start in seen_page_tokens or next_start == start:
+            raise RuntimeError("Object Storage file listing returned a repeated page token.")
+        seen_page_tokens.add(next_start)
+        start = next_start
     return sorted(files, key=lambda item: str(item["file_name"]).lower())
 
 
@@ -159,7 +253,7 @@ def create_object_storage_folder(config, *, namespace, bucket_name, parent_prefi
         raise ValueError("Object Storage namespace and bucket name are required.")
     if not folder_value:
         raise ValueError("Folder name is required.")
-    object_name = normalize_object_prefix(join_object_prefix(parent_prefix, folder_value))
+    object_name = normalize_folder_prefix(join_object_prefix(parent_prefix, folder_value))
     client = build_object_storage_client(config)
     client.put_object(namespace_value, bucket_value, object_name, b"")
     return object_name

@@ -15,7 +15,7 @@ from modules.admin_routes import register_admin_routes
 
 
 class ObjectStorageStoreTests(unittest.TestCase):
-    def test_legacy_api_key_fields_are_removed_during_load(self):
+    def test_legacy_api_key_fields_are_rejected_during_load(self):
         legacy = {
             "active_profile_name": "DEFAULT",
             "profiles": [
@@ -37,24 +37,9 @@ class ObjectStorageStoreTests(unittest.TestCase):
             store_path = Path(temp_dir) / "object_storage.json"
             store_path.write_text(json.dumps(legacy), encoding="utf-8")
 
-            config = object_storage_util.load_object_storage_config(store_path)
-            persisted = json.loads(store_path.read_text(encoding="utf-8"))
-
-        self.assertEqual(config["region"], "uk-london-1")
-        self.assertEqual(config["namespace"], "example-namespace")
-        self.assertEqual(
-            set(persisted["profiles"][0]),
-            {
-                "profile_name",
-                "region",
-                "namespace",
-                "bucket_name",
-                "bucket_prefix",
-                "upload_validation_max_bytes",
-            },
-        )
-        self.assertNotIn("ocid1.user.example", json.dumps(persisted))
-        self.assertNotIn("/private/key.pem", json.dumps(persisted))
+            with self.assertRaisesRegex(ValueError, "Legacy Object Storage settings"):
+                object_storage_util.load_object_storage_config(store_path)
+            self.assertEqual(json.loads(store_path.read_text(encoding="utf-8")), legacy)
 
     def test_deployment_region_seeds_only_missing_region(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -291,6 +276,7 @@ class ObjectStorageRouteTests(unittest.TestCase):
             identity = lambda function: function
             deps = {
                 "login_required": identity,
+                "local_admin_required": identity,
                 "session_login_required": identity,
                 "render_dashboard": lambda template, **context: f"rendered:{template}",
                 "load_object_storage_config": lambda: object_storage_util.load_object_storage_config(store_path),

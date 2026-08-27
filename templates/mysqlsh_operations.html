@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>MySQL Shell Dump/Load</h2>
+      <p class="helper-text">Run scoped dump and load jobs using DB Console profiles and OCI Instance Principal access.</p>
+    </div>
+    <div class="panel-actions">{% if can_manage_mysqlsh_configuration %}<a class="button secondary" href="{{ url_for('mysqlsh_option_profiles_page', kind=option_kind) }}">Option Profiles</a><a class="button secondary" href="{{ url_for('mysqlsh_pars_page', object_storage_profile=form.object_storage_profile) }}">PAR Setup</a>{% endif %}<a class="button secondary" href="{{ url_for('mysqlsh_jobs_page') }}">Jobs</a></div>
+  </div>
+  {% if not mysqlsh_status.available %}
+  <p class="error-text">{{ mysqlsh_status.error }}</p>
+  {% endif %}
+  <dl class="detail-list oci-overview-row">
+    <div><dt>MySQL Profile</dt><dd>{{ session_profile.name or "-" }}</dd></div>
+    <div><dt>MySQL Shell</dt><dd>{{ mysqlsh_status.version or "Unavailable" }}</dd></div>
+    <div><dt>Active Object Storage Profile</dt><dd>{{ active_object_storage_profile or "-" }}</dd></div>
+    <div><dt>Authentication</dt><dd>Instance Principal</dd></div>
+  </dl>
+</section>
+
+<nav class="tab-bar" aria-label="MySQL Shell operation">
+  <a class="tab-link {% if form.operation == 'dump_instance' %}active{% endif %}" href="{{ url_for('mysqlsh_operations_page', operation='dump_instance') }}">Instance Dump</a>
+  <a class="tab-link {% if form.operation == 'dump_schemas' %}active{% endif %}" href="{{ url_for('mysqlsh_operations_page', operation='dump_schemas') }}">Schema Dump</a>
+  <a class="tab-link {% if form.operation == 'load_dump' %}active{% endif %}" href="{{ url_for('mysqlsh_operations_page', operation='load_dump') }}">Load Dump</a>
+</nav>
+
+{% if not storage_configured %}
+<section class="panel">
+  <h3>Object Storage configuration required</h3>
+  <p class="error-text">{{ storage_configuration_error or 'A complete Object Storage profile is required before dump/load operations can run.' }}</p>
+  {% if can_manage_mysqlsh_configuration %}<a class="button primary" href="{{ url_for('setup_object_storage_page') }}">Setup Object Storage</a>{% else %}<p class="helper-text">Ask a DB Console local administrator to configure an approved Object Storage profile.</p>{% endif %}
+</section>
+{% else %}
+<form method="post" class="panel">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="operation" value="{{ form.operation }}">
+  <div class="panel-header">
+    <div>
+      <h3>{% if form.operation == 'dump_instance' %}Instance Dump{% elif form.operation == 'dump_schemas' %}Schema Dump{% else %}Load Dump{% endif %}</h3>
+      <span class="helper-text">Preview first to review the effective MySQL and Object Storage targets.</span>
+    </div>
+  </div>
+  <div class="form-grid">
+    <label>
+      Object Storage Profile
+      <select name="object_storage_profile" required>
+        {% for profile in object_storage_profiles %}
+        <option value="{{ profile.profile_name }}" {% if profile.profile_name == form.object_storage_profile %}selected{% endif %}>
+          {{ profile.profile_name }} — {{ profile.region or "-" }} — {{ profile.bucket_name or "-" }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <div class="field-row">
+      <label>
+        {{ option_kind|title }} Option Profile
+        <select name="option_profile_name">
+          <option value="">Default {{ option_kind }} options</option>
+          {% for profile in option_profiles %}<option value="{{ profile.name }}" {% if profile.name == form.option_profile_name %}selected{% endif %}>{{ profile.name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if can_manage_mysqlsh_configuration %}<div class="field-actions-inline"><a class="button secondary" href="{{ url_for('mysqlsh_option_profiles_page', kind=option_kind, profile_name=form.option_profile_name or None) }}">Manage Profiles</a></div>{% endif %}
+    </div>
+
+    <div class="field-row">
+      <label>
+        {{ 'Source' if form.operation == 'load_dump' else 'Target' }} PAR *
+        <select name="par_entry_id" required>
+          <option value="">Choose an active {{ 'read or read/write' if form.operation == 'load_dump' else 'read/write' }} PAR</option>
+          {% for entry in active_pars %}<option value="{{ entry.id }}" {% if entry.id == form.par_entry_id %}selected{% endif %}>{{ entry.name }} — {{ entry.target_display }} — {{ 'Delete after used' if entry.delete_after_use else 'Expires ' ~ entry.expires_at }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if can_manage_mysqlsh_configuration %}<div class="field-actions-inline"><a class="button secondary" href="{{ url_for('mysqlsh_pars_page', object_storage_profile=form.object_storage_profile) }}">PAR Setup</a></div>{% endif %}
+    </div>
+
+    {% if form.operation == 'dump_schemas' %}
+    <label>
+      Schema Names
+      <input name="schemas" value="{{ form.schemas }}" required placeholder="sales, inventory">
+      <span class="helper-text">Enter one or more comma-separated schema names.</span>
+    </label>
+    {% endif %}
+
+    {% if not form.option_profile_name %}
+    <label>
+      Threads
+      <input name="threads" type="number" min="1" max="64" value="{{ form.threads }}" required>
+    </label>
+    {% if form.operation != 'load_dump' %}
+    <label class="checkbox-field">
+      <input name="consistent" type="checkbox" {% if form.consistent %}checked{% endif %}>
+      Consistent dump
+    </label>
+    <label class="checkbox-field">
+      <input name="exclude_lakehouse_tables" type="checkbox" value="1" {% if form.exclude_lakehouse_tables %}checked{% endif %}>
+      Exclude Lakehouse tables
+      <span class="helper-text">Builds <code>excludeTables</code> from tables with the <code>LAKEHOUSE</code> engine visible to this connection.</span>
+    </label>
+    {% endif %}
+    {% else %}
+    <p class="helper-text full-span">The selected {{ option_kind }} option profile supplies the complete MySQL Shell option set.</p>
+    {% endif %}
+  </div>
+
+  <p class="helper-text">The selected PAR and option profile are bound to the server-side preview. PARs are created with Instance Principal authentication; no OCI API key or config file is used.</p>
+
+  {% if confirmation %}
+  <div class="panel">
+    <h3>Submission Review</h3>
+    <dl class="detail-list oci-overview-row">
+      <div><dt>Operation</dt><dd>{{ confirmation.operation }}</dd></div>
+      <div><dt>MySQL Profile</dt><dd>{{ confirmation.mysql_profile or "-" }}</dd></div>
+      <div><dt>Object Storage Profile</dt><dd>{{ confirmation.storage_profile or "-" }}</dd></div>
+      <div><dt>Bucket</dt><dd>{{ confirmation.bucket or "-" }}</dd></div>
+      <div><dt>Prefix</dt><dd>{{ confirmation.prefix or "Generated per job" }}</dd></div>
+      <div><dt>Option Profile</dt><dd>{{ confirmation.option_profile_name }}</dd></div>
+      <div><dt>PAR</dt><dd>{{ confirmation.par_name }}</dd></div>
+      {% if confirmation.schemas %}<div><dt>Schemas</dt><dd>{{ confirmation.schemas }}</dd></div>{% endif %}
+      {% if form.operation != 'load_dump' %}<div><dt>Lakehouse tables excluded</dt><dd>{{ confirmation.lakehouse_excluded_count }}</dd></div>{% endif %}
+      <div><dt>PAR Lifecycle</dt><dd>{% if confirmation.delete_after_use %}Delete after used{% else %}Retain until {{ confirmation.par_expires_at }}{% endif %}</dd></div>
+    </dl>
+    {% if form.operation == 'load_dump' %}
+    <p class="error-text">Load Dump changes the database connected by the active MySQL profile. Confirm the target before submitting.</p>
+    <label class="checkbox-field">
+      <input name="confirm_load" type="checkbox" value="1" {% if form.confirm_load %}checked{% endif %}>
+      I confirm this Load Dump target and source.
+    </label>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="form-actions mysqlsh-form-actions">
+    <button class="button secondary" type="submit" name="mysqlsh_action" value="preview">Preview</button>
+    {% if confirmation and mysqlsh_status.available %}
+    <button class="button primary" type="submit" name="mysqlsh_action" value="submit">Submit Job</button>
+    {% endif %}
+  </div>
+</form>
+{% endif %}
+
+{% if preview %}
+<section class="panel">
+  <h3>Redacted MySQL Shell Request</h3>
+  <pre class="sql-workspace-editor">{{ preview }}</pre>
+</section>
+{% endif %}
+{% endblock %}

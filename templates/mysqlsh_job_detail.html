@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+{% set status_class = 'loaded' if job.status == 'succeeded' else ('progress' if job.status in ['submitted', 'running', 'finalizing', 'cancel_requested'] else ('error' if job.status == 'failed' else 'neutral')) %}
+<section class="panel">
+  <div class="panel-header">
+    <div><h2>MySQL Shell Job</h2><p class="helper-text"><code>{{ job.job_id }}</code></p></div>
+    <a class="button secondary" href="{{ url_for('mysqlsh_jobs_page') }}">All Jobs</a>
+  </div>
+  <dl class="detail-list oci-overview-row">
+    <div><dt>Status</dt><dd><span class="hw-load-badge hw-load-{{ status_class }}">{{ job.status }}</span></dd></div>
+    <div><dt>Progress</dt><dd>{% if job.progress_percent is not none %}{{ job.progress_percent }}%{% else %}—{% endif %}</dd></div>
+    <div><dt>Operation</dt><dd>{{ job.operation_label }}</dd></div>
+    <div><dt>MySQL Profile</dt><dd>{{ job.owner_profile_name }}</dd></div>
+    <div><dt>Object Storage Profile</dt><dd>{{ job.storage_profile_name or "-" }}</dd></div>
+    <div><dt>Region</dt><dd>{{ job.storage_region or "-" }}</dd></div>
+    <div><dt>Namespace</dt><dd>{{ job.storage_namespace or "-" }}</dd></div>
+    <div><dt>Bucket</dt><dd>{{ job.storage_bucket_name or "-" }}</dd></div>
+    <div><dt>Prefix</dt><dd>{{ job.storage_prefix or "-" }}</dd></div>
+    <div><dt>Submitted</dt><dd>{{ job.submitted_at }}</dd></div>
+    <div><dt>Last activity</dt><dd>{{ job.progress_updated_at or "-" }}</dd></div>
+    <div><dt>PAR Expires</dt><dd>{{ job.par_expires_at or "-" }}</dd></div>
+    <div><dt>Cleanup</dt><dd>{{ job.cleanup_status or "pending" }}</dd></div>
+    <div><dt>Error</dt><dd>{{ job.error or "-" }}</dd></div>
+  </dl>
+  {% if job.cleanup_error %}<p class="error-text">{{ job.cleanup_error }}</p>{% endif %}
+  <div class="mysqlsh-live-status" aria-live="polite">
+    <strong>Live activity</strong>
+    <p>{{ job.last_progress or "Waiting for MySQL Shell output." }}</p>
+    {% if job.status in ['submitted', 'running', 'finalizing', 'cancel_requested'] %}<p class="helper-text">This page refreshes every 5 seconds while the job is active.</p>{% endif %}
+  </div>
+  {% if par_retained_active %}
+  <p class="helper-text">The scoped PAR remains active until {{ job.par_expires_at }}. Local artifacts can be cleaned up after expiry.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('mysqlsh_job_action', job_id=job.job_id) }}" class="form-actions mysqlsh-form-actions">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    {% if job.status not in ['succeeded', 'failed', 'canceled'] %}
+    <button class="button secondary" type="submit" name="job_action" value="cancel" data-confirm-message="Cancel this MySQL Shell job?">Cancel</button>
+    {% elif not job.cleaned_at and not par_retained_active %}
+    <button class="button secondary danger" type="submit" name="job_action" value="cleanup" data-confirm-message="Complete PAR handling and delete local job files?">{% if job.par_revoked_at or job.par_expired_at %}Clean Up Local Files{% else %}Revoke PAR and Clean Up{% endif %}</button>
+    {% endif %}
+  </form>
+</section>
+
+<section class="panel"><h3>Redacted Request Preview</h3><pre class="sql-workspace-editor">{{ job.preview }}</pre></section>
+<section class="panel">
+  <h3>Standard Output</h3><pre class="sql-workspace-editor">{{ stdout or "-" }}</pre>
+  <h3>Standard Error</h3><pre class="sql-workspace-editor">{{ stderr or "-" }}</pre>
+</section>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+{% if job.status in ['submitted', 'running', 'finalizing', 'cancel_requested'] %}
+<script nonce="{{ csp_nonce }}">window.setTimeout(() => window.location.reload(), 5000);</script>
+{% endif %}
+{% endblock %}

@@ -704,12 +704,64 @@ dialog.management-dialog::backdrop {
 
 .db-admin-edit-table {
   table-layout: fixed;
+  min-width: 1180px;
 }
 
 .db-admin-edit-table th,
 .db-admin-edit-table td {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.db-admin-primary-key-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(320px, 1.3fr);
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.db-admin-primary-key-summary strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.db-admin-primary-key-summary .helper-text {
+  margin: 0;
+}
+
+.db-admin-primary-key-cell {
+  border-left: 3px solid transparent;
+}
+
+.db-admin-primary-key-cell > * + * {
+  margin-top: 8px;
+}
+
+.db-admin-primary-key-cell.is-selected {
+  border-left-color: var(--accent);
+  background: rgba(169, 58, 26, 0.06);
+}
+
+.db-admin-primary-key-cell label:not(.checkbox-field) {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.db-admin-primary-key-cell input[type="number"] {
+  max-width: 84px;
+}
+
+.text-link {
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .db-admin-event-list-form {
@@ -2251,6 +2303,25 @@ h4 {
   overflow-wrap: anywhere;
 }
 
+.mysqlsh-live-status {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(31, 93, 149, 0.08);
+}
+
+.mysqlsh-live-status p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.mysqlsh-progress-value {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2489,6 +2560,136 @@ code {
   justify-content: flex-end;
 }
 
+.mysqlsh-form-actions {
+  justify-content: flex-end;
+}
+
+.mysqlsh-option-profile-form > .panel-header {
+  margin-bottom: 16px;
+}
+
+.mysqlsh-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+  padding-top: 14px;
+}
+
+.mysqlsh-control-section-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.mysqlsh-control-section-grid .form-section {
+  min-width: 0;
+  height: 100%;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.mysqlsh-control-section-grid .mysqlsh-option-grid,
+.mysqlsh-transform-grid {
+  grid-template-columns: 1fr;
+}
+
+.mysqlsh-transform-grid {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.mysqlsh-option-check span {
+  display: flex;
+  flex-direction: column;
+}
+
+.mysqlsh-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.mysqlsh-filter-picker {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.mysqlsh-filter-heading,
+.mysqlsh-filter-lists li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mysqlsh-filter-add-row {
+  margin-top: 12px;
+}
+
+.mysqlsh-filter-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.mysqlsh-filter-lists > div {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.mysqlsh-filter-lists ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.mysqlsh-filter-lists li {
+  overflow-wrap: anywhere;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.mysqlsh-par-setup {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(33, 29, 24, 0.16);
+  border-radius: 14px;
+}
+
+.mysqlsh-par-setup legend {
+  padding: 0 8px;
+  font-weight: 700;
+}
+
+.mysqlsh-par-setup > .helper-text,
+.mysqlsh-par-policy-status {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.mysqlsh-par-setup label:not(.checkbox-field) {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.mysqlsh-par-setup label.is-disabled {
+  color: var(--muted);
+}
+
 .stacked-actions {
   align-items: stretch;
 }
@@ -2523,7 +2724,21 @@ code {
   }
 
   .oci-overview-row,
-  .oci-profile-detail-list {
+  .oci-profile-detail-list,
+  .mysqlsh-par-setup {
+    grid-template-columns: 1fr;
+  }
+
+  .mysqlsh-filter-grid,
+  .mysqlsh-filter-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .mysqlsh-control-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .db-admin-primary-key-summary {
     grid-template-columns: 1fr;
   }
 
@@ -2584,5 +2799,11 @@ code {
   .auth-panel,
   .topbar {
     border-radius: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .mysqlsh-control-section-grid {
+    grid-template-columns: 1fr;
   }
 }

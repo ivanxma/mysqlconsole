@@ -1,9 +1,10 @@
 import os
 import secrets
+from functools import wraps
 
-from flask import flash, session
+from flask import abort, flash, session
 
-from modules.core_util import chmod_private_file
+from modules.runtime_util import atomic_write_private_text, ensure_private_regular_file
 from modules.session_util import SessionManager
 
 
@@ -23,12 +24,12 @@ def load_flask_secret_key(secret_key_file):
         return configured_secret
     try:
         if secret_key_file.exists():
+            ensure_private_regular_file(secret_key_file)
             stored_secret = secret_key_file.read_text(encoding="utf-8").strip()
             if stored_secret:
                 return stored_secret
         generated_secret = secrets.token_urlsafe(48)
-        secret_key_file.write_text(generated_secret + "\n", encoding="utf-8")
-        chmod_private_file(secret_key_file)
+        atomic_write_private_text(secret_key_file, generated_secret + "\n")
         return generated_secret
     except OSError:
         return secrets.token_urlsafe(48)
@@ -60,10 +61,12 @@ class DbConsoleSessionService:
         profile_service,
         local_admin_profile_name,
         nav_groups,
+        mysqlsh_authorizer=None,
     ):
         self.profile_service = profile_service
         self.local_admin_profile_name = local_admin_profile_name
         self.nav_groups = nav_groups
+        self.mysqlsh_authorizer = mysqlsh_authorizer or (lambda: False)
         self.manager = SessionManager(
             default_profile=default_profile,
             normalize_profile=normalize_profile,
@@ -85,8 +88,14 @@ class DbConsoleSessionService:
             local_admin_password_change_required=self.local_admin_password_change_required,
         )
 
+    def configure_mysqlsh_authorizer(self, authorizer):
+        self.mysqlsh_authorizer = authorizer or (lambda: False)
+
     def csrf_token(self):
         return self.manager.ensure_csrf_token()
+
+    def csp_nonce(self):
+        return self.manager.csp_nonce()
 
     def ensure_scope(self):
         return self.manager.ensure_scope()
@@ -109,8 +118,20 @@ class DbConsoleSessionService:
     def cleanup_expired_server_sessions(self):
         self.manager.cleanup_expired_server_sessions()
 
+    def start_cleanup_worker(self, interval_seconds=60):
+        self.manager.start_cleanup_worker(interval_seconds)
+
+    def stop_cleanup_worker(self):
+        self.manager.stop_cleanup_worker()
+
     def get_server_session_entry(self):
         return self.manager.get_server_session_entry()
+
+    def set_server_session_state(self, key, value):
+        return self.manager.set_server_session_state(key, value)
+
+    def pop_server_session_state(self, key):
+        return self.manager.pop_server_session_state(key)
 
     def set_session_credentials(self, username, password):
         self.manager.set_session_credentials(username, password)
@@ -147,6 +168,15 @@ class DbConsoleSessionService:
             and bool(str(profile.get("socket_path") or "").strip())
         )
 
+    def can_access_mysqlsh(self):
+        if self.is_local_admin_profile_session():
+            return True
+        try:
+            return bool(self.mysqlsh_authorizer())
+        except Exception:
+            # A privilege lookup failure must not grant access.
+            return False
+
     def local_admin_password_change_required(self):
         profile = self.get_session_profile()
         return bool(self.is_local_admin_profile_session() and profile.get("require_password_change"))
@@ -171,11 +201,18 @@ class DbConsoleSessionService:
     def nav_groups_for_current_session(self):
         if self.is_local_admin_profile_session():
             return self.nav_groups
+        can_access_mysqlsh = self.can_access_mysqlsh()
         filtered_groups = []
         for group in self.nav_groups:
             filtered_items = []
             for item in group["items"]:
-                if item["endpoint"] in {"profile_page", "update_dbconsole_page"}:
+                if item["endpoint"] in {
+                    "profile_page",
+                    "setup_object_storage_page",
+                    "update_dbconsole_page",
+                }:
+                    continue
+                if not can_access_mysqlsh and str(item["endpoint"]).startswith("mysqlsh_"):
                     continue
                 filtered_items.append(item)
             filtered_groups.append({**group, "items": filtered_items})
@@ -189,3 +226,12 @@ class DbConsoleSessionService:
             flash(f"Use `{self.local_admin_profile_name}` for this action.", "error")
             return False
         return True
+
+    def local_admin_required(self, view):
+        @wraps(view)
+        def wrapped_view(*args, **kwargs):
+            if not self.is_local_admin_profile_session():
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped_view

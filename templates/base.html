@@ -130,13 +130,19 @@
         </div>
         <div class="form-actions">
           <button class="button secondary" type="button" data-destructive-action-cancel>Cancel</button>
-          <button class="button danger" type="button" data-destructive-action-confirm>Continue</button>
+          <button class="button primary" type="button" data-destructive-action-confirm>Continue</button>
         </div>
       </div>
     </dialog>
 
     {% if logged_in %}
-    <script>
+    <script nonce="{{ csp_nonce }}">
+      (() => {
+        document.addEventListener("change", (event) => {
+          const control = event.target.closest("[data-submit-on-change]");
+          if (control?.form) control.form.requestSubmit();
+        });
+      })();
       (() => {
         const dialog = document.getElementById("destructive-action-dialog");
         const message = document.getElementById("destructive-action-message");
