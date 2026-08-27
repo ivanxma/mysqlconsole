@@ -11,7 +11,8 @@ __pycache__/
 .cache/
 .coverage
 htmlcov/
-html_doc/
+html_doc/*
+!html_doc/version_history.html
 
 # OS/editor noise
 .DS_Store

@@ -4,7 +4,7 @@
 
 Current version: `1.1.0`
 
-Version history: `version_history.md`.
+Version history: [`html_doc/version_history.html`](html_doc/version_history.html).
 
 It provides:
 
