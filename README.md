@@ -4,7 +4,7 @@
 
 Current version: `1.1.0`
 
-Version history: [`html_doc/version_history.html`](html_doc/version_history.html).
+Version history: [version_history.md](version_history.md). A rendered companion is available at [`html_doc/version_history.html`](html_doc/version_history.html).
 
 It provides:
 

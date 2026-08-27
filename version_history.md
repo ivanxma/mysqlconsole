@@ -1,6 +1,18 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.0.4d`.
+Version summary from `1.0.2a` to `1.1.0`.
+
+## 1.1.0 Summary
+
+Version `1.1.0` adds a hardened MySQL Shell dump/load workflow using OCI Compute Instance Principal authentication.
+
+- Added MySQL Shell Dump/Load, reusable Option Profiles, PAR Setup, validation, typed dump/load controls, include/exclude object selectors, and durable job history.
+- Uses Instance Principal exclusively for Object Storage. Legacy OCI API-key configuration aliases are rejected, and DBConsole does not consume OCI private keys or global OCI configuration.
+- Opens the complete MySQL Shell menu only to `local-admin-profile` or authenticated MySQL accounts with `SYSTEM_USER`; all other MySQL Shell routes fail closed.
+- Added `Delete after used` PAR cleanup, private runtime/state directories, redacted job logs, Gunicorn production serving, and systemd hardening.
+- Added live job percentage progress from redacted MySQL Shell output; completed jobs show `100%`.
+- Added dump-only Lakehouse exclusion: Instance/Schema Dump resolve visible `ENGINE=LAKEHOUSE` tables and construct qualified MySQL Shell `excludeTables` options at preview and submission time.
+- Improved DB Admin primary-key workflows, status/variable handling, UI consistency, browser security headers, update safety, and resource bounds.
 
 ## 1.0.4d Summary
 
