@@ -124,6 +124,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 DBCONSOLE_STATE_DIRECTORY = get_state_directory()
 PROFILE_STORE = DBCONSOLE_STATE_DIRECTORY / "profiles.json"
 OBJECT_STORAGE_STORE = DBCONSOLE_STATE_DIRECTORY / "object_storage.json"
+OCI_CONFIG_DIRECTORY = DBCONSOLE_STATE_DIRECTORY / "oci-config"
 MYSQLSH_OPTION_PROFILE_STORE = DBCONSOLE_STATE_DIRECTORY / "mysqlsh_option_profiles.json"
 MYSQLSH_PAR_STORE = DBCONSOLE_STATE_DIRECTORY / "mysqlsh_par_registry.json"
 APP_VERSION_FILE = ROOT_DIR / "appver.json"
@@ -304,6 +305,7 @@ profile_service = ProfileConfigService(
 object_storage_service = ObjectStorageConfigService(
     object_storage_store_path=OBJECT_STORAGE_STORE,
     default_region=DBCONSOLE_OBJECT_STORAGE_REGION,
+    oci_config_dir=OCI_CONFIG_DIRECTORY,
 )
 session_service = DbConsoleSessionService(
     default_profile=DEFAULT_PROFILE,
@@ -656,6 +658,7 @@ register_admin_routes(
         "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
         "deployment_region_default": DBCONSOLE_OBJECT_STORAGE_REGION,
         "test_instance_principal_access": test_instance_principal_access,
+        "save_uploaded_oci_config": object_storage_service.save_uploaded_oci_config,
         "object_storage_authentication_label": object_storage_authentication_label,
         "load_object_storage_config": load_object_storage_config,
         "select_object_storage_config": select_object_storage_config,

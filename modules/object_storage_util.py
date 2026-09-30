@@ -17,6 +17,7 @@ from modules.oci_util import (
 
 DEFAULT_OBJECT_STORAGE_PROFILE = {
     "profile_name": "DEFAULT",
+    "oci_config_profile": "DEFAULT",
     "region": "",
     "namespace": "",
     "bucket_name": "",
@@ -25,10 +26,16 @@ DEFAULT_OBJECT_STORAGE_PROFILE = {
 }
 LEGACY_OBJECT_STORAGE_KEYS = {
     "config_profile",
-    "oci_config_profile",
     "oci_region",
     "oci_namespace",
 }
+
+
+def normalize_oci_config_profile(value):
+    profile = str(value or "DEFAULT").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", profile):
+        raise ValueError("OCI config profile must contain only letters, numbers, dots, underscores, or dashes.")
+    return profile
 
 
 def normalize_region(value):
@@ -87,6 +94,7 @@ def _normalize_object_storage_entry(payload, *, default_region=""):
         profile_name = DEFAULT_OBJECT_STORAGE_PROFILE["profile_name"]
     return {
         "profile_name": profile_name[:80],
+        "oci_config_profile": normalize_oci_config_profile(payload.get("oci_config_profile")),
         "region": normalize_region(payload.get("region") or default_region),
         "namespace": str(payload.get("namespace") or "").strip(),
         "bucket_name": str(payload.get("bucket_name") or "").strip(),

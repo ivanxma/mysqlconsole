@@ -71,9 +71,13 @@ def reset_instance_principal_signer():
         _INSTANCE_PRINCIPAL_SIGNER = None
 
 
-def _build_oci_config_object_storage_client(oci, region):
+def _build_oci_config_object_storage_client(oci, region, object_storage_config):
     config_file = str(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config") or "").strip()
-    config_profile = str(os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT") or "DEFAULT").strip()
+    config_profile = str(
+        (object_storage_config or {}).get("oci_config_profile")
+        or os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT")
+        or "DEFAULT"
+    ).strip()
     if not config_file:
         raise RuntimeError("OCI_CONFIG_FILE is required for OCI config Object Storage authentication.")
     try:
@@ -94,7 +98,7 @@ def build_object_storage_client(config):
     oci = _load_oci_sdk()
     auth_mode = object_storage_auth_mode()
     if auth_mode == "oci_config":
-        return _build_oci_config_object_storage_client(oci, region)
+        return _build_oci_config_object_storage_client(oci, region, config)
     try:
         return oci.object_storage.ObjectStorageClient(
             {"region": region},
@@ -104,7 +108,7 @@ def build_object_storage_client(config):
         if auth_mode != "instance_principal_then_oci_config":
             raise
         try:
-            return _build_oci_config_object_storage_client(oci, region)
+            return _build_oci_config_object_storage_client(oci, region, config)
         except Exception as config_error:
             raise RuntimeError(
                 "Unable to initialize Object Storage authentication with Instance Principal or the OCI config fallback. "

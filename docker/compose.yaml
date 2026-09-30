@@ -16,12 +16,11 @@ services:
       DBCONSOLE_DEPLOYMENT_MODE: docker
       DBCONSOLE_OBJECT_STORAGE_AUTH_MODE: instance_principal_then_oci_config
       DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock
-      OCI_CONFIG_FILE: /home/dbconsole/.oci/config
+      OCI_CONFIG_FILE: /var/lib/dbconsole/oci-config/config
       OCI_CONFIG_PROFILE: ${OCI_CONFIG_PROFILE:-DEFAULT}
     volumes:
       - dbconsole-state:/var/lib/dbconsole
       - dbconsole-mysql-socket:/var/run/mysqld
-      - ${OCI_CONFIG_DIR:-./oci}:/home/dbconsole/.oci:ro
     depends_on:
       mysql:
         condition: service_healthy

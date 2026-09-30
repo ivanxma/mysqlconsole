@@ -21,7 +21,6 @@ class ObjectStorageStoreTests(unittest.TestCase):
             "active_profile_name": "DEFAULT",
             "profiles": [
                 {
-                    "oci_config_profile": "DEFAULT",
                     "oci_region": "UK-LONDON-1",
                     "oci_namespace": "example-namespace",
                     "bucket_name": "lakehouse",
@@ -86,6 +85,20 @@ class ObjectStorageStoreTests(unittest.TestCase):
         self.assertEqual(profile["upload_validation_max_bytes"], 3072 * 1024 * 1024)
         with self.assertRaisesRegex(ValueError, "between 1 MiB"):
             object_storage_util.normalize_object_storage({"upload_validation_max_mib": "0"})
+
+    def test_object_storage_profile_keeps_a_non_secret_oci_config_profile(self):
+        profile = object_storage_util.normalize_object_storage(
+            {
+                "profile_name": "docker-target",
+                "oci_config_profile": "OBJECT_STORAGE",
+                "region": "uk-london-1",
+                "namespace": "example-ns",
+                "bucket_name": "lakehouse",
+            }
+        )
+        self.assertEqual(profile["oci_config_profile"], "OBJECT_STORAGE")
+        with self.assertRaisesRegex(ValueError, "OCI config profile"):
+            object_storage_util.normalize_object_storage({"oci_config_profile": "profile with spaces"})
 
     def test_folder_must_remain_inside_configured_prefix(self):
         target = {
@@ -160,11 +173,11 @@ class InstancePrincipalClientTests(unittest.TestCase):
             {
                 "DBCONSOLE_OBJECT_STORAGE_AUTH_MODE": "instance_principal_then_oci_config",
                 "OCI_CONFIG_FILE": "/home/dbconsole/.oci/config",
-                "OCI_CONFIG_PROFILE": "DOCKER",
+                "OCI_CONFIG_PROFILE": "DEFAULT",
             },
             clear=False,
         ), patch("modules.oci_util._load_oci_sdk", return_value=fake_sdk):
-            oci_util.build_object_storage_client({"region": "uk-london-1"})
+            oci_util.build_object_storage_client({"region": "uk-london-1", "oci_config_profile": "DOCKER"})
 
         self.assertEqual(config_calls, [("/home/dbconsole/.oci/config", "DOCKER")])
         self.assertEqual(client_calls, [({"user": "ocid1.user.example", "region": "uk-london-1"}, {})])
@@ -293,14 +306,16 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("DBCONSOLE_OBJECT_STORAGE_REGION", init)
         self.assertIn('"DBCONSOLE_OBJECT_STORAGE_REGION"', updater)
 
-    def test_templates_compile_without_api_key_fields(self):
+    def test_templates_compile_with_private_oci_upload_fields(self):
         root = Path(__file__).resolve().parents[1]
         environment = Environment(loader=FileSystemLoader(root / "templates"))
         for template_name in ("setup_object_storage.html", "heatwave_external_lakehouse.html"):
             environment.get_template(template_name)
         setup_template = (root / "templates" / "setup_object_storage.html").read_text(encoding="utf-8")
-        forbidden = ("oci_fingerprint", "oci_private_key", "oci_config_file", "oci_user", "oci_tenancy")
+        forbidden = ("oci_fingerprint", "oci_user", "oci_tenancy")
         self.assertFalse([value for value in forbidden if value in setup_template])
+        self.assertIn('name="oci_config_file"', setup_template)
+        self.assertIn('name="oci_private_key_file"', setup_template)
 
 
 class ObjectStorageRouteTests(unittest.TestCase):
@@ -356,6 +371,7 @@ class ObjectStorageRouteTests(unittest.TestCase):
             set(persisted["profiles"][0]),
             {
                 "profile_name",
+                "oci_config_profile",
                 "region",
                 "namespace",
                 "bucket_name",

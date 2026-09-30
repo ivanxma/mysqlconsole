@@ -88,7 +88,7 @@
   <p class="helper-text">Deployment region default: <code>{{ deployment_region_default }}</code>. Saved profile regions remain authoritative and may target another region.</p>
   {% endif %}
   <p class="helper-text">Object Storage profile settings never store OCI credentials. Authentication is supplied by the deployment.</p>
-  <form method="post" class="form-grid">
+  <form method="post" class="form-grid" enctype="multipart/form-data">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label>
       Profile Name *
@@ -105,6 +105,21 @@
     <label>
       Bucket Name *
       <input name="bucket_name" type="text" required value="{{ object_storage_config.bucket_name }}">
+    </label>
+    <label>
+      OCI Config Profile (Fallback) *
+      <input name="oci_config_profile" type="text" required pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,79}" value="{{ object_storage_config.oci_config_profile or 'DEFAULT' }}" placeholder="DEFAULT">
+      <span class="helper-text">Docker uses this profile from the read-only mounted OCI config only when Instance Principal is unavailable. The config file and private key are never uploaded or stored here.</span>
+    </label>
+    <label>
+      OCI Config File
+      <input name="oci_config_file" type="file" accept=".config,text/plain">
+      <span class="helper-text">Docker fallback only. Uploaded to the private DBConsole Docker state volume; never displayed.</span>
+    </label>
+    <label>
+      OCI Private Key
+      <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain">
+      <span class="helper-text">Upload together with the OCI config. DBConsole replaces its key_file path with its private state path.</span>
     </label>
     <label class="full-span">
       Bucket Prefix

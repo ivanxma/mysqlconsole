@@ -1,14 +1,21 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.10`.
+Version summary from `1.0.2a` to `1.1.11`.
+
+## 1.1.11 Summary
+
+Version `1.1.11` moves the Docker OCI config fallback into DBConsole's private state volume.
+
+- Admin > Setup Object Storage now accepts an OCI config file and private key upload, stores both mode `0600`, and rewrites `key_file` to the private Docker state path.
+- Each Object Storage profile now selects its non-secret OCI config profile for the fallback; Instance Principal remains the first authentication attempt.
 
 ## 1.1.10 Summary
 
 Version `1.1.10` adds Docker Object Storage authentication without changing DBConsole's database or Docker socket security model.
 
-- Object Storage operations try OCI Compute Instance Principal first, then use a read-only mounted OCI config directory only when Instance Principal is unavailable.
+- Object Storage operations try OCI Compute Instance Principal first, then use an OCI config fallback only when Instance Principal is unavailable.
 - The shared authentication path covers Object Storage folder browsing, uploads, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.
-- Docker documentation describes the container-compatible OCI config mount; credentials remain ignored by Git and excluded from the build context.
+- Docker documentation describes the private OCI config fallback; credentials remain ignored by Git and excluded from the build context.
 
 ## 1.1.9 Summary
 

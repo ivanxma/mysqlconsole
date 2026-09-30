@@ -50,17 +50,6 @@ It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack
 
 ## Object Storage authentication
 
-For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available (for example, when Docker runs on OCI Compute). If metadata authentication is unavailable, it falls back to a read-only OCI config directory mounted at `/home/dbconsole/.oci`.
+For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available. If metadata authentication is unavailable, it uses the OCI config fallback selected in **Admin > Setup Object Storage**. Upload the OCI config file and its private key together on that page; both are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository. DBConsole rewrites the uploaded config's `key_file` entry to its private state path.
 
-Create a container-compatible config directory on the Docker host, or use the ignored default `docker/oci/`. The config's `key_file` must use the container path `/home/dbconsole/.oci/<key-file-name>`:
-
-```ini
-[DEFAULT]
-user=ocid1.user.oc1..example
-fingerprint=aa:bb:cc:dd
-tenancy=ocid1.tenancy.oc1..example
-region=uk-london-1
-key_file=/home/dbconsole/.oci/oci_api_key.pem
-```
-
-Set `OCI_CONFIG_DIR` in ignored `docker/.env` to use another directory, and optionally set `OCI_CONFIG_PROFILE`. Keep the directory and key private on the Docker host; the Compose mount is read-only. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.
+Set **OCI Config Profile (Fallback)** to the named profile used for that Object Storage target. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.

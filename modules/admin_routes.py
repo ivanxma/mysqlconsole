@@ -142,6 +142,12 @@ def register_admin_routes(app, deps):
                     flash(f"Object Storage profile `{selected_profile}` deleted.", "success")
                 else:
                     config = deps["normalize_object_storage"](request.form.to_dict())
+                    if request.files.get("oci_config_file") or request.files.get("oci_private_key_file"):
+                        upload_result = deps["save_uploaded_oci_config"](
+                            request.files.get("oci_config_file"),
+                            request.files.get("oci_private_key_file"),
+                        )
+                        flash("OCI config and private key were saved in DBConsole private state.", "success")
                     if action == "test_instance_principal_access":
                         test_result = deps["test_instance_principal_access"](config)
                         flash(test_result["message"], "success" if test_result.get("ok") else "error")
