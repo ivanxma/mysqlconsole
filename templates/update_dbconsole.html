@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">Admin</p>
   <h2>Auto-Update</h2>
-  <p>Pull the latest repository changes, rerun <code>setup.sh</code>, and restart the configured DBConsole service.</p>
+  <p>{% if docker_deployment %}Update the Docker deployment from its host checkout.{% else %}Pull the latest repository changes, rerun <code>setup.sh</code>, and restart the configured DBConsole service.{% endif %}</p>
 </section>
 
 <section class="panel">
@@ -13,6 +13,7 @@
       <h3>Updater</h3>
       <span class="helper-text">The updater runs in the background. During restart this page keeps polling and waits up to 30 seconds for DBConsole to come back.</span>
     </div>
+    {% if not docker_deployment %}
     <div class="panel-actions">
       <form method="post">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -20,8 +21,14 @@
         <button class="button secondary" type="submit">Retrieve Repo Version</button>
       </form>
     </div>
+    {% endif %}
   </div>
 
+  {% if docker_deployment %}
+  <div class="flash flash-info">
+    Docker images cannot safely replace themselves from inside the DBConsole container. On the Docker host, from the repository checkout, run <code>{{ docker_update_command }}</code>. It pulls MySQL Innovation, rebuilds DBConsole, and recreates the stack while preserving its named volumes.
+  </div>
+  {% else %}
   <form method="post" class="update-bootstrap-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="update_action" value="start">
@@ -31,6 +38,7 @@
       <button class="button primary" id="update-dbconsole-button" type="submit" {% if not update_status.can_start %}disabled{% endif %}>Auto-Update</button>
     </div>
   </form>
+  {% endif %}
 
   <dl class="version-status-grid">
     <div>
@@ -97,10 +105,14 @@
     <article class="panel update-status-card">
       <h3>Notes</h3>
       <ul class="plain-list">
+        {% if docker_deployment %}
+        <li>Run <code>{{ docker_update_command }}</code> on the Docker host; Auto-Update is intentionally unavailable inside the container.</li>
+        {% else %}
         <li>The repository update uses the current checked-out branch and requires a clean git worktree.</li>
         <li><code>setup.sh</code> reruns dependency installation, upgrades MySQL Shell Innovation, and refreshes platform-specific setup.</li>
         <li>If passwordless <code>sudo</code> is unavailable from the running service, the updater still refreshes the repo, reinstalls Python packages, and self-restarts DBConsole, but Linux package, firewall, and systemd changes must be applied later from a shell with <code>./setup.sh</code>.</li>
         <li>If the configured service restarts, the page can briefly lose contact and then reconnect automatically.</li>
+        {% endif %}
       </ul>
     </article>
   </div>

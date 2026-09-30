@@ -13,6 +13,7 @@ class DockerSetupContractTests(unittest.TestCase):
         self.assertIn("context: ..", compose)
         self.assertIn("dockerfile: docker/Dockerfile", compose)
         self.assertIn("DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock", compose)
+        self.assertIn("DBCONSOLE_DEPLOYMENT_MODE: docker", compose)
         self.assertEqual(compose.count("- dbconsole-mysql-socket:/var/run/mysqld"), 2)
         self.assertIn("dbconsole-mysql-socket:", compose)
         self.assertIn('command: ["mysqld", "--skip-networking", "--skip-mysqlx"]', compose)

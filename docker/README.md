@@ -38,6 +38,16 @@ Use `docker compose` when the Compose plugin is available (the normal Docker Des
 
 `down` stops containers but preserves both named volumes. Do not run `docker-compose down --volumes` unless you intend to permanently remove the local DBConsole state and MySQL data.
 
+## Update
+
+The in-application **Admin > Auto-Update** control is intentionally unavailable in Docker because a container cannot safely rebuild or replace its own image. From the repository checkout on the Docker host, run the same idempotent setup command:
+
+```bash
+./docker/setup_docker.sh
+```
+
+It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack without removing its named volumes.
+
 ## Object Storage limitation
 
 The local Docker installation does not configure OCI credentials. DBConsole uses OCI Compute Instance Principal authentication only, so use the host-based OCI Compute installation when Object Storage features are required.

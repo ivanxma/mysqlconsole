@@ -38,6 +38,8 @@ def register_update_routes(app, deps):
             update_status=deps["public_dbconsole_update_status"](raw_update_status),
             update_poll_token=str(raw_update_status.get("poll_token") or ""),
             local_admin_profile_name=deps["local_admin_profile_name"],
+            docker_deployment=deps.get("is_docker_deployment", lambda: False)(),
+            docker_update_command=deps.get("docker_update_command", lambda: "./docker/setup_docker.sh")(),
             app_version_info=session.get(deps["version_check_session_key"])
             or {
                 "local_version": deps["get_local_app_version"](),

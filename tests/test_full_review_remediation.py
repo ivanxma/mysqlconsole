@@ -200,6 +200,24 @@ class ResourceAndUpdateGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "blocked"):
                 service.start_job()
 
+    def test_docker_auto_update_requires_the_host_setup_command(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = DbConsoleUpdateService(
+                repo_dir=root,
+                app_version_file=root / "appver.json",
+                worker_script=root / "worker.py",
+                status_file=root / "status.json",
+                log_file=root / "update.log",
+                process_started_at=update_util.parse_iso_datetime("2026-08-27T00:00:00+00:00"),
+                version_check_session_key="version",
+                is_local_admin_profile_session=lambda: True,
+                active_job_count=lambda: 0,
+                deployment_mode="docker",
+            )
+            with self.assertRaisesRegex(ValueError, r"Docker deployments.*\./docker/setup_docker\.sh"):
+                service.start_job()
+
     def test_repository_version_url_requires_https_and_approved_host(self):
         with self.assertRaisesRegex(ValueError, "HTTPS"):
             update_util.validate_repository_version_url("http://github.com/example/appver.json")

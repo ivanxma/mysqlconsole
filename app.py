@@ -335,6 +335,7 @@ update_service = DbConsoleUpdateService(
     is_local_admin_profile_session=session_service.is_local_admin_profile_session,
     active_job_count=active_job_count,
     max_log_lines=DBCONSOLE_UPDATE_MAX_LOG_LINES,
+    deployment_mode=os.environ.get("DBCONSOLE_DEPLOYMENT_MODE", ""),
 )
 
 try:
@@ -684,6 +685,8 @@ register_update_routes(
         "get_session_profile": get_session_profile,
         "get_local_app_version": get_local_app_version,
         "infer_app_version_url": infer_app_version_url,
+        "is_docker_deployment": update_service.is_docker_deployment,
+        "docker_update_command": update_service.docker_update_command,
     },
 )
 

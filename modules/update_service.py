@@ -21,6 +21,7 @@ class DbConsoleUpdateService:
         is_local_admin_profile_session,
         active_job_count,
         max_log_lines=400,
+        deployment_mode=None,
     ):
         self.repo_dir = repo_dir
         self.app_version_file = app_version_file
@@ -32,6 +33,16 @@ class DbConsoleUpdateService:
         self.is_local_admin_profile_session = is_local_admin_profile_session
         self.active_job_count = active_job_count
         self.max_log_lines = max_log_lines
+        self.deployment_mode = str(
+            deployment_mode if deployment_mode is not None else os.environ.get("DBCONSOLE_DEPLOYMENT_MODE", "")
+        ).strip().lower()
+
+    def is_docker_deployment(self):
+        return self.deployment_mode == "docker"
+
+    @staticmethod
+    def docker_update_command():
+        return "./docker/setup_docker.sh"
 
     def public_status(self, status):
         return update_util.public_update_status(status)
@@ -48,6 +59,11 @@ class DbConsoleUpdateService:
         )
 
     def start_job(self):
+        if self.is_docker_deployment():
+            raise ValueError(
+                "Docker deployments are updated from the host. "
+                f"Run {self.docker_update_command()} in the repository checkout."
+            )
         active_count = self.active_job_count()
         if active_count:
             raise ValueError(

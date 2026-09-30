@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.8`.
+Version summary from `1.0.2a` to `1.1.9`.
+
+## 1.1.9 Summary
+
+Version `1.1.9` makes the Auto-Update experience safe and actionable for Docker installations.
+
+- Docker deployments no longer attempt to run host `setup.sh` from the Debian application image, avoiding the unsupported-Debian failure.
+- The Docker Auto-Update page directs administrators to run `./docker/setup_docker.sh` on the host checkout; the command safely rebuilds and recreates the stack while retaining named volumes.
 
 ## 1.1.8 Summary
 

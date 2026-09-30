@@ -13,6 +13,7 @@ services:
       DBCONSOLE_STATE_DIR: /var/lib/dbconsole
       DBCONSOLE_LISTENER_SCHEME: http
       DBCONSOLE_SESSION_COOKIE_SECURE: "0"
+      DBCONSOLE_DEPLOYMENT_MODE: docker
       DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock
     volumes:
       - dbconsole-state:/var/lib/dbconsole
