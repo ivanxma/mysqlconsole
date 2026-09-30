@@ -38,7 +38,10 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
     # shellcheck disable=SC1091
     . /etc/os-release
     case "$(printf '%s' "${ID:-unknown}" | tr '[:upper:]' '[:lower:]'):${VERSION_ID%%.*}" in
-      ol:8|oraclelinux:8) printf '%s\n' "ol8" ;;
+      ol:8|oraclelinux:8)
+        bootstrap_print "Oracle Linux 8 is no longer supported. Use Oracle Linux 9 or Ubuntu."
+        return 1
+        ;;
       ol:9|oraclelinux:9) printf '%s\n' "ol9" ;;
       ubuntu:*) printf '%s\n' "ubuntu" ;;
       *)
@@ -61,7 +64,7 @@ if [ -z "${BASH_VERSION:-}" ] || [ -z "${BASH_SOURCE:-}" ]; then
         bootstrap_run_as_root apt-get update
         bootstrap_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y git
         ;;
-      ol8|ol9)
+      ol9)
         if bootstrap_has_command dnf; then
           bootstrap_run_as_root dnf install -y git
         elif bootstrap_has_command yum; then
@@ -219,7 +222,7 @@ Usage:
   curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/setup.sh | sh -s -- [args]
 
 Arguments:
-  os_family    ol8 | ol9 | ubuntu | macos
+  os_family    ol9 | ubuntu | macos
   deploy_mode  http | https | both | none
 
 Environment overrides:
@@ -483,12 +486,15 @@ to_lower() {
 
 normalize_os_family() {
   case "$(to_lower "$1")" in
-    ol8|oraclelinux8|oracle-linux-8) echo "ol8" ;;
+    ol8|oraclelinux8|oracle-linux-8)
+      echo "Oracle Linux 8 is no longer supported. Use ol9, ubuntu, or macos." >&2
+      return 1
+      ;;
     ol9|oraclelinux9|oracle-linux-9) echo "ol9" ;;
     ubuntu) echo "ubuntu" ;;
     macos|mac|darwin|osx) echo "macos" ;;
     *)
-      echo "Unsupported OS family '$1'. Use one of: ol8, ol9, ubuntu, macos." >&2
+      echo "Unsupported OS family '$1'. Use one of: ol9, ubuntu, macos." >&2
       return 1
       ;;
   esac
@@ -501,18 +507,21 @@ detect_os_family() {
   fi
 
   if [[ ! -r /etc/os-release ]]; then
-    echo "Unable to detect the operating system. Pass one of: ol8, ol9, ubuntu, macos." >&2
+    echo "Unable to detect the operating system. Pass one of: ol9, ubuntu, macos." >&2
     return 1
   fi
 
   # shellcheck disable=SC1091
   source /etc/os-release
   case "$(to_lower "${ID:-unknown}"):${VERSION_ID%%.*}" in
-    ol:8|oraclelinux:8) echo "ol8" ;;
+    ol:8|oraclelinux:8)
+      echo "Oracle Linux 8 is no longer supported. Use Oracle Linux 9 or Ubuntu." >&2
+      return 1
+      ;;
     ol:9|oraclelinux:9) echo "ol9" ;;
     ubuntu:*) echo "ubuntu" ;;
     *)
-      echo "Unsupported operating system: ${ID:-unknown} ${VERSION_ID:-unknown}. Pass one of: ol8, ol9, ubuntu, macos." >&2
+      echo "Unsupported operating system: ${ID:-unknown} ${VERSION_ID:-unknown}. Pass one of: ol9, ubuntu, macos." >&2
       return 1
       ;;
   esac
@@ -3461,7 +3470,7 @@ main() {
   if [[ -z "$os_family" ]]; then
     os_family="$(detect_os_family)"
     if is_interactive_terminal; then
-      os_family="$(prompt_for_normalized_value "OS family" "$os_family" normalize_os_family "Enter one of: ol8, ol9, ubuntu, macos.")"
+      os_family="$(prompt_for_normalized_value "OS family" "$os_family" normalize_os_family "Enter one of: ol9, ubuntu, macos.")"
     fi
   else
     os_family="$(normalize_os_family "$os_family")"

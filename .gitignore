@@ -42,7 +42,7 @@ oci_private_keys/
 # Credentials, keys, certificates, and security-sensitive local files
 .env
 .env.*
-!.env.example
+!docker/.env.example
 *.pem
 *.key
 *.crt

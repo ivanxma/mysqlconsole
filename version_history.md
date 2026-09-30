@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.4`.
+Version summary from `1.0.2a` to `1.1.5`.
+
+## 1.1.5 Summary
+
+Version `1.1.5` reorganizes deployment assets and hardens the local Docker deployment.
+
+- Groups Docker deployment files and their guide under `docker/`; the Docker setup script migrates the local password file to `docker/.env` and verifies the rebuilt socket-backed profile.
+- Adds dedicated `OL9/` and `ubuntu/` deployment folders with README, setup, and OCI initialization entry points; Oracle Linux 8 is no longer supported.
+- Shares the MySQL Unix socket through a private Docker volume and reconciles persisted `local-admin-profile` state to socket-only access on every Docker startup.
 
 ## 1.1.4 Summary
 

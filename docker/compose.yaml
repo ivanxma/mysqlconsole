@@ -1,0 +1,44 @@
+name: dbconsole
+
+services:
+  dbconsole:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: dbconsole:local
+    ports:
+      - "8080:8080"
+    environment:
+      DBCONSOLE_RUNTIME_DIR: /run/dbconsole
+      DBCONSOLE_STATE_DIR: /var/lib/dbconsole
+      DBCONSOLE_LISTENER_SCHEME: http
+      DBCONSOLE_SESSION_COOKIE_SECURE: "0"
+      DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock
+    volumes:
+      - dbconsole-state:/var/lib/dbconsole
+      - dbconsole-mysql-socket:/var/run/mysqld
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:innovation
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DBCONSOLE_LOCAL_ADMIN_PASSWORD:?Set DBCONSOLE_LOCAL_ADMIN_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3307:3306"
+    volumes:
+      - dbconsole-mysql:/var/lib/mysql
+      - dbconsole-mysql-socket:/var/run/mysqld
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  dbconsole-state:
+  dbconsole-mysql:
+  dbconsole-mysql-socket:
