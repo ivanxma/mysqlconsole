@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% set interactive_report_endpoints = ('monitoring_performance_page', 'monitoring_ml_page', 'monitoring_load_recovery_page') %}
 <section class="page-header">
   <p class="eyebrow">Monitoring</p>
   <h2>{{ report_title }}</h2>
@@ -33,7 +34,7 @@
         </label>
       </form>
       {% endif %}
-      {% if current_endpoint != 'monitoring_performance_page' %}
+      {% if current_endpoint not in interactive_report_endpoints %}
       <a
         class="button primary"
         href="{{ url_for(download_endpoint, current_ml_connection_only='1' if current_ml_connection_only|default(false) else '') }}"
@@ -42,15 +43,14 @@
     </div>
   </div>
   <div
-    class="table-wrap{% if current_endpoint == 'monitoring_performance_page' %} sql-workspace-result-wrap{% endif %}"
-    {% if current_endpoint == 'monitoring_performance_page' %}
-    data-table-layout-id="monitoring-performance-query"
-    data-table-download="false"
+    class="table-wrap{% if current_endpoint in interactive_report_endpoints %} sql-workspace-result-wrap{% endif %}"
+    {% if current_endpoint in interactive_report_endpoints %}
+    data-table-layout-id="{{ current_endpoint }}"
     data-table-reorder="true"
     data-table-cell-dialog="true"
     {% endif %}
   >
-    <table{% if current_endpoint == 'monitoring_performance_page' %} class="sql-workspace-result-table data-grid-constant-rows"{% endif %}>
+    <table{% if current_endpoint in interactive_report_endpoints %} class="sql-workspace-result-table data-grid-constant-rows"{% endif %}>
       <thead>
         <tr>
           {% for column in report.columns %}

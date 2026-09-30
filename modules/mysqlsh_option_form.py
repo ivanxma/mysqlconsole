@@ -277,6 +277,23 @@ def fetch_lakehouse_table_exclusions(mysql_connection, schema_names=None):
     return exclusions
 
 
+def fetch_schema_catalog(mysql_connection):
+    """Return application schemas that may be selected for a Schema Dump."""
+    sql = (
+        "SELECT schema_name AS value, schema_name AS label FROM information_schema.schemata "
+        "WHERE schema_name NOT IN ('information_schema','mysql','performance_schema','sys') "
+        "AND schema_name NOT LIKE 'mysql\\_%' ORDER BY schema_name"
+    )
+    with mysql_connection(connect_timeout=5) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [])
+            rows = cursor.fetchall() or []
+    return [
+        {"value": _string(row.get("value")), "label": _string(row.get("label"))}
+        for row in rows if _string(row.get("value"))
+    ]
+
+
 def fetch_filter_catalog(mysql_connection):
     catalog = {item: [] for item in FILTER_TYPES}
     catalog["errors"] = {}

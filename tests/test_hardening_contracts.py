@@ -85,6 +85,12 @@ class HardeningContractTests(unittest.TestCase):
         self.assertIn('echo "mysqlx=0"', setup)
         self.assertIn('echo "local_infile=ON"', setup)
 
+    def test_existing_local_admin_profile_keeps_mysql_autostart_enabled(self):
+        setup = (ROOT_DIR / "setup.sh").read_text(encoding="utf-8")
+        self.assertIn("local_mysql_autostart_enabled()", setup)
+        self.assertIn("if local_mysql_autostart_enabled; then", setup)
+        self.assertIn('echo "LOCAL_MYSQL_AUTOSTART=1"', setup)
+
     def test_legacy_object_storage_alias_is_rejected(self):
         old_payload = {"oci_region": "uk-london-1"}
         with self.assertRaisesRegex(ValueError, "Legacy Object Storage settings"):

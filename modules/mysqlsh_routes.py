@@ -18,7 +18,7 @@ from modules.mysqlsh_jobs import (
     submit_job,
 )
 from modules.mysqlsh_option_profiles import get_option_profile, list_option_profiles
-from modules.mysqlsh_option_form import fetch_lakehouse_table_exclusions, merge_lakehouse_exclusions
+from modules.mysqlsh_option_form import fetch_lakehouse_table_exclusions, fetch_schema_catalog, merge_lakehouse_exclusions
 from modules.mysqlsh_par_store import get_par, list_pars
 from modules.mysqlsh_runner import build_operation_request, get_mysqlsh_status, operation_preview
 
@@ -109,10 +109,15 @@ def register_mysqlsh_routes(app, deps):
         requested_operation = str(request.values.get("operation") or "dump_schemas")
         operation = requested_operation if requested_operation in OPERATIONS else "dump_schemas"
         option_kind = "load" if operation == "load_dump" else "dump"
+        selected_schemas = []
+        for value in request.values.getlist("schemas"):
+            schema_name = str(value or "").strip()
+            if schema_name and schema_name not in selected_schemas:
+                selected_schemas.append(schema_name)
         form = {
             "operation": operation,
             "object_storage_profile": selected_name,
-            "schemas": str(request.values.get("schemas") or ""),
+            "schemas": selected_schemas,
             "threads": str(request.values.get("threads") or "4"),
             "consistent": bool(request.values.get("consistent")),
             "exclude_lakehouse_tables": bool(request.values.get("exclude_lakehouse_tables")),
@@ -130,6 +135,13 @@ def register_mysqlsh_routes(app, deps):
         except Exception as error:
             storage_configuration_error = str(error)
         option_profiles = list_option_profiles(deps["option_profile_store"], option_kind)
+        schema_options = []
+        schema_options_error = ""
+        if operation == "dump_schemas":
+            try:
+                schema_options = fetch_schema_catalog(deps["mysql_connection"])
+            except Exception as error:
+                schema_options_error = str(error)
         active_pars = (
             list_pars(deps["par_store"], target, option_kind, active_only=True)
             if not storage_configuration_error
@@ -143,7 +155,14 @@ def register_mysqlsh_routes(app, deps):
             try:
                 if storage_configuration_error:
                     raise ValueError(storage_configuration_error)
-                schemas = [item.strip() for item in form["schemas"].split(",") if item.strip()]
+                schemas = list(form["schemas"])
+                allowed_schemas = {item["value"] for item in schema_options}
+                if operation == "dump_schemas":
+                    if schema_options_error:
+                        raise ValueError(f"Unable to load schemas for Schema Dump: {schema_options_error}")
+                    unavailable = [name for name in schemas if name not in allowed_schemas]
+                    if unavailable:
+                        raise ValueError(f"Choose schemas from the available selection: {', '.join(unavailable)}")
                 target = deps["validate_object_storage_target"](target)
                 option_profile = None
                 if form["option_profile_name"]:
@@ -269,6 +288,8 @@ def register_mysqlsh_routes(app, deps):
             object_storage_profiles=store.get("profiles", []),
             active_object_storage_profile=store.get("active_profile_name", ""),
             option_profiles=option_profiles,
+            schema_options=schema_options,
+            schema_options_error=schema_options_error,
             active_pars=active_pars,
             option_kind=option_kind,
             storage_configured=not storage_configuration_error,

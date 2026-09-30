@@ -1381,7 +1381,7 @@ write_runtime_env() {
     if [[ -n "$update_branch" ]]; then
       echo "DBCONSOLE_UPDATE_ALLOWED_BRANCH=$update_branch"
     fi
-    if local_mysql_bootstrap_requested; then
+    if local_mysql_autostart_enabled; then
       echo "LOCAL_MYSQL_AUTOSTART=1"
       echo "LOCAL_MYSQL_SOCKET=$LOCAL_MYSQL_SOCKET_INPUT"
       echo "LOCAL_MYSQL_SERVICE=$(local_mysql_service_name "$os_family")"
@@ -2223,6 +2223,20 @@ run_mysqlsh_installer() {
 
 local_mysql_bootstrap_requested() {
   [[ -n "$LOCAL_MYSQL_ADMIN_USER_INPUT" || -n "$LOCAL_MYSQL_ADMIN_PASSWORD_INPUT" ]]
+}
+
+local_mysql_autostart_enabled() {
+  if local_mysql_bootstrap_requested; then
+    return 0
+  fi
+
+  # A valid socket-only local-admin profile means this installation already
+  # owns a local MySQL server. Preserve that intent on rerun so the web
+  # service always starts its local socket server after reboot or restart.
+  if local_admin_profile_needs_patch; then
+    return 1
+  fi
+  return 0
 }
 
 local_admin_profile_needs_patch() {
@@ -3531,7 +3545,7 @@ main() {
   install_local_mysql_server "$os_family"
   write_local_mysql_socket_only_config "$os_family"
   configure_ubuntu_mysqld_apparmor "$os_family"
-  if local_mysql_bootstrap_requested; then
+  if local_mysql_autostart_enabled; then
     restart_local_mysql_service "$os_family"
   fi
   configure_local_mysql_admin_account "$os_family"

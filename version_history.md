@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.1`.
+Version summary from `1.0.2a` to `1.1.2`.
+
+## 1.1.2 Summary
+
+Version `1.1.2` improves local deployment availability and standardizes Dump/Load and Monitoring result controls.
+
+- Schema Dump now provides a validated multi-select of application schemas instead of free-text schema names, while preserving one-or-many selections across preview and submission.
+- Setup recognizes an existing socket-only `local-admin-profile` as an app-managed local MySQL deployment, persists automatic startup, and starts local MySQL during setup reruns.
+- Aligned Performance Query, ML Query, and Table Load Recovery tables with the shared result layout: fixed-height rows, sorting, resize/reorder controls, full-cell-value dialogs, and a compact right-side CSV download icon. Removed redundant text download buttons.
 
 ## 1.1.1 Summary
 

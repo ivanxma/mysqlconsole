@@ -361,11 +361,13 @@ class FlowContractTests(unittest.TestCase):
         self.assertIn('@app.route("/mysql/import"', import_routes)
         self.assertIn('@app.route("/mysql/imprt"', import_routes)
 
-    def test_performance_query_uses_the_standard_interactive_table_without_csv(self):
+    def test_monitoring_reports_use_the_standard_interactive_table_with_icon_download(self):
         monitoring = (ROOT_DIR / "templates/monitoring_report.html").read_text(encoding="utf-8")
-        self.assertIn("current_endpoint != 'monitoring_performance_page'", monitoring)
-        self.assertIn('data-table-layout-id="monitoring-performance-query"', monitoring)
-        self.assertIn('data-table-download="false"', monitoring)
+        for endpoint in ("monitoring_performance_page", "monitoring_ml_page", "monitoring_load_recovery_page"):
+            self.assertIn(endpoint, monitoring)
+        self.assertIn("current_endpoint not in interactive_report_endpoints", monitoring)
+        self.assertIn('data-table-layout-id="{{ current_endpoint }}"', monitoring)
+        self.assertNotIn('data-table-download="false"', monitoring)
         self.assertIn('data-table-cell-dialog="true"', monitoring)
         self.assertIn('class="sql-workspace-result-table data-grid-constant-rows"', monitoring)
 

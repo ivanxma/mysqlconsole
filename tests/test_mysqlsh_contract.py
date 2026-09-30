@@ -877,6 +877,43 @@ class MysqlshSetupContractTests(unittest.TestCase):
         self.assertEqual(cursor.execute_count, len(mysqlsh_option_form.FILTER_TYPES))
         self.assertEqual(catalog["schemas"], [{"value": "sales", "label": "sales"}])
 
+    def test_schema_catalog_returns_only_selectable_application_schemas(self):
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self):
+                return [{"value": "sales", "label": "sales"}, {"value": "inventory", "label": "inventory"}]
+
+        cursor = Cursor()
+
+        class Connection:
+            def cursor(self):
+                return cursor
+
+        class ConnectionContext:
+            def __enter__(self):
+                return Connection()
+
+            def __exit__(self, *_args):
+                return False
+
+        catalog = mysqlsh_option_form.fetch_schema_catalog(Mock(return_value=ConnectionContext()))
+        self.assertEqual(catalog, [{"value": "sales", "label": "sales"}, {"value": "inventory", "label": "inventory"}])
+        self.assertIn("information_schema.schemata", cursor.sql)
+
+    def test_schema_dump_template_uses_a_multiple_selection(self):
+        template = (Path(__file__).resolve().parent.parent / "templates/mysqlsh_operations.html").read_text(encoding="utf-8")
+        self.assertIn('name="schemas" multiple', template)
+        self.assertIn("schema.value in form.schemas", template)
+
     def test_route_does_not_duplicate_dashboard_session_profile_context(self):
         route_source = (Path(__file__).resolve().parent.parent / "modules/mysqlsh_routes.py").read_text(encoding="utf-8")
         self.assertNotIn("session_profile=profile", route_source)

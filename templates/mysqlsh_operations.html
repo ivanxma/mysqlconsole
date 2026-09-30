@@ -77,9 +77,19 @@
 
     {% if form.operation == 'dump_schemas' %}
     <label>
-      Schema Names
-      <input name="schemas" value="{{ form.schemas }}" required placeholder="sales, inventory">
-      <span class="helper-text">Enter one or more comma-separated schema names.</span>
+      Schema Names *
+      <select name="schemas" multiple size="{{ [schema_options|length, 8]|min }}" required {% if schema_options_error %}disabled{% endif %}>
+        {% for schema in schema_options %}
+        <option value="{{ schema.value }}" {% if schema.value in form.schemas %}selected{% endif %}>{{ schema.label }}</option>
+        {% else %}
+        <option value="" disabled>No application schemas are available.</option>
+        {% endfor %}
+      </select>
+      {% if schema_options_error %}
+      <span class="error-text">Unable to load schemas: {{ schema_options_error }}</span>
+      {% else %}
+      <span class="helper-text">Choose one or more schemas. Use Ctrl/Cmd-click to select multiple entries.</span>
+      {% endif %}
     </label>
     {% endif %}
 
