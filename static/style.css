@@ -2354,6 +2354,20 @@ h4 {
   align-items: end;
 }
 
+.mysqlsh-schema-dump-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mysqlsh-schema-dump-fields label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .field-actions-inline {
   display: flex;
   align-items: end;
@@ -2719,7 +2733,8 @@ code {
 @media (max-width: 900px) {
   .topbar,
   .split-layout,
-  .form-grid {
+  .form-grid,
+  .mysqlsh-schema-dump-fields {
     grid-template-columns: 1fr;
   }
 

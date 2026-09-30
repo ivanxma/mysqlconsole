@@ -913,6 +913,9 @@ class MysqlshSetupContractTests(unittest.TestCase):
         template = (Path(__file__).resolve().parent.parent / "templates/mysqlsh_operations.html").read_text(encoding="utf-8")
         self.assertIn('name="schemas" multiple', template)
         self.assertIn("schema.value in form.schemas", template)
+        self.assertIn('class="mysqlsh-schema-dump-fields"', template)
+        stylesheet = (Path(__file__).resolve().parent.parent / "static/style.css").read_text(encoding="utf-8")
+        self.assertIn(".mysqlsh-schema-dump-fields", stylesheet)
 
     def test_route_does_not_duplicate_dashboard_session_profile_context(self):
         route_source = (Path(__file__).resolve().parent.parent / "modules/mysqlsh_routes.py").read_text(encoding="utf-8")

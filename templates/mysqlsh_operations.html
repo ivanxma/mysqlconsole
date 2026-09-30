@@ -76,28 +76,38 @@
     </div>
 
     {% if form.operation == 'dump_schemas' %}
-    <label>
-      Schema Names *
-      <select name="schemas" multiple size="{{ [schema_options|length, 8]|min }}" required {% if schema_options_error %}disabled{% endif %}>
-        {% for schema in schema_options %}
-        <option value="{{ schema.value }}" {% if schema.value in form.schemas %}selected{% endif %}>{{ schema.label }}</option>
+    <div class="mysqlsh-schema-dump-fields">
+      <label>
+        Schema Names *
+        <select name="schemas" multiple size="{{ [schema_options|length, 8]|min }}" required {% if schema_options_error %}disabled{% endif %}>
+          {% for schema in schema_options %}
+          <option value="{{ schema.value }}" {% if schema.value in form.schemas %}selected{% endif %}>{{ schema.label }}</option>
+          {% else %}
+          <option value="" disabled>No application schemas are available.</option>
+          {% endfor %}
+        </select>
+        {% if schema_options_error %}
+        <span class="error-text">Unable to load schemas: {{ schema_options_error }}</span>
         {% else %}
-        <option value="" disabled>No application schemas are available.</option>
-        {% endfor %}
-      </select>
-      {% if schema_options_error %}
-      <span class="error-text">Unable to load schemas: {{ schema_options_error }}</span>
-      {% else %}
-      <span class="helper-text">Choose one or more schemas. Use Ctrl/Cmd-click to select multiple entries.</span>
+        <span class="helper-text">Choose one or more schemas. Use Ctrl/Cmd-click to select multiple entries.</span>
+        {% endif %}
+      </label>
+      {% if not form.option_profile_name %}
+      <label>
+        Threads
+        <input name="threads" type="number" min="1" max="64" value="{{ form.threads }}" required>
+      </label>
       {% endif %}
-    </label>
+    </div>
     {% endif %}
 
     {% if not form.option_profile_name %}
+    {% if form.operation != 'dump_schemas' %}
     <label>
       Threads
       <input name="threads" type="number" min="1" max="64" value="{{ form.threads }}" required>
     </label>
+    {% endif %}
     {% if form.operation != 'load_dump' %}
     <label class="checkbox-field">
       <input name="consistent" type="checkbox" {% if form.consistent %}checked{% endif %}>

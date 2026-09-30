@@ -1,6 +1,12 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.3`.
+Version summary from `1.0.2a` to `1.1.4`.
+
+## 1.1.4 Summary
+
+Version `1.1.4` refines Schema Dump form alignment.
+
+- Places the Schema Names multi-select and the stacked Threads input in an explicit two-column row, with Threads on the right and a single-column layout on smaller screens.
 
 ## 1.1.3 Summary
 
