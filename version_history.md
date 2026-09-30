@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.14`.
+Version summary from `1.0.2a` to `1.1.15`.
+
+## 1.1.15 Summary
+
+Version `1.1.15` enables MySQL Shell Dump/Load job submission in Docker.
+
+- The DBConsole Docker image now contains MySQL Shell Innovation for ARM64 and x86_64 hosts.
+- Preview confirmation can show the Submit Job action in Docker, and the job runs with the selected OCI config authentication path.
 
 ## 1.1.14 Summary
 

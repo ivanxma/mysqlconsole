@@ -60,6 +60,13 @@ class DockerSetupContractTests(unittest.TestCase):
         ):
             self.assertTrue(path.is_file(), path)
 
+    def test_docker_image_includes_mysql_shell_for_dump_and_load_jobs(self):
+        dockerfile = (DOCKER_DIR / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("MYSQL_SHELL_VERSION", dockerfile)
+        self.assertIn("mysql-shell-${MYSQL_SHELL_VERSION}-linux-glibc2.28", dockerfile)
+        self.assertIn("/usr/local/bin/mysqlsh", dockerfile)
+
     def test_each_target_readme_points_to_its_own_setup_entry_point(self):
         docker_readme = (DOCKER_DIR / "README.md").read_text(encoding="utf-8")
         ol9_readme = (ROOT_DIR / "OL9" / "README.md").read_text(encoding="utf-8")
