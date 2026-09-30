@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.13`.
+Version summary from `1.0.2a` to `1.1.14`.
+
+## 1.1.14 Summary
+
+Version `1.1.14` makes Docker Object Storage authentication profile-scoped and validates the shared authentication path.
+
+- Docker uses the selected OCI config profile first and uses Instance Principal only when that stored config is unavailable.
+- The OCI Config tab collects the required standard config fields and private key, then stores each named profile separately in private Docker state.
+- PAR creation/revocation, MySQL Shell dump/load validation and cleanup, and Lakehouse Object Storage operations retain the selected OCI config profile.
 
 ## 1.1.13 Summary
 

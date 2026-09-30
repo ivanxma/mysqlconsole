@@ -13,6 +13,7 @@ from werkzeug.datastructures import FileStorage
 
 from modules import object_storage_util, oci_util
 from modules.admin_routes import register_admin_routes
+from modules.config_services import ObjectStorageConfigService
 
 
 class ObjectStorageStoreTests(unittest.TestCase):
@@ -100,6 +101,33 @@ class ObjectStorageStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "OCI config profile"):
             object_storage_util.normalize_object_storage({"oci_config_profile": "profile with spaces"})
 
+    def test_oci_config_fields_are_saved_in_the_selected_private_profile_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / "oci-config"
+            service = ObjectStorageConfigService(
+                object_storage_store_path=Path(temp_dir) / "object-storage.json",
+                oci_config_dir=state_dir,
+            )
+            saved = service.save_oci_config_fields(
+                {
+                    "oci_config_profile": "OBJECT_STORAGE",
+                    "oci_user": "ocid1.user.example",
+                    "oci_fingerprint": "aa:bb",
+                    "oci_tenancy": "ocid1.tenancy.example",
+                    "oci_region": "uk-london-1",
+                    "oci_compartment": "ocid1.compartment.example",
+                },
+                FileStorage(stream=io.BytesIO(b"private-key"), filename="oci_api_key.pem"),
+            )
+            config_path = Path(saved["config_path"])
+            key_path = Path(saved["key_path"])
+
+            self.assertEqual(config_path, state_dir / "OBJECT_STORAGE" / "config")
+            self.assertEqual(key_path, state_dir / "OBJECT_STORAGE" / "oci_api_key.pem")
+            self.assertIn("[OBJECT_STORAGE]", config_path.read_text(encoding="utf-8"))
+            self.assertIn(f"key_file={key_path}", config_path.read_text(encoding="utf-8"))
+            self.assertEqual(key_path.read_bytes(), b"private-key")
+
     def test_folder_must_remain_inside_configured_prefix(self):
         target = {
             "profile_name": "primary",
@@ -174,6 +202,7 @@ class InstancePrincipalClientTests(unittest.TestCase):
                 "DBCONSOLE_OBJECT_STORAGE_AUTH_MODE": "instance_principal_then_oci_config",
                 "OCI_CONFIG_FILE": "/home/dbconsole/.oci/config",
                 "OCI_CONFIG_PROFILE": "DEFAULT",
+                "DBCONSOLE_OCI_CONFIG_DIR": "",
             },
             clear=False,
         ), patch("modules.oci_util._load_oci_sdk", return_value=fake_sdk):
@@ -181,6 +210,36 @@ class InstancePrincipalClientTests(unittest.TestCase):
 
         self.assertEqual(config_calls, [("/home/dbconsole/.oci/config", "DOCKER")])
         self.assertEqual(client_calls, [({"user": "ocid1.user.example", "region": "uk-london-1"}, {})])
+
+    def test_docker_authentication_uses_the_selected_oci_config_before_instance_principal(self):
+        config_calls = []
+        signer_instances = []
+
+        class FakeSigner:
+            def __init__(self):
+                signer_instances.append(self)
+
+        def fake_from_file(*, file_location, profile_name):
+            config_calls.append((file_location, profile_name))
+            return {"user": "ocid1.user.example", "region": "us-phoenix-1"}
+
+        fake_sdk = SimpleNamespace(
+            auth=SimpleNamespace(signers=SimpleNamespace(InstancePrincipalsSecurityTokenSigner=FakeSigner)),
+            config=SimpleNamespace(from_file=fake_from_file),
+            object_storage=SimpleNamespace(ObjectStorageClient=lambda config, **kwargs: SimpleNamespace()),
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "DBCONSOLE_OBJECT_STORAGE_AUTH_MODE": "oci_config_then_instance_principal",
+                "DBCONSOLE_OCI_CONFIG_DIR": "/var/lib/dbconsole/oci-config",
+            },
+            clear=False,
+        ), patch("modules.oci_util._load_oci_sdk", return_value=fake_sdk):
+            oci_util.build_object_storage_client({"region": "uk-london-1", "oci_config_profile": "OBJECT_STORAGE"})
+
+        self.assertEqual(config_calls, [("/var/lib/dbconsole/oci-config/OBJECT_STORAGE/config", "OBJECT_STORAGE")])
+        self.assertEqual(signer_instances, [])
 
     def test_access_test_checks_namespace_and_bucket(self):
         calls = []
@@ -194,11 +253,23 @@ class InstancePrincipalClientTests(unittest.TestCase):
 
         with patch("modules.oci_util.build_object_storage_client", return_value=FakeClient()) as factory:
             result = oci_util.test_instance_principal_access(
-                {"region": "uk-london-1", "namespace": "example-ns", "bucket_name": "lakehouse"}
+                {
+                    "region": "uk-london-1",
+                    "namespace": "example-ns",
+                    "bucket_name": "lakehouse",
+                    "oci_config_profile": "OBJECT_STORAGE",
+                }
             )
 
         self.assertTrue(result["ok"])
-        factory.assert_called_once_with({"region": "uk-london-1"})
+        factory.assert_called_once_with(
+            {
+                "region": "uk-london-1",
+                "namespace": "example-ns",
+                "bucket_name": "lakehouse",
+                "oci_config_profile": "OBJECT_STORAGE",
+            }
+        )
         self.assertEqual(calls, [("example-ns", "lakehouse", {"limit": 1})])
 
     def test_folder_population_recurses_below_the_configured_prefix(self):
@@ -312,10 +383,10 @@ class DeploymentContractTests(unittest.TestCase):
         for template_name in ("setup_object_storage.html", "heatwave_external_lakehouse.html"):
             environment.get_template(template_name)
         setup_template = (root / "templates" / "setup_object_storage.html").read_text(encoding="utf-8")
-        forbidden = ("oci_fingerprint", "oci_user", "oci_tenancy")
-        self.assertFalse([value for value in forbidden if value in setup_template])
-        self.assertIn('name="oci_config_file"', setup_template)
+        self.assertNotIn("value=\"ocid1.", setup_template)
         self.assertIn('name="oci_private_key_file"', setup_template)
+        for field_name in ("oci_user", "oci_fingerprint", "oci_tenancy", "oci_region", "oci_compartment"):
+            self.assertIn(f'name="{field_name}"', setup_template)
 
 
 class ObjectStorageRouteTests(unittest.TestCase):

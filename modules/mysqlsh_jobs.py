@@ -65,6 +65,7 @@ def job_storage_target(job):
         "namespace": str(payload.get("storage_namespace") or ""),
         "bucket_name": str(payload.get("storage_bucket_name") or ""),
         "bucket_prefix": str(payload.get("storage_bucket_prefix") or ""),
+        "oci_config_profile": str(payload.get("storage_oci_config_profile") or "DEFAULT"),
     }
 
 
@@ -317,6 +318,7 @@ def submit_job(
             "storage_namespace": str(storage_target.get("namespace") or ""),
             "storage_bucket_name": str(storage_target.get("bucket_name") or ""),
             "storage_bucket_prefix": str(storage_target.get("bucket_prefix") or ""),
+            "storage_oci_config_profile": str(storage_target.get("oci_config_profile") or "DEFAULT"),
             "storage_prefix": str(par.get("prefix") or ""),
             "par_id": str(par.get("id") or ""),
             "par_expires_at": str(par.get("expires_at") or ""),

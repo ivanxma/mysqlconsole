@@ -14,9 +14,10 @@ services:
       DBCONSOLE_LISTENER_SCHEME: http
       DBCONSOLE_SESSION_COOKIE_SECURE: "0"
       DBCONSOLE_DEPLOYMENT_MODE: docker
-      DBCONSOLE_OBJECT_STORAGE_AUTH_MODE: instance_principal_then_oci_config
+      DBCONSOLE_OBJECT_STORAGE_AUTH_MODE: oci_config_then_instance_principal
       DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock
       OCI_CONFIG_FILE: /var/lib/dbconsole/oci-config/config
+      DBCONSOLE_OCI_CONFIG_DIR: /var/lib/dbconsole/oci-config
       OCI_CONFIG_PROFILE: ${OCI_CONFIG_PROFILE:-DEFAULT}
     volumes:
       - dbconsole-state:/var/lib/dbconsole

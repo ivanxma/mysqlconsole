@@ -191,7 +191,10 @@ def create_par(store_path, target, *, name, prefix, access_type, delete_after_us
             "id": uuid4().hex,
             "par_id": par_id,
             "name": par_name,
-            **{key: config[key] for key in ("profile_name", "region", "namespace", "bucket_name", "bucket_prefix")},
+            **{
+                key: config[key]
+                for key in ("profile_name", "oci_config_profile", "region", "namespace", "bucket_name", "bucket_prefix")
+            },
             "prefix": normalized_prefix,
             "access_type": access_type,
             "created_at": _now().isoformat(),
@@ -214,7 +217,7 @@ def remove_par(store_path, entry_id, *, revoke=True):
     if entry is None:
         raise ValueError("PAR entry was not found.")
     if revoke and entry.get("par_id"):
-        target = {key: entry.get(key) for key in ("profile_name", "region", "namespace", "bucket_name", "bucket_prefix")}
+        target = {key: entry.get(key) for key in ("profile_name", "oci_config_profile", "region", "namespace", "bucket_name", "bucket_prefix")}
         oci_util.revoke_preauthenticated_request(
             target,
             namespace=entry["namespace"],

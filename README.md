@@ -2,7 +2,7 @@
 
 DBConsole is a Flask web console for MySQL administration, SQL workspaces, monitoring, MySQL Shell dump/load operations, HeatWave workflows, and OCI Object Storage integration.
 
-Current version: `1.1.13`
+Current version: `1.1.14`
 
 ## Choose an installation
 
@@ -27,7 +27,7 @@ Service control, updates, and local-password guidance are in [Operations](docs/o
 
 ## Security model
 
-Database passwords are never stored in `profiles.json`. DBConsole uses server-side session state. Host and OCI Compute deployments use Instance Principal for Object Storage; Docker tries Instance Principal first and may use a private OCI config fallback stored in the DBConsole state volume for Object Storage only.
+Database passwords are never stored in `profiles.json`. DBConsole uses server-side session state. Host and OCI Compute deployments use Instance Principal for Object Storage. Docker uses the selected private OCI config profile first, then attempts Instance Principal only when no usable stored config is available; Docker credentials remain in the DBConsole state volume and are used for Object Storage only.
 
 ## Development
 

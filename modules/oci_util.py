@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import os
+import re
 from pathlib import Path
 from threading import Lock
 
@@ -22,10 +23,16 @@ _INSTANCE_PRINCIPAL_SIGNER_LOCK = Lock()
 
 def object_storage_auth_mode():
     mode = str(os.environ.get("DBCONSOLE_OBJECT_STORAGE_AUTH_MODE", "instance_principal") or "").strip().lower()
-    if mode not in {"instance_principal", "oci_config", "instance_principal_then_oci_config"}:
+    if mode not in {
+        "instance_principal",
+        "oci_config",
+        "instance_principal_then_oci_config",
+        "oci_config_then_instance_principal",
+    }:
         raise RuntimeError(
             "Unsupported Object Storage authentication mode. "
-            "Use instance_principal, oci_config, or instance_principal_then_oci_config."
+            "Use instance_principal, oci_config, instance_principal_then_oci_config, "
+            "or oci_config_then_instance_principal."
         )
     return mode
 
@@ -36,6 +43,8 @@ def object_storage_authentication_label():
         return "OCI config file"
     if mode == "instance_principal_then_oci_config":
         return "Instance Principal (OCI config fallback)"
+    if mode == "oci_config_then_instance_principal":
+        return "OCI config (Instance Principal fallback)"
     return "Instance Principal"
 
 
@@ -72,12 +81,18 @@ def reset_instance_principal_signer():
 
 
 def _build_oci_config_object_storage_client(oci, region, object_storage_config):
-    config_file = str(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config") or "").strip()
     config_profile = str(
         (object_storage_config or {}).get("oci_config_profile")
         or os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT")
         or "DEFAULT"
     ).strip()
+    configured_dir = str(os.environ.get("DBCONSOLE_OCI_CONFIG_DIR", "") or "").strip()
+    if configured_dir:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", config_profile):
+            raise RuntimeError("OCI config profile contains invalid characters.")
+        config_file = str(Path(configured_dir) / config_profile / "config")
+    else:
+        config_file = str(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config") or "").strip()
     if not config_file:
         raise RuntimeError("OCI_CONFIG_FILE is required for OCI config Object Storage authentication.")
     try:
@@ -99,6 +114,20 @@ def build_object_storage_client(config):
     auth_mode = object_storage_auth_mode()
     if auth_mode == "oci_config":
         return _build_oci_config_object_storage_client(oci, region, config)
+    if auth_mode == "oci_config_then_instance_principal":
+        try:
+            return _build_oci_config_object_storage_client(oci, region, config)
+        except Exception as oci_config_error:
+            try:
+                return oci.object_storage.ObjectStorageClient(
+                    {"region": region},
+                    signer=get_instance_principal_signer(),
+                )
+            except Exception as instance_principal_error:
+                raise RuntimeError(
+                    "Unable to initialize Object Storage authentication with the OCI config or Instance Principal fallback. "
+                    "Upload the selected OCI config profile or confirm OCI metadata access."
+                ) from instance_principal_error
     try:
         return oci.object_storage.ObjectStorageClient(
             {"region": region},
@@ -541,7 +570,7 @@ def test_instance_principal_access(config):
     if missing:
         return {"ok": False, "message": "Object Storage access test is missing: " + ", ".join(missing)}
     try:
-        client = build_object_storage_client({"region": region})
+        client = build_object_storage_client(config)
         namespace_response = client.get_namespace()
         returned_namespace = str(namespace_response.data or "").strip()
         if returned_namespace and returned_namespace != namespace:

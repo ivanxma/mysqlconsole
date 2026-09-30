@@ -131,10 +131,7 @@ def register_admin_routes(app, deps):
             ).strip()
             try:
                 if action == "save_oci_config":
-                    deps["save_uploaded_oci_config"](
-                        request.files.get("oci_config_file"),
-                        request.files.get("oci_private_key_file"),
-                    )
+                    deps["save_oci_config_fields"](request.form.to_dict(), request.files.get("oci_private_key_file"))
                     flash("OCI config and private key were saved in DBConsole private state.", "success")
                 elif action == "activate_object_storage_profile":
                     if not selected_profile:

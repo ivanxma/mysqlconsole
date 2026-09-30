@@ -251,6 +251,7 @@ class MysqlshJobTests(unittest.TestCase):
                 "par_id": "par-1",
                 "par_delete_after_use": True,
                 "storage_profile_name": "objects",
+                "storage_oci_config_profile": "OBJECT_STORAGE",
                 "storage_region": "uk-london-1",
                 "storage_namespace": "ns",
                 "storage_bucket_name": "bucket",
@@ -263,6 +264,7 @@ class MysqlshJobTests(unittest.TestCase):
             revoke.call_args.args[0],
             {
                 "profile_name": "objects",
+                "oci_config_profile": "OBJECT_STORAGE",
                 "region": "uk-london-1",
                 "namespace": "ns",
                 "bucket_name": "bucket",
