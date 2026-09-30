@@ -18,6 +18,13 @@ ALLOWED_FUNCTIONS = {"dump_instance", "dump_schemas", "load_dump"}
 RESULT_START = "DBCONSOLE_MYSQLSH_RESULT_START"
 RESULT_END = "DBCONSOLE_MYSQLSH_RESULT_END"
 MYSQLSH_STATUS_TIMEOUT_SECONDS = 5
+SCHEMA_DUMP_UNSUPPORTED_OPTIONS = frozenset({
+    "includeSchemas",
+    "excludeSchemas",
+    "users",
+    "includeUsers",
+    "excludeUsers",
+})
 
 
 def resolve_mysqlsh_binary():
@@ -112,6 +119,16 @@ def build_operation_request(operation, *, storage_url, schema_names=None, option
     if operation == "dump_instance":
         args = [url, normalized_options]
     elif operation == "dump_schemas":
+        # dumpSchemas receives its schema scope as its first argument.  MySQL
+        # Shell also only accepts user export controls for dumpInstance.
+        # Option profiles are shared by both dump operations, so omit these
+        # incompatible controls instead of passing an invalid request through
+        # to the background job.
+        normalized_options = {
+            key: value
+            for key, value in normalized_options.items()
+            if key not in SCHEMA_DUMP_UNSUPPORTED_OPTIONS
+        }
         schemas = [str(name).strip() for name in (schema_names or []) if str(name).strip()]
         if not schemas:
             raise ValueError("Choose at least one schema to dump.")

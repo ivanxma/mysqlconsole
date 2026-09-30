@@ -42,9 +42,19 @@ class MysqlshRunnerTests(unittest.TestCase):
             "dump_schemas",
             storage_url="https://objectstorage.example/p/secret?token=do-not-show",
             schema_names=["sales"],
-            options={"threads": 4},
+            options={
+                "threads": 4,
+                "includeSchemas": ["sales"],
+                "users": False,
+                "includeUsers": ["'app'@'%'"],
+                "includeTables": ["sales.orders"],
+            },
         )
         self.assertEqual(request["args"][0], ["sales"])
+        self.assertNotIn("includeSchemas", request["args"][2])
+        self.assertNotIn("users", request["args"][2])
+        self.assertNotIn("includeUsers", request["args"][2])
+        self.assertEqual(request["args"][2]["includeTables"], ["sales.orders"])
         self.assertIn("[redacted-par]", mysqlsh_runner.operation_preview(request))
         self.assertNotIn("do-not-show", mysqlsh_runner.operation_preview(request))
         self.assertNotIn("/p/secret", mysqlsh_runner.operation_preview(request))

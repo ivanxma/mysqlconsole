@@ -361,6 +361,14 @@ class FlowContractTests(unittest.TestCase):
         self.assertIn('@app.route("/mysql/import"', import_routes)
         self.assertIn('@app.route("/mysql/imprt"', import_routes)
 
+    def test_performance_query_uses_the_standard_interactive_table_without_csv(self):
+        monitoring = (ROOT_DIR / "templates/monitoring_report.html").read_text(encoding="utf-8")
+        self.assertIn("current_endpoint != 'monitoring_performance_page'", monitoring)
+        self.assertIn('data-table-layout-id="monitoring-performance-query"', monitoring)
+        self.assertIn('data-table-download="false"', monitoring)
+        self.assertIn('data-table-cell-dialog="true"', monitoring)
+        self.assertIn('class="sql-workspace-result-table data-grid-constant-rows"', monitoring)
+
     def test_setup_declares_durable_state_and_service_hardening(self):
         setup = (ROOT_DIR / "setup.sh").read_text(encoding="utf-8")
         for expected in (

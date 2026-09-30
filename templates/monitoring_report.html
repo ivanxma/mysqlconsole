@@ -33,14 +33,24 @@
         </label>
       </form>
       {% endif %}
+      {% if current_endpoint != 'monitoring_performance_page' %}
       <a
         class="button primary"
         href="{{ url_for(download_endpoint, current_ml_connection_only='1' if current_ml_connection_only|default(false) else '') }}"
       >Download CSV</a>
+      {% endif %}
     </div>
   </div>
-  <div class="table-wrap">
-    <table>
+  <div
+    class="table-wrap{% if current_endpoint == 'monitoring_performance_page' %} sql-workspace-result-wrap{% endif %}"
+    {% if current_endpoint == 'monitoring_performance_page' %}
+    data-table-layout-id="monitoring-performance-query"
+    data-table-download="false"
+    data-table-reorder="true"
+    data-table-cell-dialog="true"
+    {% endif %}
+  >
+    <table{% if current_endpoint == 'monitoring_performance_page' %} class="sql-workspace-result-table data-grid-constant-rows"{% endif %}>
       <thead>
         <tr>
           {% for column in report.columns %}

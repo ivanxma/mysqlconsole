@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.0`.
+Version summary from `1.0.2a` to `1.1.1`.
+
+## 1.1.1 Summary
+
+Version `1.1.1` improves result-set usability and makes Schema Dump option profiles safe to reuse.
+
+- Updated Monitoring > Performance Query to use the shared interactive result table: fixed-height rows, sortable and resizable columns, persisted layout controls, and click-to-view full field values. Removed the redundant CSV download action.
+- Normalized Schema Dump requests so shared dump profiles do not pass the instance-only schema-selection or user-export options to `util.dumpSchemas()`. Schema and table selections remain intact.
 
 ## 1.1.0 Summary
 
