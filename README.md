@@ -2,7 +2,7 @@
 
 `dbconsole` is a Flask-based MySQL and HeatWave administration console.
 
-Current version: `1.1.2`
+Current version: `1.1.3`
 
 Version history: [version_history.md](version_history.md). A rendered companion is available at [`html_doc/version_history.html`](html_doc/version_history.html).
 

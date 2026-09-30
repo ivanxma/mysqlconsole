@@ -2495,7 +2495,7 @@ restart_local_mysql_service() {
       start_macos_embedded_mysql_server
       ;;
     ol8|ol9|ubuntu)
-      stop_app_managed_mysql_server "$os_family" || true
+      stop_app_managed_mysql_server "$os_family"
       start_app_managed_mysql_server "$os_family"
       ;;
     *)
@@ -2754,6 +2754,18 @@ stop_app_managed_mysql_server() {
     pid="$(cat "$pid_file" 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ ]]; then
       kill "$pid" >/dev/null 2>&1 || true
+      # Socket removal can precede a graceful InnoDB shutdown. Do not start a
+      # replacement until this exact server process has released its files.
+      for _ in {1..30}; do
+        if ! kill -0 "$pid" >/dev/null 2>&1; then
+          break
+        fi
+        sleep 1
+      done
+      if kill -0 "$pid" >/dev/null 2>&1; then
+        echo "DBConsole-managed local MySQL process $pid did not stop in time." >&2
+        return 1
+      fi
     fi
   fi
 
@@ -2763,7 +2775,8 @@ stop_app_managed_mysql_server() {
     fi
     sleep 1
   done
-  return 0
+  echo "DBConsole-managed local MySQL socket did not close at $LOCAL_MYSQL_SOCKET_INPUT." >&2
+  return 1
 }
 
 write_local_mysql_socket_only_config() {

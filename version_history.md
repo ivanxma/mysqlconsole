@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.2`.
+Version summary from `1.0.2a` to `1.1.3`.
+
+## 1.1.3 Summary
+
+Version `1.1.3` fixes app-managed local MySQL restart safety during Setup and Auto-Update.
+
+- Waits for the previous MySQL PID to terminate fully, in addition to socket closure, before starting a replacement server. This prevents a replacement from colliding with the previous server's InnoDB file locks.
+- Stops setup safely with a clear error when the previous local MySQL process or socket does not close in time.
 
 ## 1.1.2 Summary
 

@@ -91,6 +91,13 @@ class HardeningContractTests(unittest.TestCase):
         self.assertIn("if local_mysql_autostart_enabled; then", setup)
         self.assertIn('echo "LOCAL_MYSQL_AUTOSTART=1"', setup)
 
+    def test_local_mysql_restart_waits_for_the_previous_pid_before_starting(self):
+        setup = (ROOT_DIR / "setup.sh").read_text(encoding="utf-8")
+        self.assertIn('kill -0 "$pid"', setup)
+        self.assertIn("did not stop in time", setup)
+        restart_block = setup[setup.index("restart_local_mysql_service()") : setup.index("mysql_server_macos_arch()")]
+        self.assertIn('stop_app_managed_mysql_server "$os_family"\n      start_app_managed_mysql_server', restart_block)
+
     def test_legacy_object_storage_alias_is_rejected(self):
         old_payload = {"oci_region": "uk-london-1"}
         with self.assertRaisesRegex(ValueError, "Legacy Object Storage settings"):
