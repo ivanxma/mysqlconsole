@@ -60,7 +60,7 @@ It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack
 
 For Object Storage only, Docker uses the selected OCI config profile first. OCI config remains optional: if the selected profile is not stored, DBConsole attempts OCI Compute Instance Principal instead. In **Admin > Setup Object Storage > OCI Config**, enter the standard config fields (`user`, `fingerprint`, `tenancy`, `region`, and optional `compartment`) and upload its private key. The application writes a complete OCI config file for that named profile, including its private `key_file` path. Both files are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository.
 
-Set **OCI Config Profile** to the named profile used for that Object Storage target. Each uploaded OCI config is stored separately with its own private key; switching the Object Storage profile switches to its selected OCI config. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.
+Set **OCI Config Profile** to the named profile used for that Object Storage target. Each uploaded OCI config is stored separately with its own private key; switching the Object Storage profile switches to its selected OCI config. The OCI Config tab lists saved profiles and safely reloads their non-secret fields; the private key is never shown and is retained unless explicitly replaced. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.
 
 ## MySQL Shell CA-bundle compatibility
 

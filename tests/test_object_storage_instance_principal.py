@@ -128,6 +128,18 @@ class ObjectStorageStoreTests(unittest.TestCase):
             self.assertIn(f"key_file={key_path}", config_path.read_text(encoding="utf-8"))
             self.assertEqual(key_path.read_bytes(), b"private-key")
 
+            loaded = service.load_oci_config_fields("OBJECT_STORAGE")
+            self.assertEqual(service.list_oci_config_profiles(), ["OBJECT_STORAGE"])
+            self.assertEqual(loaded["oci_user"], "ocid1.user.example")
+            self.assertEqual(loaded["oci_compartment"], "ocid1.compartment.example")
+            self.assertTrue(loaded["key_saved"])
+            self.assertNotIn("key_file", loaded)
+            service.save_oci_config_fields(
+                {**loaded, "oci_region": "eu-frankfurt-1"},
+                None,
+            )
+            self.assertEqual(key_path.read_bytes(), b"private-key")
+
     def test_folder_must_remain_inside_configured_prefix(self):
         target = {
             "profile_name": "primary",

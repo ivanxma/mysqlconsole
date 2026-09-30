@@ -154,7 +154,12 @@ def register_admin_routes(app, deps):
                         flash(f"Object Storage profile `{selected_profile}` saved.", "success")
             except Exception as error:
                 flash(str(error), "error")
-            return redirect(url_for("setup_object_storage_page", profile=selected_profile))
+            return redirect(url_for(
+                "setup_object_storage_page",
+                profile=selected_profile,
+                tab=request.form.get("tab", "settings"),
+                oci_config_profile=request.form.get("oci_config_profile", ""),
+            ))
 
         selected_profile = str(request.args.get("profile") or store.get("active_profile_name") or "").strip()
         object_storage_tab = str(request.args.get("tab") or "settings").strip().lower()
@@ -165,6 +170,9 @@ def register_admin_routes(app, deps):
         except Exception as error:
             flash(str(error), "error")
             config = store
+        selected_oci_config_profile = str(
+            request.args.get("oci_config_profile") or config.get("oci_config_profile") or "DEFAULT"
+        ).strip()
         return render_dashboard(
             "setup_object_storage.html",
             page_title="Setup Object Storage",
@@ -174,6 +182,10 @@ def register_admin_routes(app, deps):
             deployment_region_default=deps["deployment_region_default"],
             object_storage_authentication_label=deps.get("object_storage_authentication_label", lambda: "Instance Principal")(),
             object_storage_tab=object_storage_tab,
+            oci_config_profiles=deps.get("list_oci_config_profiles", lambda: [])(),
+            selected_oci_config=deps.get(
+                "load_oci_config_fields", lambda profile: {"oci_config_profile": profile, "key_saved": False}
+            )(selected_oci_config_profile),
         )
 
     @app.route("/admin/status-variables")

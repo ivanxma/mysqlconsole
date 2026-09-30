@@ -136,18 +136,23 @@
 {% else %}
 <section class="panel">
   <div class="panel-header"><div><h3>Docker OCI Config</h3><span class="helper-text">Optional: Docker uses this selected config first when it is stored; otherwise it attempts Instance Principal.</span></div></div>
+  <form method="get" class="inline-form">
+    <input type="hidden" name="tab" value="oci-config"><input type="hidden" name="profile" value="{{ object_storage_config.profile_name }}">
+    <label>Saved OCI Config Profile<select name="oci_config_profile" data-submit-on-change><option value="">New or selected Object Storage profile</option>{% for profile in oci_config_profiles %}<option value="{{ profile }}" {% if profile == selected_oci_config.oci_config_profile %}selected{% endif %}>{{ profile }}</option>{% endfor %}</select></label>
+  </form>
   <form method="post" class="form-grid" enctype="multipart/form-data">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <label>OCI Config Profile *<input name="oci_config_profile" type="text" required value="{{ object_storage_config.oci_config_profile or 'DEFAULT' }}"></label>
-    <label>OCI User OCID *<input name="oci_user" type="text" required autocomplete="off"></label>
-    <label>Fingerprint *<input name="oci_fingerprint" type="text" required autocomplete="off"></label>
-    <label>Tenancy OCID *<input name="oci_tenancy" type="text" required autocomplete="off"></label>
-    <label>OCI Region *<input name="oci_region" type="text" required pattern="[a-z0-9-]+" placeholder="eu-frankfurt-1"></label>
-    <label>Compartment OCID<input name="oci_compartment" type="text" autocomplete="off"><span class="helper-text">Optional; retained in the private OCI config.</span></label>
+    <input type="hidden" name="tab" value="oci-config">
+    <label>OCI Config Profile *<input name="oci_config_profile" type="text" required value="{{ selected_oci_config.oci_config_profile or object_storage_config.oci_config_profile or 'DEFAULT' }}"></label>
+    <label>OCI User OCID *<input name="oci_user" type="text" required autocomplete="off" value="{{ selected_oci_config.oci_user or '' }}"></label>
+    <label>Fingerprint *<input name="oci_fingerprint" type="text" required autocomplete="off" value="{{ selected_oci_config.oci_fingerprint or '' }}"></label>
+    <label>Tenancy OCID *<input name="oci_tenancy" type="text" required autocomplete="off" value="{{ selected_oci_config.oci_tenancy or '' }}"></label>
+    <label>OCI Region *<input name="oci_region" type="text" required pattern="[a-z0-9-]+" placeholder="eu-frankfurt-1" value="{{ selected_oci_config.oci_region or '' }}"></label>
+    <label>Compartment OCID<input name="oci_compartment" type="text" autocomplete="off" value="{{ selected_oci_config.oci_compartment or '' }}"><span class="helper-text">Optional; retained in the private OCI config.</span></label>
     <label>
-      OCI Private Key *
-      <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain" required>
-      <span class="helper-text">DBConsole creates the OCI config from these fields and stores the key owner-only in private Docker state.</span>
+      OCI Private Key {% if not selected_oci_config.key_saved %}*{% endif %}
+      <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain" {% if not selected_oci_config.key_saved %}required{% endif %}>
+      <span class="helper-text">{{ 'A private key is already saved for this profile; upload a replacement only when changing it.' if selected_oci_config.key_saved else 'DBConsole creates the OCI config from these fields and stores the key owner-only in private Docker state.' }}</span>
     </label>
     <div class="form-actions"><button class="button primary" type="submit" name="setup_action" value="save_oci_config">Upload OCI Config</button></div>
   </form>

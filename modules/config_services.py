@@ -1,3 +1,4 @@
+import configparser
 import re
 from pathlib import Path
 
@@ -118,19 +119,49 @@ class ObjectStorageConfigService:
         missing = [name for name in ("oci_user", "oci_fingerprint", "oci_tenancy", "oci_region") if not values[name]]
         if missing:
             raise ValueError("OCI config is missing: " + ", ".join(missing))
-        if key_upload is None or not getattr(key_upload, "filename", ""):
-            raise ValueError("Choose the OCI private key file to upload.")
-        key_bytes = key_upload.read()
-        if not key_bytes or len(key_bytes) > 1024 * 1024:
-            raise ValueError("OCI private key upload must be non-empty and no larger than 1 MiB.")
         profile = values["oci_config_profile"] or "DEFAULT"
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", profile):
             raise ValueError("OCI config profile must contain only letters, numbers, dots, underscores, or dashes.")
         config_dir = ensure_private_directory(self.oci_config_dir / profile)
         key_path = config_dir / "oci_api_key.pem"
+        has_new_key = key_upload is not None and bool(getattr(key_upload, "filename", ""))
+        if has_new_key:
+            key_bytes = key_upload.read()
+            if not key_bytes or len(key_bytes) > 1024 * 1024:
+                raise ValueError("OCI private key upload must be non-empty and no larger than 1 MiB.")
+        elif not key_path.is_file():
+            raise ValueError("Choose the OCI private key file to upload.")
         lines = [f"[{profile}]", f"user={values['oci_user']}", f"fingerprint={values['oci_fingerprint']}", f"tenancy={values['oci_tenancy']}", f"region={values['oci_region']}", f"key_file={key_path}"]
         if values["oci_compartment"]:
             lines.append(f"compartment={values['oci_compartment']}")
-        atomic_write_private_bytes(key_path, key_bytes)
+        if has_new_key:
+            atomic_write_private_bytes(key_path, key_bytes)
         atomic_write_private_text(config_dir / "config", "\n".join(lines) + "\n")
         return {"config_path": str(config_dir / "config"), "key_path": str(key_path)}
+
+    def list_oci_config_profiles(self):
+        if not self.oci_config_dir.is_dir():
+            return []
+        return sorted(
+            item.name for item in self.oci_config_dir.iterdir()
+            if item.is_dir()
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", item.name)
+            and (item / "config").is_file()
+        )
+
+    def load_oci_config_fields(self, profile):
+        profile = str(profile or "").strip()
+        if profile not in self.list_oci_config_profiles():
+            return {"oci_config_profile": profile or "DEFAULT", "key_saved": False}
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(self.oci_config_dir / profile / "config", encoding="utf-8")
+        values = parser[profile] if parser.has_section(profile) else {}
+        return {
+            "oci_config_profile": profile,
+            "oci_user": values.get("user", ""),
+            "oci_fingerprint": values.get("fingerprint", ""),
+            "oci_tenancy": values.get("tenancy", ""),
+            "oci_region": values.get("region", ""),
+            "oci_compartment": values.get("compartment", ""),
+            "key_saved": (self.oci_config_dir / profile / "oci_api_key.pem").is_file(),
+        }

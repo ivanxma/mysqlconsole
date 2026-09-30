@@ -660,6 +660,8 @@ register_admin_routes(
         "test_instance_principal_access": test_instance_principal_access,
         "save_uploaded_oci_config": object_storage_service.save_uploaded_oci_config,
         "save_oci_config_fields": object_storage_service.save_oci_config_fields,
+        "list_oci_config_profiles": object_storage_service.list_oci_config_profiles,
+        "load_oci_config_fields": object_storage_service.load_oci_config_fields,
         "object_storage_authentication_label": object_storage_authentication_label,
         "load_object_storage_config": load_object_storage_config,
         "select_object_storage_config": select_object_storage_config,

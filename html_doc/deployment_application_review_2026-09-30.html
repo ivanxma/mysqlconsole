@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>DBConsole deployment and application review</title><style>
+body{font:15px/1.5 system-ui,sans-serif;color:#1d2733;max-width:1100px;margin:36px auto;padding:0 24px}h1,h2{color:#9b1c31}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #d5dbe3;padding:9px;vertical-align:top}th{background:#f4f6f8;text-align:left}.high{color:#a10f24;font-weight:700}.medium{color:#a65a00;font-weight:700}.low{color:#276749;font-weight:700}code{background:#f2f4f7;padding:1px 4px}pre{background:#f4f6f8;padding:12px;white-space:pre-wrap}.ok{color:#276749;font-weight:700}</style></head><body>
+<h1>DBConsole deployment and application review</h1>
+<p>Reviewed 30 September 2026 against working tree based on <code>d4a3e9c</code>. This is a read-only review; no production deployment was changed. The worktree contains uncommitted OCI Config profile-picker changes in <code>app.py</code>, <code>modules/admin_routes.py</code>, <code>modules/config_services.py</code>, and <code>templates/setup_object_storage.html</code>.</p>
+
+<h2>Executive result</h2>
+<p class="ok">Core application checks passed.</p>
+<ul><li>120 automated tests passed.</li><li><code>python3 -m py_compile app.py modules/*.py</code> passed.</li><li><code>bash -n setup.sh OL9/*.sh ubuntu/*.sh</code> passed.</li><li>Docker Compose configuration rendered successfully.</li><li>Tracked-file scan found no tracked <code>.env</code>, PEM, or key files.</li></ul>
+<p>The Docker stack was previously validated locally with socket-only MySQL, MySQL Shell 26.7.1, OCI Config-first authentication, and the Debian-to-Oracle-Linux CA-bundle compatibility link.</p>
+
+<h2>Deployment matrix</h2>
+<table><tr><th>Target</th><th>Validated implementation</th><th>Review outcome</th><th>Limit</th></tr>
+<tr><td>Docker (macOS/Linux)</td><td>Named state/data/socket volumes; MySQL has <code>--skip-networking --skip-mysqlx</code>; DBConsole uses the socket; Auto-Update is intentionally host-run; OCI Config profile is first, Instance Principal fallback.</td><td class="ok">Functionally coherent after the CA-bundle fix.</td><td>Validated locally; no clean Linux Docker host run in this review.</td></tr>
+<tr><td>Oracle Linux 9</td><td>Dedicated setup, OCI init, Docker bootstrap, and Innovation MySQL Shell installer.</td><td class="ok">Shell syntax and layout passed.</td><td>No disposable OL9 VM was available for package/service/IAM execution.</td></tr>
+<tr><td>Ubuntu</td><td>Dedicated setup, OCI init, and Innovation MySQL Shell installer.</td><td class="ok">Shell syntax and layout passed.</td><td>No disposable Ubuntu VM was available for APT/service execution.</td></tr>
+</table>
+
+<h2>Workflow review</h2>
+<table><tr><th>Workflow</th><th>Evidence and conclusion</th></tr>
+<tr><td>Object Storage / OCI Config</td><td>All Object Storage operations use the shared OCI client resolver: folder/file actions and Lakehouse, PAR creation/revocation, Dump/Load access validation, and job cleanup retain <code>oci_config_profile</code>. Docker selects the saved config first, then attempts Instance Principal. Credentials are kept in the private state volume.</td></tr>
+<tr><td>Dump/Load</td><td>Docker now contains MySQL Shell; preview exposes Submit when the shell is available. Requests use server-side PAR URLs and redacted previews. The CA-bundle link resolves the generic Linux MySQL Shell <code>CURLcode 77</code> issue.</td></tr>
+<tr><td>Auto-Update</td><td>Host installs use the app updater. Docker correctly blocks in-container replacement and directs the administrator to <code>./docker/setup_docker.sh</code>, preserving named volumes.</td></tr>
+<tr><td>Replication dashboard</td><td>Source role now has version-tolerant binary-log status, registered replicas, and binlog-dump threads; replica, applier, and Group Replication views remain separate.</td></tr>
+<tr><td>Security/state</td><td>DB passwords remain server-side. Docker local administration is socket-only. OCI private keys use application private state and are not rendered. MySQL Shell jobs and PAR registry are state-scoped.</td></tr>
+</table>
+
+<h2>Findings and remediation plan</h2>
+<table><tr><th>Priority</th><th>Finding</th><th>Impact</th><th>Plan</th></tr>
+<tr><td class="high">High</td><td>The saved OCI Config profile picker is uncommitted and has no route-level regression test for selecting a saved profile, retrieving non-secret fields, and preserving the existing key without reupload.</td><td>A refresh made from a clean clone omits this requested behavior; a future change could regress safe key preservation.</td><td>Add service and Flask route tests; validate no key value reaches HTML; update version/history; commit/push; rebuild Docker image.</td></tr>
+<tr><td class="medium">Medium</td><td>Docker pins <code>MYSQL_SHELL_VERSION=26.7.1</code>. The host setup scripts discover the current Innovation version, but a normal Docker rebuild reuses the pinned archive and Docker layer.</td><td>Docker can fall behind the Innovation channel despite documentation describing Innovation support.</td><td>Choose an explicit release policy: automated build argument/version check with checksum verification, or document a controlled manual version bump. Add a CI/build contract that confirms the installed version is the intended release.</td></tr>
+<tr><td class="medium">Medium</td><td>The generic MySQL Shell Linux archive needs the Oracle Linux CA path in the Debian image.</td><td>Without the symlink, OCI HTTPS dump/load fails with <code>CURLcode 77</code>.</td><td>Fix is implemented and documented. Add a Docker smoke test that invokes an HTTPS-capable MySQL Shell operation or at minimum asserts the link is readable in the running image.</td></tr>
+<tr><td class="medium">Medium</td><td>OL9 and Ubuntu installers have syntax coverage but were not executed on clean target hosts in this review.</td><td>Repository, package, service-manager, and firewall changes can break installation despite syntax success.</td><td>Run clean-VM acceptance tests for OL9 and supported Ubuntu, including rerun/idempotency, local-admin login, mysqlsh version, Object Storage authentication, and Auto-Update.</td></tr>
+<tr><td class="low">Low</td><td>Docker Compose retains <code>OCI_CONFIG_FILE=/var/lib/dbconsole/oci-config/config</code> while profile-scoped lookup uses <code>DBCONSOLE_OCI_CONFIG_DIR</code>.</td><td>It is currently harmless because directory-scoped lookup takes precedence, but it is confusing maintenance debt.</td><td>Remove the obsolete variable or retain it only with a code comment and a compatibility test.</td></tr>
+<tr><td class="low">Low</td><td>Historical release messages evolved quickly from OCI fallback to OCI Config-first Docker behavior.</td><td>Older history is accurate for its release point but may confuse operators who read it as current behavior.</td><td>Add a concise current-state note in the Docker guide and retain history as immutable release records; do not rewrite prior releases.</td></tr>
+</table>
+
+<h2>Change-history assessment</h2>
+<p>The sequence from <code>576f124</code> through <code>d4a3e9c</code> is additive and traceable: private OCI state, profile selection, Docker persistence, Docker-safe updates, MySQL Shell inclusion, then CA compatibility. No destructive migration or broad rollback was found. The main concern is release discipline: the latest OCI profile-picker work is active locally but has not yet received the same tests, version update, commit, and push as the preceding changes.</p>
+
+<h2>Recommended acceptance sequence</h2>
+<ol><li>Complete and release the OCI Config profile-picker work with tests and documentation.</li><li>On Docker: save two OCI profiles, switch profiles, confirm non-secret fields load, key is preserved, test access, create PAR, and run a small dump/load.</li><li>On clean OL9 and Ubuntu hosts: run setup twice, validate service restart, local-admin forced password change, MySQL Shell Innovation, Object Storage access, and Auto-Update.</li><li>Define an audited Docker MySQL Shell update policy and automate verification.</li></ol>
+</body></html>

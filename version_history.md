@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.16`.
+Version summary from `1.0.2a` to `1.1.17`.
+
+## 1.1.17 Summary
+
+Version `1.1.17` completes OCI Config profile maintenance for Docker Object Storage.
+
+- The OCI Config tab lists saved config profiles and safely reloads their non-secret metadata for editing.
+- Existing private keys remain private and are retained unless a replacement key is explicitly uploaded.
+- Adds the deployment and application review report with cross-platform validation findings and a remediation plan.
 
 ## 1.1.16 Summary
 
