@@ -36,7 +36,15 @@ docker-compose down
 
 Use `docker compose` when the Compose plugin is available (the normal Docker Desktop and current Docker Engine form); `docker-compose` remains supported for older Linux installations.
 
-`down` stops containers but preserves both named volumes. Do not run `docker-compose down --volumes` unless you intend to permanently remove the local DBConsole state and MySQL data.
+## Persistent volumes and image refresh
+
+The DBConsole image is replaceable; `./docker/setup_docker.sh` may rebuild it and recreate both containers without removing Docker volumes. The following named volumes persist on the Docker host across image and container refreshes:
+
+- `dbconsole-state`: DBConsole profiles, settings, Object Storage targets, uploaded OCI config/key, and application state.
+- `dbconsole-mysql`: MySQL database files.
+- `dbconsole-mysql-socket`: the private Unix socket path shared by DBConsole and MySQL; it contains no durable database data.
+
+`docker-compose down` stops containers but keeps all three volumes. Do not run `docker-compose down --volumes` unless you intend to permanently remove DBConsole state and MySQL data.
 
 ## Update
 
@@ -50,6 +58,6 @@ It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack
 
 ## Object Storage authentication
 
-For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available. OCI config is optional: if no fallback is uploaded, Instance Principal is the only authentication method. When metadata authentication is unavailable, Docker can use the OCI config fallback selected in **Admin > Setup Object Storage**. Upload the OCI config file and its private key together on that page; both are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository. DBConsole rewrites the uploaded config's `key_file` entry to its private state path.
+For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available. OCI config is optional: if no fallback is uploaded, Instance Principal is the only authentication method. When metadata authentication is unavailable, Docker can use the OCI config fallback selected in **Admin > Setup Object Storage**. Upload the complete standard OCI config file (including `user`, `fingerprint`, `tenancy`, `region`, and optional `compartment`) and its private key together on that page; both are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository. DBConsole rewrites only the uploaded config's `key_file` entry to its private state path.
 
 Set **OCI Config Profile (Fallback)** to the named profile used for that Object Storage target. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.

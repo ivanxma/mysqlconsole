@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.12`.
+Version summary from `1.0.2a` to `1.1.13`.
+
+## 1.1.13 Summary
+
+Version `1.1.13` documents Docker persistence and clarifies full OCI config uploads.
+
+- Documents the DBConsole state, MySQL data, and private socket volumes, including image refresh and explicit volume-removal behavior.
+- Makes the OCI Config tab explicit about retaining complete standard OCI config fields while relocating only `key_file` to private state.
 
 ## 1.1.12 Summary
 

@@ -2,7 +2,7 @@
 
 DBConsole is a Flask web console for MySQL administration, SQL workspaces, monitoring, MySQL Shell dump/load operations, HeatWave workflows, and OCI Object Storage integration.
 
-Current version: `1.1.12`
+Current version: `1.1.13`
 
 ## Choose an installation
 

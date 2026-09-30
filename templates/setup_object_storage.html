@@ -141,12 +141,12 @@
     <label>
       OCI Config File *
       <input name="oci_config_file" type="file" accept=".config,text/plain" required>
-      <span class="helper-text">The config is stored in DBConsole's private Docker state volume and never displayed.</span>
+      <span class="helper-text">Upload the complete standard OCI config: user, fingerprint, tenancy, region, and optional compartment. It is stored in DBConsole's private Docker state volume and never displayed.</span>
     </label>
     <label>
       OCI Private Key *
       <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain" required>
-      <span class="helper-text">DBConsole stores it owner-only and updates the config's key_file location.</span>
+      <span class="helper-text">Upload the key referenced by the OCI config. DBConsole stores it owner-only and updates only the config's key_file location; all other OCI config values are preserved.</span>
     </label>
     <div class="form-actions"><button class="button primary" type="submit" name="setup_action" value="save_oci_config">Upload OCI Config</button></div>
   </form>
