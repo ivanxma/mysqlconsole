@@ -23,16 +23,14 @@ services:
 
   mysql:
     image: mysql:innovation
+    command: ["mysqld", "--skip-networking", "--skip-mysqlx"]
     environment:
       MYSQL_ROOT_PASSWORD: ${DBCONSOLE_LOCAL_ADMIN_PASSWORD:?Set DBCONSOLE_LOCAL_ADMIN_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
-    ports:
-      - "3307:3306"
     volumes:
       - dbconsole-mysql:/var/lib/mysql
       - dbconsole-mysql-socket:/var/run/mysqld
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysqladmin --socket=/var/run/mysqld/mysqld.sock -uroot -p$$MYSQL_ROOT_PASSWORD --silent ping"]
       interval: 5s
       timeout: 5s
       retries: 20

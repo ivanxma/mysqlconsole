@@ -1,14 +1,14 @@
-# Docker installation on macOS
+# Docker installation
 
-Use this path for a self-contained local DBConsole environment on a Mac. It starts DBConsole and a persistent companion MySQL server. The server image uses `mysql:innovation`, so each fresh pull follows the MySQL Innovation channel.
+Use this path for a self-contained DBConsole environment on macOS or Linux. It starts DBConsole and a persistent companion MySQL server. The server image uses `mysql:innovation`, so each fresh pull follows the MySQL Innovation channel.
 
 DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. The generated `local-admin-profile` uses `/var/run/mysqld/mysqld.sock`, not TCP. This gives the profile the same socket-only local-admin behavior as a host installation while keeping the socket unavailable on the Mac host and outside the Compose network.
 
 ## Prerequisites
 
-- Docker Desktop for Mac is installed and running.
+- Docker Desktop (macOS) or Docker Engine plus the Compose plugin (Linux) is installed and running.
+- Git is available to clone the repository (the OL9 Docker bootstrap installs it).
 - Port `8080` is free for DBConsole.
-- Port `3307` is free if you want Mac-host access to the companion MySQL server.
 - You can choose a local MySQL root password. It is saved only in the ignored `.env` file with mode `0600`.
 
 ## Install or recreate
@@ -23,7 +23,7 @@ The script prompts for the password only when `docker/.env` does not already exi
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080), select `local-admin-profile`, and sign in as `root` using the password in `docker/.env`.
 
-The MySQL service is also reachable from the Mac at `127.0.0.1:3307` for development tools. DBConsole itself uses only the shared private socket.
+MySQL has no published TCP port and starts with classic and X Protocol networking disabled. DBConsole is its only client and reaches it through the shared private socket.
 
 ## Lifecycle commands
 

@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.5`.
+Version summary from `1.0.2a` to `1.1.6`.
+
+## 1.1.6 Summary
+
+Version `1.1.6` makes the Docker deployment generic across macOS and Linux and restricts its companion MySQL service to socket access only.
+
+- Adds an idempotent Oracle Linux 9 Docker Engine, Compose plugin, and Git bootstrap script for clean hosts.
+- Removes MySQL host-port publication, disables classic and X Protocol networking, removes the legacy remote root account, and validates that no MySQL TCP listeners remain.
+- Updates Docker deployment documentation for macOS and Linux prerequisites and socket-only behavior.
 
 ## 1.1.5 Summary
 

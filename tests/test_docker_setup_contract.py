@@ -15,6 +15,9 @@ class DockerSetupContractTests(unittest.TestCase):
         self.assertIn("DBCONSOLE_LOCAL_MYSQL_SOCKET: /var/run/mysqld/mysqld.sock", compose)
         self.assertEqual(compose.count("- dbconsole-mysql-socket:/var/run/mysqld"), 2)
         self.assertIn("dbconsole-mysql-socket:", compose)
+        self.assertIn('command: ["mysqld", "--skip-networking", "--skip-mysqlx"]', compose)
+        self.assertNotIn("MYSQL_ROOT_HOST", compose)
+        self.assertNotIn("3307:3306", compose)
 
     def test_entrypoint_creates_a_socket_backed_local_admin_profile(self):
         entrypoint = (DOCKER_DIR / "docker-entrypoint.sh").read_text(encoding="utf-8")
@@ -28,6 +31,10 @@ class DockerSetupContractTests(unittest.TestCase):
         self.assertIn("compose pull mysql", setup_script)
         self.assertIn("socket_path.is_socket()", setup_script)
         self.assertIn("The socket-backed local-admin-profile was not created.", setup_script)
+        self.assertIn("DROP USER IF EXISTS", setup_script)
+        self.assertIn("SELECT @@skip_networking", setup_script)
+        self.assertIn(":0CEA$", setup_script)
+        self.assertIn(":8114$", setup_script)
 
     def test_deployment_assets_are_grouped_by_target(self):
         for path in (
@@ -38,6 +45,7 @@ class DockerSetupContractTests(unittest.TestCase):
             ROOT_DIR / "OL9" / "README.md",
             ROOT_DIR / "OL9" / "setup.sh",
             ROOT_DIR / "OL9" / "oci_compute_init.sh",
+            ROOT_DIR / "OL9" / "init_docker.sh",
             ROOT_DIR / "ubuntu" / "README.md",
             ROOT_DIR / "ubuntu" / "setup.sh",
             ROOT_DIR / "ubuntu" / "oci_compute_init.sh",
@@ -51,6 +59,7 @@ class DockerSetupContractTests(unittest.TestCase):
 
         self.assertIn("./docker/setup_docker.sh", docker_readme)
         self.assertIn("./OL9/setup.sh", ol9_readme)
+        self.assertIn("./OL9/init_docker.sh", ol9_readme)
         self.assertIn("./ubuntu/setup.sh", ubuntu_readme)
 
 

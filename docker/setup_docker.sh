@@ -54,6 +54,16 @@ fi
 cd "$docker_dir"
 compose pull mysql
 compose up --build --detach --force-recreate
+compose exec -T mysql sh -ec 'mysql --socket=/var/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP USER IF EXISTS '\''root'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+network_status="$(compose exec -T mysql sh -ec 'mysql --batch --skip-column-names --socket=/var/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SELECT @@skip_networking"')"
+if [ "$network_status" != "1" ]; then
+  echo "MySQL classic TCP networking is still enabled: $network_status" >&2
+  exit 1
+fi
+if ! compose exec -T mysql sh -ec 'awk "NR > 1 && \$4 == \"0A\" && (\$2 ~ /:0CEA$/ || \$2 ~ /:8114$/) { found = 1 } END { exit found }" /proc/net/tcp /proc/net/tcp6'; then
+  echo "MySQL classic or X Protocol TCP listener is still enabled." >&2
+  exit 1
+fi
 compose exec -T dbconsole python3 -c '
 import json
 from pathlib import Path
