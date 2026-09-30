@@ -12,12 +12,12 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
 elif command -v docker-compose >/dev/null 2>&1; then
   compose() { docker-compose "$@"; }
 else
-  echo "Docker Compose is required. Install Docker Desktop, then retry." >&2
+  echo "Docker Compose is required. Install Docker Desktop on macOS or Docker Engine with the Compose plugin on Linux, then retry." >&2
   exit 1
 fi
 
 if ! docker info >/dev/null 2>&1; then
-  echo "Docker is not running. Start Docker Desktop, then retry." >&2
+  echo "Docker is not running. Start Docker Desktop on macOS or the Docker service on Linux, then retry." >&2
   exit 1
 fi
 

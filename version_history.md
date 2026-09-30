@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.7`.
+Version summary from `1.0.2a` to `1.1.8`.
+
+## 1.1.8 Summary
+
+Version `1.1.8` makes the Docker installation path explicitly cross-platform.
+
+- The installation selector and Docker guide now identify Docker as a macOS or Linux option.
+- Docker setup diagnostics distinguish Docker Desktop on macOS from the Docker service and Compose plugin on Linux.
 
 ## 1.1.7 Summary
 

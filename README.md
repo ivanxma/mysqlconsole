@@ -2,13 +2,13 @@
 
 DBConsole is a Flask web console for MySQL administration, SQL workspaces, monitoring, MySQL Shell dump/load operations, HeatWave workflows, and OCI Object Storage integration.
 
-Current version: `1.1.7`
+Current version: `1.1.8`
 
 ## Choose an installation
 
 | Environment | Guide |
 | --- | --- |
-| macOS local Docker stack with MySQL Innovation | [Docker installation](docker/README.md) |
+| macOS or Linux local Docker stack with MySQL Innovation | [Docker installation](docker/README.md) |
 | Oracle Linux 9 host | [OL9 installation](OL9/README.md) |
 | Ubuntu host | [Ubuntu installation](ubuntu/README.md) |
 | OCI Compute with Object Storage | [OCI prerequisites and setup](docs/prerequisites-oci.md) |

@@ -2,7 +2,7 @@
 
 Use this path for a self-contained DBConsole environment on macOS or Linux. It starts DBConsole and a persistent companion MySQL server. The server image uses `mysql:innovation`, so each fresh pull follows the MySQL Innovation channel.
 
-DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. The generated `local-admin-profile` uses `/var/run/mysqld/mysqld.sock`, not TCP. This gives the profile the same socket-only local-admin behavior as a host installation while keeping the socket unavailable on the Mac host and outside the Compose network.
+DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. The generated `local-admin-profile` uses `/var/run/mysqld/mysqld.sock`, not TCP. This gives the profile the same socket-only local-admin behavior as a host installation while keeping the socket unavailable on the host and outside the Compose network.
 
 ## Prerequisites
 
@@ -34,10 +34,10 @@ docker-compose logs -f dbconsole mysql
 docker-compose down
 ```
 
-Docker Desktop installations that provide the plugin form can use `docker compose` in place of `docker-compose`.
+Use `docker compose` when the Compose plugin is available (the normal Docker Desktop and current Docker Engine form); `docker-compose` remains supported for older Linux installations.
 
 `down` stops containers but preserves both named volumes. Do not run `docker-compose down --volumes` unless you intend to permanently remove the local DBConsole state and MySQL data.
 
 ## Object Storage limitation
 
-The application uses OCI Compute Instance Principal authentication only. A Docker container on a Mac is not an OCI Compute instance and therefore cannot configure or use OCI Object Storage credentials. Use the OCI Compute installation when Object Storage features are required.
+The local Docker installation does not configure OCI credentials. DBConsole uses OCI Compute Instance Principal authentication only, so use the host-based OCI Compute installation when Object Storage features are required.
