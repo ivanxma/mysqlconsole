@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="eyebrow">Admin</p>
   <h2>Setup Object Storage</h2>
-  <p>Configure Object Storage targets. OCI access is authenticated by this Compute instance's Instance Principal.</p>
+  <p>Configure Object Storage targets. OCI access uses {{ object_storage_authentication_label }}.</p>
 </section>
 
 <section class="panel oci-overview-panel">
@@ -21,7 +21,7 @@
     </div>
     <div>
       <dt>Authentication</dt>
-      <dd>Instance Principal</dd>
+      <dd>{{ object_storage_authentication_label }}</dd>
     </div>
     <div>
       <dt>Region</dt>
@@ -81,13 +81,13 @@
   <div class="panel-header">
     <div>
       <h3>Object Storage Settings</h3>
-      <span class="helper-text">The region selects the Object Storage service endpoint; authentication comes from the Instance Principal.</span>
+      <span class="helper-text">The region selects the Object Storage service endpoint; authentication uses {{ object_storage_authentication_label }}.</span>
     </div>
   </div>
   {% if deployment_region_default %}
   <p class="helper-text">Deployment region default: <code>{{ deployment_region_default }}</code>. Saved profile regions remain authoritative and may target another region.</p>
   {% endif %}
-  <p class="helper-text">Legacy OCI configuration aliases are accepted only until 28 February 2027. Open and save any upgraded profile before that date to persist its Instance Principal settings.</p>
+  <p class="helper-text">Object Storage profile settings never store OCI credentials. Authentication is supplied by the deployment.</p>
   <form method="post" class="form-grid">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label>
@@ -117,7 +117,7 @@
     </label>
     <div class="form-actions">
       <button class="button primary" type="submit" name="setup_action" value="save_object_storage_profile">Save Object Storage Profile</button>
-      <button class="button secondary" type="submit" name="setup_action" value="test_instance_principal_access">Test Instance Principal Access</button>
+      <button class="button secondary" type="submit" name="setup_action" value="test_instance_principal_access">Test {{ object_storage_authentication_label }} Access</button>
     </div>
   </form>
 </section>

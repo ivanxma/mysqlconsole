@@ -1,7 +1,7 @@
 """DB Console owned MySQL Shell request construction.
 
 OCI authorization is deliberately absent here: mysqlsh receives a short-lived PAR
-URL created separately with DB Console's Instance Principal.
+URL created separately with DBConsole's configured Object Storage authentication.
 """
 import json
 import os

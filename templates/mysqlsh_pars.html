@@ -2,7 +2,7 @@
 {% block content %}
 <section class="panel">
   <div class="panel-header">
-    <div><h2>MySQL Shell PAR Setup</h2><p class="helper-text">Create and manage reusable PARs for the Operations page using DB Console Object Storage settings and Instance Principal authentication.</p></div>
+    <div><h2>MySQL Shell PAR Setup</h2><p class="helper-text">Create and manage reusable PARs for the Operations page using DBConsole Object Storage settings and the deployment's configured authentication.</p></div>
     <div class="panel-actions"><a class="button secondary" href="{{ url_for('setup_object_storage_page') }}">Setup Object Storage</a><a class="button secondary" href="{{ url_for('mysqlsh_operations_page') }}">Dump/Load</a></div>
   </div>
   <form method="get" class="field-row">
@@ -12,7 +12,7 @@
     <div class="field-actions-inline"><button class="button secondary" type="submit">Select</button></div>
   </form>
   <dl class="detail-list oci-overview-row">
-    <div><dt>Authentication</dt><dd>Instance Principal</dd></div><div><dt>Region</dt><dd>{{ selected_target.region or '-' }}</dd></div><div><dt>Namespace</dt><dd>{{ selected_target.namespace or '-' }}</dd></div><div><dt>Bucket</dt><dd>{{ selected_target.bucket_name or '-' }}</dd></div><div><dt>Base Prefix</dt><dd>{{ selected_target.bucket_prefix or '-' }}</dd></div>
+    <div><dt>Authentication</dt><dd>Configured deployment authentication</dd></div><div><dt>Region</dt><dd>{{ selected_target.region or '-' }}</dd></div><div><dt>Namespace</dt><dd>{{ selected_target.namespace or '-' }}</dd></div><div><dt>Bucket</dt><dd>{{ selected_target.bucket_name or '-' }}</dd></div><div><dt>Base Prefix</dt><dd>{{ selected_target.bucket_prefix or '-' }}</dd></div>
   </dl>
 </section>
 

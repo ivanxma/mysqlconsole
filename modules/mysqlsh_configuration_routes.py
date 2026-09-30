@@ -131,7 +131,7 @@ def register_mysqlsh_configuration_routes(app, deps):
                         delete_after_use=form["delete_after_use"],
                         expiry_hours=form["expiry_hours"],
                     )
-                    flash(f"PAR `{entry['name']}` created with Instance Principal authentication.", "success")
+                    flash(f"PAR `{entry['name']}` created with configured Object Storage authentication.", "success")
                     return redirect(url_for("mysqlsh_pars_page", object_storage_profile=selected_name))
                 if action == "delete":
                     entry_id = request.form.get("par_entry_id")

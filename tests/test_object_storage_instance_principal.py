@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,41 @@ class InstancePrincipalClientTests(unittest.TestCase):
         self.assertEqual(client_calls[0][0], {"region": "uk-london-1"})
         self.assertEqual(client_calls[1][0], {"region": "us-phoenix-1"})
         self.assertIs(client_calls[0][1]["signer"], client_calls[1][1]["signer"])
+
+    def test_oci_config_is_used_only_after_instance_principal_initialization_fails(self):
+        client_calls = []
+        config_calls = []
+
+        class FailingSigner:
+            def __init__(self):
+                raise RuntimeError("metadata unavailable")
+
+        def fake_from_file(*, file_location, profile_name):
+            config_calls.append((file_location, profile_name))
+            return {"user": "ocid1.user.example", "region": "us-phoenix-1"}
+
+        def fake_client(config, **kwargs):
+            client_calls.append((config, kwargs))
+            return SimpleNamespace()
+
+        fake_sdk = SimpleNamespace(
+            auth=SimpleNamespace(signers=SimpleNamespace(InstancePrincipalsSecurityTokenSigner=FailingSigner)),
+            config=SimpleNamespace(from_file=fake_from_file),
+            object_storage=SimpleNamespace(ObjectStorageClient=fake_client),
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "DBCONSOLE_OBJECT_STORAGE_AUTH_MODE": "instance_principal_then_oci_config",
+                "OCI_CONFIG_FILE": "/home/dbconsole/.oci/config",
+                "OCI_CONFIG_PROFILE": "DOCKER",
+            },
+            clear=False,
+        ), patch("modules.oci_util._load_oci_sdk", return_value=fake_sdk):
+            oci_util.build_object_storage_client({"region": "uk-london-1"})
+
+        self.assertEqual(config_calls, [("/home/dbconsole/.oci/config", "DOCKER")])
+        self.assertEqual(client_calls, [({"user": "ocid1.user.example", "region": "uk-london-1"}, {})])
 
     def test_access_test_checks_namespace_and_bucket(self):
         calls = []

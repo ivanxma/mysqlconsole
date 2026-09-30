@@ -244,7 +244,7 @@ def register_mysqlsh_routes(app, deps):
                         raise ValueError("Confirm the Load Dump target before submitting.")
                     access = deps["test_instance_principal_access"](target)
                     if not access.get("ok"):
-                        raise ValueError(access.get("message") or "Instance Principal Object Storage access failed.")
+                        raise ValueError(access.get("message") or "Object Storage access failed.")
                     if par_entry.get("delete_after_use") and par_is_in_use(par_entry["id"]):
                         raise ValueError("This Delete after used PAR is already assigned to an active job.")
                     job_par = {

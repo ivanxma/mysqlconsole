@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.9`.
+Version summary from `1.0.2a` to `1.1.10`.
+
+## 1.1.10 Summary
+
+Version `1.1.10` adds Docker Object Storage authentication without changing DBConsole's database or Docker socket security model.
+
+- Object Storage operations try OCI Compute Instance Principal first, then use a read-only mounted OCI config directory only when Instance Principal is unavailable.
+- The shared authentication path covers Object Storage folder browsing, uploads, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.
+- Docker documentation describes the container-compatible OCI config mount; credentials remain ignored by Git and excluded from the build context.
 
 ## 1.1.9 Summary
 

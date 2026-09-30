@@ -2,6 +2,7 @@ import codecs
 import csv
 import io
 import json
+import os
 from pathlib import Path
 from threading import Lock
 
@@ -17,6 +18,25 @@ STDLIB_JSON_FALLBACK_MAX_BYTES = 16 * MEBIBYTE
 
 _INSTANCE_PRINCIPAL_SIGNER = None
 _INSTANCE_PRINCIPAL_SIGNER_LOCK = Lock()
+
+
+def object_storage_auth_mode():
+    mode = str(os.environ.get("DBCONSOLE_OBJECT_STORAGE_AUTH_MODE", "instance_principal") or "").strip().lower()
+    if mode not in {"instance_principal", "oci_config", "instance_principal_then_oci_config"}:
+        raise RuntimeError(
+            "Unsupported Object Storage authentication mode. "
+            "Use instance_principal, oci_config, or instance_principal_then_oci_config."
+        )
+    return mode
+
+
+def object_storage_authentication_label():
+    mode = object_storage_auth_mode()
+    if mode == "oci_config":
+        return "OCI config file"
+    if mode == "instance_principal_then_oci_config":
+        return "Instance Principal (OCI config fallback)"
+    return "Instance Principal"
 
 
 def _load_oci_sdk():
@@ -51,15 +71,45 @@ def reset_instance_principal_signer():
         _INSTANCE_PRINCIPAL_SIGNER = None
 
 
+def _build_oci_config_object_storage_client(oci, region):
+    config_file = str(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config") or "").strip()
+    config_profile = str(os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT") or "DEFAULT").strip()
+    if not config_file:
+        raise RuntimeError("OCI_CONFIG_FILE is required for OCI config Object Storage authentication.")
+    try:
+        sdk_config = oci.config.from_file(file_location=config_file, profile_name=config_profile)
+    except Exception as error:
+        raise RuntimeError(
+            f"Unable to load OCI config profile `{config_profile}` for Object Storage. "
+            "Mount a readable OCI config directory and its private key into the container."
+        ) from error
+    sdk_config["region"] = region
+    return oci.object_storage.ObjectStorageClient(sdk_config)
+
+
 def build_object_storage_client(config):
     region = str((config or {}).get("region") or "").strip().lower()
     if not region:
         raise ValueError("Object Storage region is required.")
     oci = _load_oci_sdk()
-    return oci.object_storage.ObjectStorageClient(
-        {"region": region},
-        signer=get_instance_principal_signer(),
-    )
+    auth_mode = object_storage_auth_mode()
+    if auth_mode == "oci_config":
+        return _build_oci_config_object_storage_client(oci, region)
+    try:
+        return oci.object_storage.ObjectStorageClient(
+            {"region": region},
+            signer=get_instance_principal_signer(),
+        )
+    except Exception as instance_principal_error:
+        if auth_mode != "instance_principal_then_oci_config":
+            raise
+        try:
+            return _build_oci_config_object_storage_client(oci, region)
+        except Exception as config_error:
+            raise RuntimeError(
+                "Unable to initialize Object Storage authentication with Instance Principal or the OCI config fallback. "
+                "Confirm OCI metadata access or mount a readable OCI config directory and private key."
+            ) from config_error
 
 
 def resolved_object_storage_endpoint(client):
@@ -493,15 +543,15 @@ def test_instance_principal_access(config):
         if returned_namespace and returned_namespace != namespace:
             return {
                 "ok": False,
-                "message": f"Instance Principal returned namespace `{returned_namespace}`, not configured namespace `{namespace}`.",
+                "message": f"{object_storage_authentication_label()} returned namespace `{returned_namespace}`, not configured namespace `{namespace}`.",
             }
         client.list_objects(namespace, bucket_name, limit=1)
         return {
             "ok": True,
             "message": (
-                f"Instance Principal access succeeded for bucket `{bucket_name}` in namespace `{namespace}` "
+                f"{object_storage_authentication_label()} access succeeded for bucket `{bucket_name}` in namespace `{namespace}` "
                 f"using region `{region}`."
             ),
         }
     except Exception as error:
-        return {"ok": False, "message": f"Instance Principal Object Storage access failed: {error}"}
+        return {"ok": False, "message": f"{object_storage_authentication_label()} Object Storage access failed: {error}"}

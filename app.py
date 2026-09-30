@@ -384,6 +384,7 @@ set_active_object_storage_profile = object_storage_service.set_active_object_sto
 delete_object_storage_profile = object_storage_service.delete_object_storage_profile
 fetch_setup_status = object_storage_service.fetch_setup_status
 test_instance_principal_access = object_storage_service.test_instance_principal_access
+object_storage_authentication_label = object_storage_service.object_storage_authentication_label
 
 get_session_profile = session_service.get_session_profile
 set_session_profile = session_service.set_session_profile
@@ -655,6 +656,7 @@ register_admin_routes(
         "save_uploaded_profile_ssh_key": save_uploaded_profile_ssh_key,
         "deployment_region_default": DBCONSOLE_OBJECT_STORAGE_REGION,
         "test_instance_principal_access": test_instance_principal_access,
+        "object_storage_authentication_label": object_storage_authentication_label,
         "load_object_storage_config": load_object_storage_config,
         "select_object_storage_config": select_object_storage_config,
         "normalize_object_storage": normalize_object_storage,

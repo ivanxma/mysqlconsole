@@ -166,6 +166,7 @@ def register_admin_routes(app, deps):
             object_storage_profiles=store.get("profiles", []),
             active_object_storage_profile=store.get("active_profile_name", ""),
             deployment_region_default=deps["deployment_region_default"],
+            object_storage_authentication_label=deps.get("object_storage_authentication_label", lambda: "Instance Principal")(),
         )
 
     @app.route("/admin/status-variables")

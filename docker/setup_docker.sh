@@ -6,6 +6,7 @@ docker_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(dirname "$docker_dir")
 env_file="$docker_dir/.env"
 legacy_env_file="$project_dir/.env"
+oci_config_dir="$docker_dir/oci"
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   compose() { docker compose "$@"; }
@@ -33,6 +34,9 @@ if [ ! -f "$env_file" ]; then
   chmod 600 "$env_file"
   printf '%s\n' "Created docker/.env with the default localadmin password ChangeMe123!. Change it after first login."
 fi
+
+mkdir -p "$oci_config_dir"
+chmod 700 "$oci_config_dir"
 
 cd "$docker_dir"
 compose pull mysql

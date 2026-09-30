@@ -9,6 +9,7 @@ from modules.oci_util import (
     list_object_storage_files as oci_list_object_storage_files,
     list_object_storage_folders as oci_list_object_storage_folders,
     test_instance_principal_access as oci_test_instance_principal_access,
+    object_storage_authentication_label as oci_object_storage_authentication_label,
     upload_object_storage_file as oci_upload_object_storage_file,
     validate_object_storage_upload as oci_validate_object_storage_upload,
 )
@@ -284,6 +285,10 @@ def normalize_folder_for_target(config, folder_prefix):
 
 def test_instance_principal_access(config):
     return oci_test_instance_principal_access(validate_object_storage_target(config))
+
+
+def object_storage_authentication_label():
+    return oci_object_storage_authentication_label()
 
 
 def build_object_storage_prefix_uri(namespace, bucket_name, prefix=""):

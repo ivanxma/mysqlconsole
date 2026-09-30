@@ -48,6 +48,19 @@ The in-application **Admin > Auto-Update** control is intentionally unavailable 
 
 It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack without removing its named volumes.
 
-## Object Storage limitation
+## Object Storage authentication
 
-The local Docker installation does not configure OCI credentials. DBConsole uses OCI Compute Instance Principal authentication only, so use the host-based OCI Compute installation when Object Storage features are required.
+For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available (for example, when Docker runs on OCI Compute). If metadata authentication is unavailable, it falls back to a read-only OCI config directory mounted at `/home/dbconsole/.oci`.
+
+Create a container-compatible config directory on the Docker host, or use the ignored default `docker/oci/`. The config's `key_file` must use the container path `/home/dbconsole/.oci/<key-file-name>`:
+
+```ini
+[DEFAULT]
+user=ocid1.user.oc1..example
+fingerprint=aa:bb:cc:dd
+tenancy=ocid1.tenancy.oc1..example
+region=uk-london-1
+key_file=/home/dbconsole/.oci/oci_api_key.pem
+```
+
+Set `OCI_CONFIG_DIR` in ignored `docker/.env` to use another directory, and optionally set `OCI_CONFIG_PROFILE`. Keep the directory and key private on the Docker host; the Compose mount is read-only. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.

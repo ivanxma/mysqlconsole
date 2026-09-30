@@ -4,7 +4,7 @@
   <div class="panel-header">
     <div>
       <h2>MySQL Shell Dump/Load</h2>
-      <p class="helper-text">Run scoped dump and load jobs using DB Console profiles and OCI Instance Principal access.</p>
+      <p class="helper-text">Run scoped dump and load jobs using DBConsole profiles and the deployment's configured Object Storage authentication.</p>
     </div>
     <div class="panel-actions">{% if can_manage_mysqlsh_configuration %}<a class="button secondary" href="{{ url_for('mysqlsh_option_profiles_page', kind=option_kind) }}">Option Profiles</a><a class="button secondary" href="{{ url_for('mysqlsh_pars_page', object_storage_profile=form.object_storage_profile) }}">PAR Setup</a>{% endif %}<a class="button secondary" href="{{ url_for('mysqlsh_jobs_page') }}">Jobs</a></div>
   </div>
@@ -15,7 +15,7 @@
     <div><dt>MySQL Profile</dt><dd>{{ session_profile.name or "-" }}</dd></div>
     <div><dt>MySQL Shell</dt><dd>{{ mysqlsh_status.version or "Unavailable" }}</dd></div>
     <div><dt>Active Object Storage Profile</dt><dd>{{ active_object_storage_profile or "-" }}</dd></div>
-    <div><dt>Authentication</dt><dd>Instance Principal</dd></div>
+    <div><dt>Authentication</dt><dd>Configured deployment authentication</dd></div>
   </dl>
 </section>
 
@@ -124,7 +124,7 @@
     {% endif %}
   </div>
 
-  <p class="helper-text">The selected PAR and option profile are bound to the server-side preview. PARs are created with Instance Principal authentication; no OCI API key or config file is used.</p>
+  <p class="helper-text">The selected PAR and option profile are bound to the server-side preview. PARs use the deployment's configured Object Storage authentication.</p>
 
   {% if confirmation %}
   <div class="panel">

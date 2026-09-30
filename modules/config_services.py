@@ -78,3 +78,6 @@ class ObjectStorageConfigService:
 
     def test_instance_principal_access(self, payload):
         return object_storage_util.test_instance_principal_access(payload)
+
+    def object_storage_authentication_label(self):
+        return object_storage_util.object_storage_authentication_label()
