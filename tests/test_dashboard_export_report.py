@@ -40,6 +40,14 @@ class ReportSectionParser(HTMLParser):
 
 
 class DashboardExportReportTests(unittest.TestCase):
+    def test_replication_dashboard_includes_source_and_binlog_dump_views(self):
+        root = Path(__file__).resolve().parent.parent
+        source = (root / "templates/mysql_dashboard.html").read_text(encoding="utf-8")
+
+        self.assertIn("Source Binary Log Status", source)
+        self.assertIn("Connected Replicas", source)
+        self.assertIn("Binlog Dump Threads", source)
+
     def test_innodb_inventory_includes_rows_and_size_labels(self):
         database_row = {
             "database_name_value": "mydb01",

@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.15`.
+Version summary from `1.0.2a` to `1.1.16`.
+
+## 1.1.16 Summary
+
+Version `1.1.16` organizes the Admin Dashboard replication view by server role.
+
+- Source servers show version-tolerant binary-log status, registered replicas, and active binlog-dump threads.
+- Replica status, connection/applier workers, and Group Replication information remain separately organized.
 
 ## 1.1.15 Summary
 

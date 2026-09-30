@@ -1149,11 +1149,34 @@ def fetch_group_replication_member_stats_rows():
 
 
 def fetch_replication_overview_info():
+    def fetch_source_report(statements):
+        errors = []
+        for statement in statements:
+            try:
+                with mysql_connection() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(statement)
+                        rows = cursor.fetchall()
+                return {"columns": list(rows[0].keys()) if rows else [], "rows": rows, "statement": statement}
+            except Exception as error:
+                errors.append(str(error))
+        return {"columns": [], "rows": [], "error": errors[0] if errors else "", "statement": ""}
+
     def fetch_replica_status_report():
         rows = fetch_replica_status_rows()
         columns = list(rows[0].keys()) if rows else []
         return {"columns": columns, "rows": rows}
 
+    source_binary_log_status = fetch_source_report(("SHOW BINARY LOG STATUS", "SHOW MASTER STATUS"))
+    source_replicas = fetch_source_report(("SHOW REPLICAS", "SHOW SLAVE HOSTS"))
+    source_dump_threads = _safe_report(
+        lambda: run_report_query(
+            "SELECT ID AS process_id, USER AS user, HOST AS host, DB AS database_name, "
+            "COMMAND AS command, TIME AS seconds_running, STATE AS state, INFO AS info "
+            "FROM information_schema.processlist "
+            "WHERE COMMAND IN ('Binlog Dump', 'Binlog Dump GTID') ORDER BY TIME DESC"
+        )
+    )
     replica_status_report = _safe_report(fetch_replica_status_report)
     replication_connection = _safe_report(fetch_monitoring_replication_connection_status)
     replication_applier = _safe_report(fetch_monitoring_replication_applier_coordinator)
@@ -1200,6 +1223,11 @@ def fetch_replication_overview_info():
     group_member_count = len(group_member_rows) if not group_members.get("error") else "-"
 
     return {
+        "source_binary_log_status": source_binary_log_status,
+        "source_replicas": source_replicas,
+        "source_dump_threads": source_dump_threads,
+        "source_replica_count": len(source_replicas.get("rows", [])) if not source_replicas.get("error") else "-",
+        "source_dump_thread_count": len(source_dump_threads.get("rows", [])) if not source_dump_threads.get("error") else "-",
         "replica_status": replica_status_report,
         "replication_connection": replication_connection,
         "replication_applier": replication_applier,
@@ -1221,6 +1249,11 @@ def empty_replication_report():
 
 def empty_replication_overview_info():
     return {
+        "source_binary_log_status": empty_replication_report(),
+        "source_replicas": empty_replication_report(),
+        "source_dump_threads": empty_replication_report(),
+        "source_replica_count": "-",
+        "source_dump_thread_count": "-",
         "replica_status": empty_replication_report(),
         "replication_connection": empty_replication_report(),
         "replication_applier": empty_replication_report(),

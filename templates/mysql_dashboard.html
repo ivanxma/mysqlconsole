@@ -742,9 +742,17 @@
 <section class="panel">
   <div class="panel-header">
     <h3>Replication</h3>
-    <span class="helper-text">Replica status, Performance Schema replication tables, and Group Replication metadata when available.</span>
+    <span class="helper-text">Source and replica status, version-appropriate replication statements, Performance Schema, and Group Replication metadata.</span>
   </div>
   <dl class="detail-list dashboard-detail-list">
+    <div>
+      <dt>Connected Replicas</dt>
+      <dd>{{ server_overview.replication_info.source_replica_count }}</dd>
+    </div>
+    <div>
+      <dt>Binlog Dump Threads</dt>
+      <dd>{{ server_overview.replication_info.source_dump_thread_count }}</dd>
+    </div>
     <div>
       <dt>Replica Channels</dt>
       <dd>{{ server_overview.replication_info.replica_channel_count }}</dd>
@@ -770,6 +778,24 @@
       <dd>{{ server_overview.replication_info.group_member_count }}</dd>
     </div>
   </dl>
+  <section class="split-layout split-layout-compact dashboard-security-grid">
+    <article class="dashboard-compact-card">
+      <h4>Source Binary Log Status</h4>
+      {% if server_overview.replication_info.source_binary_log_status.error %}<p class="helper-text">Source status is unavailable: {{ server_overview.replication_info.source_binary_log_status.error }}</p>{% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.source_binary_log_status, "This server is not currently reporting binary log source status.") }}
+      {% endif %}
+    </article>
+    <article class="dashboard-compact-card">
+      <h4>Connected Replicas</h4>
+      {% if server_overview.replication_info.source_replicas.error %}<p class="helper-text">Connected replicas are unavailable: {{ server_overview.replication_info.source_replicas.error }}</p>{% else %}
+      {{ render_dashboard_report_table(server_overview.replication_info.source_replicas, "No replicas are registered with this source.") }}
+      {% endif %}
+    </article>
+  </section>
+  <h4>Binlog Dump Threads</h4>
+  {% if server_overview.replication_info.source_dump_threads.error %}<p class="helper-text">Binlog dump thread information is unavailable: {{ server_overview.replication_info.source_dump_threads.error }}</p>{% else %}
+  {{ render_dashboard_report_table(server_overview.replication_info.source_dump_threads, "No active binlog dump threads.") }}
+  {% endif %}
   {% if server_overview.replication_info.replica_status.error %}
   <p class="helper-text error-text">{{ server_overview.replication_info.replica_status.error }}</p>
   {% endif %}

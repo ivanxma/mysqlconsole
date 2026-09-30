@@ -19,6 +19,8 @@ RUN set -eux; \
     esac; \
     apt-get update; \
     apt-get install --yes --no-install-recommends ca-certificates curl; \
+    mkdir -p /etc/pki/tls/certs; \
+    ln -s /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; \
     curl --fail --location --silent --show-error \
       "https://dev.mysql.com/get/Downloads/MySQL-Shell/mysql-shell-${MYSQL_SHELL_VERSION}-linux-glibc2.28-${mysqlsh_arch}.tar.gz" \
       | tar --extract --gzip --directory /opt; \
