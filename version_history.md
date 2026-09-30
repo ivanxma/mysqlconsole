@@ -8,6 +8,7 @@ Version `1.1.16` organizes the Admin Dashboard replication view by server role.
 
 - Source servers show version-tolerant binary-log status, registered replicas, and active binlog-dump threads.
 - Replica status, connection/applier workers, and Group Replication information remain separately organized.
+- Documents and fixes the generic MySQL Shell Linux archive's Oracle Linux CA-bundle path expectation in the Debian Docker image.
 
 ## 1.1.15 Summary
 
