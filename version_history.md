@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.11`.
+Version summary from `1.0.2a` to `1.1.12`.
+
+## 1.1.12 Summary
+
+Version `1.1.12` separates Object Storage target settings from optional Docker OCI fallback management.
+
+- Admin > Setup Object Storage now uses a Tab View with Object Storage Settings and OCI Config tabs.
+- OCI config upload is optional; Instance Principal remains the only method when no fallback is uploaded and remains the first method when it is.
 
 ## 1.1.11 Summary
 

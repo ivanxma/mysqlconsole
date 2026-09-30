@@ -50,6 +50,6 @@ It pulls the MySQL Innovation image, rebuilds DBConsole, and recreates the stack
 
 ## Object Storage authentication
 
-For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available. If metadata authentication is unavailable, it uses the OCI config fallback selected in **Admin > Setup Object Storage**. Upload the OCI config file and its private key together on that page; both are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository. DBConsole rewrites the uploaded config's `key_file` entry to its private state path.
+For Object Storage only, Docker first uses OCI Compute Instance Principal when it is available. OCI config is optional: if no fallback is uploaded, Instance Principal is the only authentication method. When metadata authentication is unavailable, Docker can use the OCI config fallback selected in **Admin > Setup Object Storage**. Upload the OCI config file and its private key together on that page; both are stored mode `0600` under the private `dbconsole-state` Docker volume and are never rendered or included in the image or source repository. DBConsole rewrites the uploaded config's `key_file` entry to its private state path.
 
 Set **OCI Config Profile (Fallback)** to the named profile used for that Object Storage target. The credentials are used only for Object Storage calls: folder browsing, file upload, PAR setup, MySQL Shell dump/load, and Lakehouse workflows.

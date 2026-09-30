@@ -34,6 +34,13 @@
   </dl>
 </section>
 
+<section class="tab-shell">
+  <div class="tab-bar" role="tablist" aria-label="Object Storage configuration tabs">
+    <a class="tab-link {% if object_storage_tab == 'settings' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if object_storage_tab == 'settings' else 'false' }}" href="{{ url_for('setup_object_storage_page', tab='settings', profile=object_storage_config.profile_name) }}">Object Storage Settings</a>
+    <a class="tab-link {% if object_storage_tab == 'oci-config' %}active{% endif %}" role="tab" aria-selected="{{ 'true' if object_storage_tab == 'oci-config' else 'false' }}" href="{{ url_for('setup_object_storage_page', tab='oci-config', profile=object_storage_config.profile_name) }}">OCI Config</a>
+  </div>
+
+{% if object_storage_tab == 'settings' %}
 <section class="panel oci-profile-selector-panel">
   <div class="panel-header">
     <div>
@@ -88,7 +95,7 @@
   <p class="helper-text">Deployment region default: <code>{{ deployment_region_default }}</code>. Saved profile regions remain authoritative and may target another region.</p>
   {% endif %}
   <p class="helper-text">Object Storage profile settings never store OCI credentials. Authentication is supplied by the deployment.</p>
-  <form method="post" class="form-grid" enctype="multipart/form-data">
+  <form method="post" class="form-grid">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label>
       Profile Name *
@@ -109,17 +116,7 @@
     <label>
       OCI Config Profile (Fallback) *
       <input name="oci_config_profile" type="text" required pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,79}" value="{{ object_storage_config.oci_config_profile or 'DEFAULT' }}" placeholder="DEFAULT">
-      <span class="helper-text">Docker uses this profile from the read-only mounted OCI config only when Instance Principal is unavailable. The config file and private key are never uploaded or stored here.</span>
-    </label>
-    <label>
-      OCI Config File
-      <input name="oci_config_file" type="file" accept=".config,text/plain">
-      <span class="helper-text">Docker fallback only. Uploaded to the private DBConsole Docker state volume; never displayed.</span>
-    </label>
-    <label>
-      OCI Private Key
-      <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain">
-      <span class="helper-text">Upload together with the OCI config. DBConsole replaces its key_file path with its private state path.</span>
+      <span class="helper-text">Docker uses this named OCI profile only when Instance Principal is unavailable. Upload its config and key in the OCI Config tab.</span>
     </label>
     <label class="full-span">
       Bucket Prefix
@@ -135,5 +132,25 @@
       <button class="button secondary" type="submit" name="setup_action" value="test_instance_principal_access">Test {{ object_storage_authentication_label }} Access</button>
     </div>
   </form>
+</section>
+{% else %}
+<section class="panel">
+  <div class="panel-header"><div><h3>Optional OCI Config Fallback</h3><span class="helper-text">No upload is required: Instance Principal remains the first authentication attempt. Upload a config only when Docker needs a fallback.</span></div></div>
+  <form method="post" class="form-grid" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label>
+      OCI Config File *
+      <input name="oci_config_file" type="file" accept=".config,text/plain" required>
+      <span class="helper-text">The config is stored in DBConsole's private Docker state volume and never displayed.</span>
+    </label>
+    <label>
+      OCI Private Key *
+      <input name="oci_private_key_file" type="file" accept=".pem,.key,text/plain" required>
+      <span class="helper-text">DBConsole stores it owner-only and updates the config's key_file location.</span>
+    </label>
+    <div class="form-actions"><button class="button primary" type="submit" name="setup_action" value="save_oci_config">Upload OCI Config</button></div>
+  </form>
+</section>
+{% endif %}
 </section>
 {% endblock %}

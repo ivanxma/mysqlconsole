@@ -130,7 +130,13 @@ def register_admin_routes(app, deps):
                 or ""
             ).strip()
             try:
-                if action == "activate_object_storage_profile":
+                if action == "save_oci_config":
+                    deps["save_uploaded_oci_config"](
+                        request.files.get("oci_config_file"),
+                        request.files.get("oci_private_key_file"),
+                    )
+                    flash("OCI config and private key were saved in DBConsole private state.", "success")
+                elif action == "activate_object_storage_profile":
                     if not selected_profile:
                         raise ValueError("Choose an Object Storage profile to activate.")
                     deps["set_active_object_storage_profile"](selected_profile)
@@ -142,12 +148,6 @@ def register_admin_routes(app, deps):
                     flash(f"Object Storage profile `{selected_profile}` deleted.", "success")
                 else:
                     config = deps["normalize_object_storage"](request.form.to_dict())
-                    if request.files.get("oci_config_file") or request.files.get("oci_private_key_file"):
-                        upload_result = deps["save_uploaded_oci_config"](
-                            request.files.get("oci_config_file"),
-                            request.files.get("oci_private_key_file"),
-                        )
-                        flash("OCI config and private key were saved in DBConsole private state.", "success")
                     if action == "test_instance_principal_access":
                         test_result = deps["test_instance_principal_access"](config)
                         flash(test_result["message"], "success" if test_result.get("ok") else "error")
@@ -160,6 +160,9 @@ def register_admin_routes(app, deps):
             return redirect(url_for("setup_object_storage_page", profile=selected_profile))
 
         selected_profile = str(request.args.get("profile") or store.get("active_profile_name") or "").strip()
+        object_storage_tab = str(request.args.get("tab") or "settings").strip().lower()
+        if object_storage_tab not in {"settings", "oci-config"}:
+            object_storage_tab = "settings"
         try:
             config = deps["select_object_storage_config"](selected_profile)
         except Exception as error:
@@ -173,6 +176,7 @@ def register_admin_routes(app, deps):
             active_object_storage_profile=store.get("active_profile_name", ""),
             deployment_region_default=deps["deployment_region_default"],
             object_storage_authentication_label=deps.get("object_storage_authentication_label", lambda: "Instance Principal")(),
+            object_storage_tab=object_storage_tab,
         )
 
     @app.route("/admin/status-variables")
