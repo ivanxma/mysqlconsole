@@ -9,7 +9,7 @@ DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. 
 - Docker Desktop (macOS) or Docker Engine plus the Compose plugin (Linux) is installed and running.
 - Git is available to clone the repository (the OL9 Docker bootstrap installs it).
 - Port `8080` is free for DBConsole.
-- You can choose a local MySQL root password. It is saved only in the ignored `.env` file with mode `0600`.
+- Fresh setup uses `localadmin` / `ChangeMe123!` and saves the password only in ignored `docker/.env` with mode `0600`.
 
 ## Install or recreate
 
@@ -19,9 +19,9 @@ From the repository root, run:
 ./docker/setup_docker.sh
 ```
 
-The script prompts for the password only when `docker/.env` does not already exist, pulls the latest MySQL Innovation image, builds DBConsole, waits for the MySQL health check through Compose, and recreates the containers while retaining the `dbconsole-state` and `dbconsole-mysql` volumes. It migrates a legacy root `.env` to `docker/.env` once.
+The script requires no parameters: it creates `docker/.env` with the default `ChangeMe123!` password when needed, pulls the latest MySQL Innovation image, builds DBConsole, waits for the MySQL health check through Compose, and recreates the containers while retaining the `dbconsole-state` and `dbconsole-mysql` volumes. It migrates a legacy root `.env` to `docker/.env` once.
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080), select `local-admin-profile`, and sign in as `root` using the password in `docker/.env`.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080), select `local-admin-profile`, and sign in as `localadmin` with `ChangeMe123!` (or the password in `docker/.env`). DBConsole requires an immediate password change.
 
 MySQL has no published TCP port and starts with classic and X Protocol networking disabled. DBConsole is its only client and reaches it through the shared private socket.
 

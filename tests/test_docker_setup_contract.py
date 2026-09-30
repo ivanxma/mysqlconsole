@@ -16,6 +16,7 @@ class DockerSetupContractTests(unittest.TestCase):
         self.assertEqual(compose.count("- dbconsole-mysql-socket:/var/run/mysqld"), 2)
         self.assertIn("dbconsole-mysql-socket:", compose)
         self.assertIn('command: ["mysqld", "--skip-networking", "--skip-mysqlx"]', compose)
+        self.assertIn('MYSQL_ROOT_PASSWORD: ${DBCONSOLE_LOCAL_ADMIN_PASSWORD:-ChangeMe123!}', compose)
         self.assertNotIn("MYSQL_ROOT_HOST", compose)
         self.assertNotIn("3307:3306", compose)
 
@@ -23,6 +24,9 @@ class DockerSetupContractTests(unittest.TestCase):
         entrypoint = (DOCKER_DIR / "docker-entrypoint.sh").read_text(encoding="utf-8")
 
         self.assertIn('"socket_enabled": True', entrypoint)
+        self.assertIn('"username": "localadmin"', entrypoint)
+        self.assertIn('"require_password_change": True', entrypoint)
+        self.assertIn('reconciled_profile["require_password_change"] = bool(item.get("require_password_change"))', entrypoint)
         self.assertIn('"socket_path": os.environ.get("DBCONSOLE_LOCAL_MYSQL_SOCKET", "/var/run/mysqld/mysqld.sock")', entrypoint)
 
     def test_setup_script_verifies_the_socket_profile_after_recreation(self):
@@ -32,6 +36,8 @@ class DockerSetupContractTests(unittest.TestCase):
         self.assertIn("socket_path.is_socket()", setup_script)
         self.assertIn("The socket-backed local-admin-profile was not created.", setup_script)
         self.assertIn("DROP USER IF EXISTS", setup_script)
+        self.assertIn("DBCONSOLE_LOCAL_ADMIN_PASSWORD=ChangeMe123!", setup_script)
+        self.assertIn("-ulocaladmin", setup_script)
         self.assertIn("SELECT @@skip_networking", setup_script)
         self.assertIn(":0CEA$", setup_script)
         self.assertIn(":8114$", setup_script)

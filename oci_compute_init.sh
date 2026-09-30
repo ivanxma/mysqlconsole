@@ -14,7 +14,7 @@ SERVICE_NAME="${SERVICE_NAME:-dbconsole-https.service}"
 HOST="${HOST:-0.0.0.0}"
 LOCAL_MYSQL_PROFILE_NAME="${LOCAL_MYSQL_PROFILE_NAME:-local-admin-profile}"
 LOCAL_MYSQL_ADMIN_USER="${LOCAL_MYSQL_ADMIN_USER:-localadmin}"
-LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-}"
+LOCAL_MYSQL_ADMIN_PASSWORD="${LOCAL_MYSQL_ADMIN_PASSWORD:-ChangeMe123!}"
 LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-mysql}"
 LOCAL_MYSQL_SOCKET="${LOCAL_MYSQL_SOCKET:-}"
 LOCAL_MYSQL_INIT_FILE_PROVISIONING="${LOCAL_MYSQL_INIT_FILE_PROVISIONING:-${LOCAL_MYSQL_RESET_UNKNOWN_ROOT:-1}}"
@@ -147,11 +147,6 @@ fi
 
 run_as_app_user git clone "$APP_REPO" "$APP_DIR"
 cd "$APP_DIR"
-
-if [ -z "$LOCAL_MYSQL_ADMIN_PASSWORD" ]; then
-  echo "LOCAL_MYSQL_ADMIN_PASSWORD must be provided for first-boot local-admin-profile bootstrap. Refusing to generate or log a password automatically." >&2
-  exit 1
-fi
 
 SETUP_ARGS=( "$OS_FAMILY" "$DEPLOY_MODE" )
 if [ -n "$HTTP_PORT" ]; then

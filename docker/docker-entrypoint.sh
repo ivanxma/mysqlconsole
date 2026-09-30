@@ -18,12 +18,12 @@ profile = {
     "host": "",
     "port": 3306,
     "database": "mysql",
-    "username": "root",
+    "username": "localadmin",
     "ssl_mode": "DISABLED",
     "socket_enabled": True,
     "socket_path": os.environ.get("DBCONSOLE_LOCAL_MYSQL_SOCKET", "/var/run/mysqld/mysqld.sock"),
     "ssh_enabled": False,
-    "require_password_change": False,
+    "require_password_change": True,
 }
 
 try:
@@ -39,7 +39,10 @@ updated_profiles = []
 profile_found = False
 for item in profiles:
     if isinstance(item, dict) and item.get("name", "").strip().lower() == profile_key:
-        updated_profiles.append({**item, **profile})
+        reconciled_profile = {**item, **profile}
+        if item.get("socket_enabled") and item.get("username") == profile["username"]:
+            reconciled_profile["require_password_change"] = bool(item.get("require_password_change"))
+        updated_profiles.append(reconciled_profile)
         profile_found = True
     else:
         updated_profiles.append(item)

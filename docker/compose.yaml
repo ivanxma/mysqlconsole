@@ -25,7 +25,7 @@ services:
     image: mysql:innovation
     command: ["mysqld", "--skip-networking", "--skip-mysqlx"]
     environment:
-      MYSQL_ROOT_PASSWORD: ${DBCONSOLE_LOCAL_ADMIN_PASSWORD:?Set DBCONSOLE_LOCAL_ADMIN_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${DBCONSOLE_LOCAL_ADMIN_PASSWORD:-ChangeMe123!}
     volumes:
       - dbconsole-mysql:/var/lib/mysql
       - dbconsole-mysql-socket:/var/run/mysqld

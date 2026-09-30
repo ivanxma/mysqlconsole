@@ -29,32 +29,23 @@ fi
 
 if [ ! -f "$env_file" ]; then
   umask 077
-  printf '%s\n' "Create a password for the local MySQL root account."
-  printf '%s' "Password: "
-  stty -echo
-  IFS= read -r mysql_password
-  stty echo
-  printf '\n%s' "Confirm password: "
-  stty -echo
-  IFS= read -r mysql_password_confirm
-  stty echo
-  printf '\n'
-
-  if [ -z "$mysql_password" ] || [ "$mysql_password" != "$mysql_password_confirm" ]; then
-    unset mysql_password mysql_password_confirm
-    echo "Passwords were empty or did not match; no .env file was created." >&2
-    exit 1
-  fi
-
-  printf 'DBCONSOLE_LOCAL_ADMIN_PASSWORD=%s\n' "$mysql_password" > "$env_file"
+  printf '%s\n' 'DBCONSOLE_LOCAL_ADMIN_PASSWORD=ChangeMe123!' > "$env_file"
   chmod 600 "$env_file"
-  unset mysql_password mysql_password_confirm
+  printf '%s\n' "Created docker/.env with the default localadmin password ChangeMe123!. Change it after first login."
 fi
 
 cd "$docker_dir"
 compose pull mysql
 compose up --build --detach --force-recreate
-compose exec -T mysql sh -ec 'mysql --socket=/var/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP USER IF EXISTS '\''root'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+localadmin_password_b64="$(compose exec -T mysql sh -ec 'printf %s "$MYSQL_ROOT_PASSWORD" | base64 | tr -d "\n"')"
+printf '%s\n' "SET @dbconsole_password = CONVERT(FROM_BASE64('$localadmin_password_b64') USING utf8mb4);" \
+  "SET @dbconsole_create = CONCAT(\"CREATE USER IF NOT EXISTS 'localadmin'@'localhost' IDENTIFIED BY \", QUOTE(@dbconsole_password));" \
+  'PREPARE dbconsole_stmt FROM @dbconsole_create; EXECUTE dbconsole_stmt; DEALLOCATE PREPARE dbconsole_stmt;' \
+  "SET @dbconsole_alter = CONCAT(\"ALTER USER 'localadmin'@'localhost' IDENTIFIED BY \", QUOTE(@dbconsole_password));" \
+  'PREPARE dbconsole_stmt FROM @dbconsole_alter; EXECUTE dbconsole_stmt; DEALLOCATE PREPARE dbconsole_stmt;' \
+  "GRANT ALL PRIVILEGES ON *.* TO 'localadmin'@'localhost' WITH GRANT OPTION;" \
+  "DROP USER IF EXISTS 'root'@'%'; FLUSH PRIVILEGES;" \
+  | compose exec -T mysql sh -ec 'mysql --socket=/var/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD"'
 network_status="$(compose exec -T mysql sh -ec 'mysql --batch --skip-column-names --socket=/var/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SELECT @@skip_networking"')"
 if [ "$network_status" != "1" ]; then
   echo "MySQL classic TCP networking is still enabled: $network_status" >&2
@@ -64,6 +55,7 @@ if ! compose exec -T mysql sh -ec 'awk "NR > 1 && \$4 == \"0A\" && (\$2 ~ /:0CEA
   echo "MySQL classic or X Protocol TCP listener is still enabled." >&2
   exit 1
 fi
+compose exec -T mysql sh -ec 'mysql --socket=/var/run/mysqld/mysqld.sock -ulocaladmin -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1" >/dev/null'
 compose exec -T dbconsole python3 -c '
 import json
 from pathlib import Path
@@ -77,4 +69,4 @@ if not any(item.get("name") == "local-admin-profile" and item.get("socket_enable
 '
 compose ps
 printf '%s\n' "DBConsole is available at http://127.0.0.1:8080"
-printf '%s\n' "Sign in with local-admin-profile, user root, and the password in docker/.env."
+printf '%s\n' "Sign in with local-admin-profile, user localadmin, and the password in docker/.env. Change the default ChangeMe123! password immediately."

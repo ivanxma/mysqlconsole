@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.6`.
+Version summary from `1.0.2a` to `1.1.7`.
+
+## 1.1.7 Summary
+
+Version `1.1.7` standardizes first-use local administrator credentials across host, OCI, and Docker installation paths.
+
+- Fresh setup now defaults to `localadmin` / `ChangeMe123!` without requiring setup parameters; each installation forces an immediate password change after the first successful sign-in.
+- Docker creates its ignored mode-`0600` password file automatically, provisions `localadmin@localhost`, and keeps MySQL socket-only.
+- Existing Docker profiles preserve their completed password-change state across container recreation.
 
 ## 1.1.6 Summary
 

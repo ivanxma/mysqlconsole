@@ -2,7 +2,7 @@
 
 DBConsole is a Flask web console for MySQL administration, SQL workspaces, monitoring, MySQL Shell dump/load operations, HeatWave workflows, and OCI Object Storage integration.
 
-Current version: `1.1.6`
+Current version: `1.1.7`
 
 ## Choose an installation
 
@@ -17,8 +17,8 @@ Oracle Linux 8 is no longer supported.
 
 ## Before you begin
 
-- Docker users need Docker Desktop and a local MySQL password.
-- Linux users need Oracle Linux 9 or Ubuntu, `sudo`, and an explicit local MySQL administrator password.
+- Docker users need Docker Desktop. Fresh Docker setup uses `localadmin` / `ChangeMe123!` and requires an immediate password change at first sign-in.
+- Linux users need Oracle Linux 9 or Ubuntu and `sudo`. Fresh host setup uses `localadmin` / `ChangeMe123!` and requires an immediate password change at first sign-in.
 - OCI Object Storage users need a dedicated test bucket plus Compute Instance Principal IAM permissions. See the [specific bucket and IAM requirements](docs/prerequisites-oci.md).
 
 ## Daily operations

@@ -19,4 +19,4 @@ Use `start_mysql.sh` and `stop_mysql.sh` only for the app-managed MySQL installa
 
 ## Reset the local administrator
 
-Use `reset_localadmin_password.sh` on a host installation when the local administrator password must be reset. It never saves the password. Docker uses the MySQL root password stored in its local `.env`; changing that password after MySQL initialization requires a normal MySQL password change, not editing `.env` alone.
+Use `reset_localadmin_password.sh` on a host installation when the local administrator password must be reset. It never saves the password. Docker uses `localadmin`; its initial password is held in ignored `docker/.env`. After MySQL initialization, change the account password through DBConsole or MySQL rather than editing `.env` alone.
