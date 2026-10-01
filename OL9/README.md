@@ -31,4 +31,11 @@ Sign out and back in so the `docker` group membership takes effect, then clone D
 
 ## OCI first boot
 
-Use `./OL9/oci_compute_init.sh` as the OCI user-data entry point. It defaults to `localadmin` / `ChangeMe123!`; override the environment only when needed and change the password immediately after first login. See [OCI prerequisites](../docs/prerequisites-oci.md) for the test bucket and Instance Principal IAM policy.
+Create the Compute instance, then open **Advanced options → Management → Initialization script** and paste this one-step installer. It clones DBConsole, runs the OL9 setup, installs MySQL Shell Innovation, creates the service, and leaves status in `/var/log/dbconsole-init.log`.
+
+```bash
+#!/bin/bash
+curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh | env OS_FAMILY=ol9 bash
+```
+
+After boot, connect with `ssh opc@&lt;public-ip&gt;`. The login banner shows installation state; verify with `sudo systemctl status dbconsole-https.service` and open `https://&lt;public-ip&gt;`. The init script is rerunnable: it refreshes its Git checkout with a fast-forward pull instead of replacing it. See [OCI prerequisites](../docs/prerequisites-oci.md) for ingress, the test bucket, and Instance Principal IAM policy.

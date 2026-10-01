@@ -8,6 +8,7 @@ Complete these requirements before installing DBConsole on OCI Compute or config
 - Use the image’s normal SSH user (`opc` for Oracle Linux, `ubuntu` for Ubuntu) and grant it `sudo` access.
 - Allow inbound TCP `443` for HTTPS, or `80` for HTTP, in the instance subnet security list or NSG. Setup configures the host firewall, but it cannot alter OCI network rules.
 - Ensure the instance can reach GitHub, Oracle package repositories, and OCI Object Storage over HTTPS.
+- For a one-step deployment, paste the platform's Initialization Script from the [OL9 guide](../OL9/README.md#oci-first-boot) or [Ubuntu guide](../ubuntu/README.md#oci-first-boot) into **Advanced options → Management → Initialization script** while creating the instance.
 
 ## Test bucket
 

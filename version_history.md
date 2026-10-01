@@ -1,6 +1,14 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.17`.
+Version summary from `1.0.2a` to `1.1.18`.
+
+## 1.1.18 Summary
+
+Version `1.1.18` restores OCI Compute as a one-step Initialization Script deployment.
+
+- OL9 and Ubuntu guides provide paste-ready OCI Initialization Script commands for first boot.
+- The shared init script derives the correct image login user (`opc` or `ubuntu`) and refreshes an existing checkout safely on rerun.
+- OCI prerequisites now link directly to the platform-specific one-step path.
 
 ## 1.1.17 Summary
 

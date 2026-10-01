@@ -3,10 +3,17 @@ set -euo pipefail
 
 APP_TITLE="${APP_TITLE:-MySQL DBConsole}"
 APP_REPO="${APP_REPO:-https://github.com/ivanxma/mysqlconsole.git}"
-APP_USER="${APP_USER:-opc}"
+OS_FAMILY="${OS_FAMILY:-ol9}"
+APP_USER_INPUT="${APP_USER:-}"
+case "$OS_FAMILY" in
+  ol9) DEFAULT_APP_USER="opc" ;;
+  ubuntu) DEFAULT_APP_USER="ubuntu" ;;
+  *) echo "Unsupported OCI init OS_FAMILY: $OS_FAMILY" >&2; exit 1 ;;
+esac
+APP_USER="${APP_USER_INPUT:-$DEFAULT_APP_USER}"
 APP_GROUP="${APP_GROUP:-$APP_USER}"
 APP_DIR="${APP_DIR:-/home/$APP_USER/mysqlconsole}"
-OS_FAMILY="${OS_FAMILY:-ol9}"
+APP_BRANCH="${APP_BRANCH:-main}"
 DEPLOY_MODE="${DEPLOY_MODE:-https}"
 HTTP_PORT="${HTTP_PORT:-}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
@@ -141,11 +148,16 @@ install_package_prereqs
 mkdir -p "$(dirname "$APP_DIR")"
 chown "$APP_USER:$APP_GROUP" "$(dirname "$APP_DIR")"
 
-if [ -d "$APP_DIR" ]; then
+if [ -d "$APP_DIR/.git" ]; then
+  run_as_app_user git -C "$APP_DIR" fetch --all --prune
+  run_as_app_user git -C "$APP_DIR" checkout "$APP_BRANCH"
+  run_as_app_user git -C "$APP_DIR" pull --ff-only origin "$APP_BRANCH"
+elif [ -e "$APP_DIR" ]; then
   mv "$APP_DIR" "${APP_DIR}.$(date +%Y%m%d%H%M%S)"
+  run_as_app_user git clone --branch "$APP_BRANCH" "$APP_REPO" "$APP_DIR"
+else
+  run_as_app_user git clone --branch "$APP_BRANCH" "$APP_REPO" "$APP_DIR"
 fi
-
-run_as_app_user git clone "$APP_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
 SETUP_ARGS=( "$OS_FAMILY" "$DEPLOY_MODE" )
