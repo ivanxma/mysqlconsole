@@ -150,6 +150,17 @@ class ResourceAndUpdateGuardTests(unittest.TestCase):
             self.assertIn("NoNewPrivileges", reason)
             run.assert_not_called()
 
+    def test_unprivileged_update_skips_local_mysql_provisioning_without_failing(self):
+        setup = (ROOT_DIR / "setup.sh").read_text(encoding="utf-8")
+        skip_guard = setup[
+            setup.index('if skip_privileged_setup_enabled && local_mysql_bootstrap_requested'):
+            setup.index('write_runtime_env "$http_port"', setup.index('if skip_privileged_setup_enabled && local_mysql_bootstrap_requested'))
+        ]
+        self.assertIn('log_skipped_privileged_step "local MySQL Server verification and provisioning"', skip_guard)
+        self.assertIn("else", skip_guard)
+        self.assertIn('install_local_mysql_server "$os_family"', skip_guard)
+        self.assertIn('configure_local_mysql_admin_account "$os_family"', skip_guard)
+
     def test_https_responses_receive_security_headers(self):
         app = Flask(__name__)
         app.secret_key = "test"

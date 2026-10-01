@@ -3564,14 +3564,22 @@ main() {
   run_dependency_audit
 
   run_mysqlsh_installer "$os_family"
-  install_local_mysql_server "$os_family"
-  write_local_mysql_socket_only_config "$os_family"
-  configure_ubuntu_mysqld_apparmor "$os_family"
-  if local_mysql_autostart_enabled; then
-    restart_local_mysql_service "$os_family"
+  if skip_privileged_setup_enabled && local_mysql_bootstrap_requested && [[ "$os_family" != "macos" ]]; then
+    # Auto-Update runs under a hardened systemd service with NoNewPrivileges.
+    # Its unprivileged path must not attempt to install, restart, or reset the
+    # already-provisioned socket-only local MySQL service. Those operations
+    # require sudo and are intentionally left to an SSH-run setup invocation.
+    log_skipped_privileged_step "local MySQL Server verification and provisioning"
+  else
+    install_local_mysql_server "$os_family"
+    write_local_mysql_socket_only_config "$os_family"
+    configure_ubuntu_mysqld_apparmor "$os_family"
+    if local_mysql_autostart_enabled; then
+      restart_local_mysql_service "$os_family"
+    fi
+    configure_local_mysql_admin_account "$os_family"
+    write_local_admin_profile
   fi
-  configure_local_mysql_admin_account "$os_family"
-  write_local_admin_profile
   write_runtime_env "$http_port" "$https_port" "$host_value" "$ssl_cert_file" "$ssl_key_file" "$os_family" "$deploy_mode" "$object_storage_region"
   harden_local_file_permissions
   setup_systemd_services "$os_family" "$deploy_mode" "$ssl_cert_file" "$ssl_key_file" "$http_port" "$https_port"

@@ -11,7 +11,7 @@ Use `dbconsole-http.service` when HTTP was selected during setup.
 
 ## Update
 
-Use **Admin > Auto-Update** while signed in through `local-admin-profile` for application updates. Rerun `./setup.sh` from SSH when package installation, firewall changes, or systemd configuration must be refreshed.
+Use **Admin > Auto-Update** while signed in through `local-admin-profile` for application updates. When the hardened service cannot use passwordless sudo, Auto-Update refreshes application code and Python dependencies, leaves the running socket-only local MySQL service and credentials unchanged, and restarts DBConsole. Rerun `./setup.sh` from SSH when package installation, MySQL Shell upgrades, local-MySQL provisioning, firewall changes, or systemd configuration must be refreshed.
 
 ## Local MySQL
 

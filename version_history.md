@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.19`.
+Version summary from `1.0.2a` to `1.1.20`.
+
+## 1.1.20 Summary
+
+Version `1.1.20` repairs Linux Auto-Update when DBConsole runs with systemd `NoNewPrivileges`.
+
+- The unprivileged update path now skips local MySQL installation, restart, and credential provisioning rather than treating the intentional privileged-step skip as a setup failure.
+- Auto-Update continues to refresh source and Python dependencies, then restarts the DBConsole service; SSH-run setup remains required for privileged changes.
 
 ## 1.1.19 Summary
 
