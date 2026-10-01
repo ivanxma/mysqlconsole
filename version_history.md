@@ -1,6 +1,13 @@
 # DBConsole Version History
 
-Version summary from `1.0.2a` to `1.1.18`.
+Version summary from `1.0.2a` to `1.1.19`.
+
+## 1.1.19 Summary
+
+Version `1.1.19` removes the MySQL Shell locale warning from the Docker deployment.
+
+- The DBConsole Docker image installs locale support, generates `en_US.UTF-8`, and sets `LANG` and `LC_ALL`.
+- Rebuilt Docker containers run MySQL Shell without the missing-`LC_ALL` warning.
 
 ## 1.1.18 Summary
 

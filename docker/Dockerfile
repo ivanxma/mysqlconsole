@@ -4,6 +4,8 @@ ARG MYSQL_SHELL_VERSION=26.7.1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
     DBCONSOLE_RUNTIME_DIR=/run/dbconsole \
     DBCONSOLE_STATE_DIR=/var/lib/dbconsole \
     DBCONSOLE_LISTENER_SCHEME=http \
@@ -18,7 +20,9 @@ RUN set -eux; \
       *) echo "Unsupported MySQL Shell architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac; \
     apt-get update; \
-    apt-get install --yes --no-install-recommends ca-certificates curl; \
+    apt-get install --yes --no-install-recommends ca-certificates curl locales; \
+    sed -i 's/^# \(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen; \
+    locale-gen; \
     mkdir -p /etc/pki/tls/certs; \
     ln -s /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; \
     curl --fail --location --silent --show-error \

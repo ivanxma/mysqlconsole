@@ -4,6 +4,8 @@ Use this path for a self-contained DBConsole environment on macOS or Linux. It s
 
 DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. The generated `local-admin-profile` uses `/var/run/mysqld/mysqld.sock`, not TCP. This gives the profile the same socket-only local-admin behavior as a host installation while keeping the socket unavailable on the host and outside the Compose network.
 
+The DBConsole image includes the generated `en_US.UTF-8` locale. MySQL Shell therefore runs without the missing-`LC_ALL` locale warning that can occur in minimal Debian images.
+
 ## Prerequisites
 
 - Docker Desktop (macOS) or Docker Engine plus the Compose plugin (Linux) is installed and running.
