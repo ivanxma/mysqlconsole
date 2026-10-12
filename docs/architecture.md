@@ -2,13 +2,13 @@
 
 DBConsole can run in Docker, directly on a Mac, or on an OCI Compute host. Each deployment below has its own diagram and runtime details. Object Storage access uses **OCI config outside OCI** and **Instance Principal on an OCI host**.
 
-| Option | Where DBConsole runs | Local administrator database | Object Storage authentication |
+| Deployment | Where DBConsole runs | Local administrator database | Object Storage authentication |
 | --- | --- | --- | --- |
-| [1. Docker](#option-1-docker-containers) | Application container on macOS or Linux | Separate MySQL container, shared Unix socket | OCI config for a customer machine outside OCI |
-| [2. Native macOS](#option-2-native-macos) | Python environment directly on the Mac | App-managed MySQL process, Unix socket | OCI config, explicitly enabled for the native runtime |
-| [3. OCI host](#option-3-oci-host) | Oracle Linux 9 or Ubuntu Compute instance | Local MySQL service, Unix socket | Compute Instance Principal and IAM policy |
+| [Docker](#docker-containers) | Application container on macOS or Linux | Separate MySQL container, shared Unix socket | OCI config for a customer machine outside OCI |
+| [Native macOS](#native-macos) | Python environment directly on the Mac | App-managed MySQL process, Unix socket | OCI config, explicitly enabled for the native runtime |
+| [OCI host](#oci-host) | Oracle Linux 9 or Ubuntu Compute instance | Local MySQL service, Unix socket | Compute Instance Principal and IAM policy |
 
-## Option 1: Docker containers
+## Docker containers
 
 ![Docker deployment architecture](diagrams/architecture-docker.svg)
 
@@ -30,7 +30,7 @@ For a customer machine outside OCI, configure **Admin > Setup Object Storage > O
 
 Start or refresh the stack with `./docker/setup_docker.sh`. Image replacement preserves the named volumes. In-application Auto-Update is unavailable in Docker; update by rebuilding the stack. See the [Docker guide](../docker/README.md).
 
-## Option 2: Native macOS
+## Native macOS
 
 ![Native macOS deployment architecture](diagrams/architecture-macos.svg)
 
@@ -54,7 +54,7 @@ Open `http://127.0.0.1:8080`. HTTPS is also available through `start_https.sh` w
 
 Settings, keys, profiles and job records default to `.state`; temporary job requests use `.runtime`. Local MySQL keeps its own data directory under the embedded server installation. Database passwords are excluded from `profiles.json`, but private keys and other sensitive state still need to remain protected. Closing or restarting DBConsole loses in-memory login sessions; persistent files remain on disk.
 
-## Option 3: OCI host
+## OCI host
 
 ![OCI host deployment architecture](diagrams/architecture-oci.svg)
 

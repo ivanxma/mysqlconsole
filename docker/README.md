@@ -12,7 +12,7 @@ The DBConsole image includes the generated `en_US.UTF-8` locale. MySQL Shell the
 
 The browser connects to DBConsole through host port `8080`. The application and local MySQL run in separate containers with a shared Unix socket, while named volumes retain application state and database files. Remote MySQL targets and OCI Object Storage are optional integrations. Outside OCI, Object Storage uses an OCI config profile and private API signing key.
 
-[Architecture details](../docs/architecture.md#option-1-docker-containers) · [Diagram source](../docs/diagrams/architecture-docker.drawio)
+[Architecture details](../docs/architecture.md#docker-containers) · [Diagram source](../docs/diagrams/architecture-docker.drawio)
 
 ## Prerequisites
 

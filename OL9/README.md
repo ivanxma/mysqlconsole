@@ -1,49 +1,27 @@
-# DBConsole on Oracle Linux 9
+# Install DBConsole on Oracle Linux 9
 
-Run DBConsole directly on an Oracle Linux 9 host or in Docker containers. A native OCI Compute installation uses systemd and Instance Principal for Object Storage. Installations outside OCI use an OCI config profile and private API signing key.
+DBConsole can run directly on an Oracle Linux 9 server or in Docker containers on that server. Both installations provide the web console, MySQL Shell jobs, and a local MySQL database for administrator login. You can then add connection profiles for the MySQL databases you want to manage.
 
-## Choose a deployment
+Choose how to run the application first. If your server is an OCI Compute instance, the native installation also supports automated first-boot setup and Instance Principal access to Object Storage.
 
-| Deployment | Runtime | Browser access | Installation |
-| --- | --- | --- | --- |
-| Native OL9 host | Gunicorn, Flask, MySQL Shell and local MySQL on the host | HTTPS on port `443` by default | [Existing host](#install-on-an-existing-host) |
-| Native OCI Compute host | Same native runtime, with OCI networking and IAM | HTTPS through the instance public IP or hostname | [OCI first boot](#oci-first-boot) |
-| Docker on OL9 | Separate DBConsole and local MySQL containers | HTTP on host port `8080` | [Docker installation](#docker-deployment-on-ol9) |
+| Installation | What runs on the server | Start here |
+| --- | --- | --- |
+| Native host | DBConsole and local MySQL run as host processes; systemd manages the web service | [Install directly on OL9](#install-directly-on-ol9) |
+| Docker | DBConsole and local MySQL run in separate containers with persistent volumes | [Install with Docker](#install-with-docker) |
 
-## Prerequisites
+## Before you start
 
-- Oracle Linux 9 and a non-root account with `sudo` access (`opc` on a typical OCI image).
-- Outbound HTTPS access to GitHub and package repositories; access to OCI endpoints if using Object Storage.
-- A network path to each remote MySQL target, with its configured TCP port or SSH forwarding path allowed.
-- For a native HTTPS deployment, allow inbound TCP `443` from approved clients in the host firewall and upstream network controls. On OCI, configure the subnet security list or NSG as well; setup cannot change OCI network rules.
-- For Object Storage, a bucket and the matching [authentication configuration](#object-storage-authentication).
+Use an OL9 server with a non-root account that has `sudo` access. The account is normally `opc` on OCI. The server needs outbound HTTPS access to GitHub and package repositories, plus network access to any remote MySQL targets.
 
-## Native OL9 host deployment
+For native remote access, allow HTTPS on TCP `443` from your administrator clients. Configure both the host firewall and the surrounding network controls. On OCI, this includes the subnet security list or NSG; the installer does not create OCI network rules.
 
-DBConsole runs as a systemd service. Gunicorn serves Flask, MySQL Shell runs background jobs, and a local MySQL service authenticates the local administrator over a Unix socket. Connection profiles can point to separate remote MySQL targets. Application state defaults to `/var/lib/dbconsole`, while runtime files use `/run/dbconsole` under systemd.
+Object Storage is optional. Its authentication depends on where the application runs: **Instance Principal on a native OCI host**, or **OCI config outside OCI**.
 
-### Example architecture on OCI
+## Install directly on OL9
 
-![Oracle Linux 9 on OCI deployment architecture](../docs/diagrams/architecture-oci.svg)
+The native installer creates a Python environment, installs MySQL Shell and the local MySQL service, and configures DBConsole as a systemd service. The browser connects to Gunicorn over HTTPS. Local administrator login uses a Unix socket; profiles for remote databases use their configured network connections.
 
-This example places the DBConsole Compute instance in a public application subnet and a separate, self-managed MySQL target in a private subnet. The local administrator database remains on the DBConsole host. Object Storage is a regional service outside the VCN.
-
-| Component | Example configuration |
-| --- | --- |
-| Region and VCN | `uk-london-1`, VCN `10.20.0.0/16` |
-| Application subnet | Public `10.20.10.0/24`; Compute VNIC with a public IP; HTTPS `443` from approved administrator CIDRs |
-| Database subnet | Private `10.20.20.0/24`; target MySQL accepts TCP `3306` from the application NSG |
-| Internet Gateway | Application subnet default route for internet access, including installation and updates |
-| Service Gateway | Regional Object Storage service route for HTTPS access to the bucket |
-| IAM | Compute dynamic group and bucket permissions for Instance Principal |
-
-Region, CIDRs and topology are illustrative. Create OCI networking and IAM separately from application setup. For an OL9 host outside OCI, the same native application processes run on that host; use its existing network and OCI config authentication instead of Instance Principal.
-
-[Full OCI architecture details](../docs/architecture.md#option-3-oci-host) · [Diagram source](../docs/diagrams/architecture-oci.drawio)
-
-### Install on an existing host
-
-Clone the repository as your normal login user:
+Clone the repository and run setup as your normal login user:
 
 ```bash
 sudo dnf install -y git
@@ -52,68 +30,49 @@ cd mysqlconsole
 ./OL9/setup.sh https --https-port 443
 ```
 
-Setup provisions the Python environment, MySQL Shell, the local administrator MySQL service and the DBConsole systemd service. Supply `SSL_CERT_FILE` and `SSL_KEY_FILE` during setup to use your certificate; otherwise setup generates a self-signed certificate.
+To use your own TLS certificate, supply `SSL_CERT_FILE` and `SSL_KEY_FILE` during setup. Otherwise, setup generates a self-signed certificate. Application state defaults to `/var/lib/dbconsole`; the systemd service uses `/run/dbconsole` for runtime files.
 
-For environment-only preparation, run `./OL9/setup.sh none`. For loopback HTTP access, use `./OL9/setup.sh http --http-port 8080`; remote native access uses HTTPS.
+Open `https://<host-or-public-ip>`. Select `local-admin-profile` and sign in with `localadmin` / `ChangeMe123!` on a fresh installation. DBConsole requires an immediate password change. If you supplied different credentials during setup, use those instead.
+
+For preparation without starting a web service, use `./OL9/setup.sh none`. For local HTTP access, use `./OL9/setup.sh http --http-port 8080`; native HTTP binds to loopback by default.
+
+### When the host is on OCI
+
+The same native application can run on an OL9 Compute instance. The diagram below shows one possible network layout for that installation.
+
+![Example native OL9 deployment on OCI](../docs/diagrams/architecture-oci.svg)
+
+In this example, the DBConsole host has a public IP in an application subnet. Administrators reach it over HTTPS. A separate target MySQL server sits in a private subnet and accepts database connections from DBConsole. The small local MySQL database used for administrator login remains on the DBConsole host.
+
+The application subnet uses an Internet Gateway for internet access and a Service Gateway for regional Object Storage access. A Compute dynamic group and IAM policy authorize bucket operations through Instance Principal. Object Storage remains outside the VCN.
+
+The region, CIDRs and target database placement are examples. Provision the network and IAM to suit your environment before installing DBConsole. The application setup scripts do not create these OCI resources.
+
+[OCI network and IAM prerequisites](../docs/prerequisites-oci.md) · [Detailed OCI architecture](../docs/architecture.md#oci-host) · [Diagram source](../docs/diagrams/architecture-oci.drawio)
 
 ### OCI first boot
 
-Before launching the instance, complete the [OCI network, bucket and IAM prerequisites](../docs/prerequisites-oci.md). While creating an OL9 Compute instance, open **Advanced options → Management → Initialization script** and paste:
+For a new OCI instance, you can automate the native installation instead of running the manual commands above. While creating the OL9 instance, open **Advanced options → Management → Initialization script** and paste:
 
 ```bash
 #!/bin/bash
 curl -fsSL https://raw.githubusercontent.com/ivanxma/mysqlconsole/main/oci_compute_init.sh | env OS_FAMILY=ol9 bash
 ```
 
-The initialization script clones DBConsole, runs OL9 setup, installs MySQL Shell, and creates the service. It records status in `/var/log/dbconsole-init.log`. On subsequent runs, it refreshes the checkout with a fast-forward pull.
-
-After boot, connect using `ssh opc@<public-ip>`. The login banner shows installation state. Check progress and service readiness:
+After boot, connect with `ssh opc@<public-ip>` and check installation progress:
 
 ```bash
 sudo tail -n 100 /var/log/dbconsole-init.log
 sudo systemctl status dbconsole-https.service
 ```
 
-### First login
+When the service is ready, open `https://<public-ip>` and use the first-login instructions above. The initialization script can be rerun; it updates the repository with a fast-forward pull.
 
-Open `https://<host-or-public-ip>` and choose `local-admin-profile`. Fresh installations default to username `localadmin` and password `ChangeMe123!`; the application requires an immediate password change. If setup used an explicit credential override, use that value instead.
+### Object Storage for a native installation
 
-Add connection profiles for remote databases after signing in. The local administrator database and remote target databases have separate credentials.
+On **OCI Compute**, use Instance Principal. Configure the Compute dynamic group and bucket IAM policy described in [OCI prerequisites](../docs/prerequisites-oci.md), then enter the region, namespace and bucket in **Admin > Setup Object Storage**.
 
-## Docker deployment on OL9
-
-![Docker deployment architecture on Oracle Linux 9](../docs/diagrams/architecture-docker.svg)
-
-DBConsole and `mysql:innovation` run in separate containers. They share a private Unix socket volume for local administrator login; MySQL exposes no TCP port. Named volumes retain application state and MySQL data. The browser reaches DBConsole through host port `8080`.
-
-From the repository root, install Docker Engine and the Compose plugin:
-
-```bash
-./OL9/init_docker.sh
-```
-
-Sign out and back in so Docker group membership takes effect, return to the repository root, and start the stack:
-
-```bash
-./docker/setup_docker.sh
-```
-
-Open `http://127.0.0.1:8080` from a browser on the host. For a remote OL9 host, forward that port to your workstation with `ssh -L 8080:127.0.0.1:8080 <user>@<host>`, then use the same browser address. The supplied Compose mapping publishes port `8080` on the host, so network reachability also depends on its firewall and upstream rules.
-
-Use the same initial local administrator credentials described above. Docker updates use `./docker/setup_docker.sh`; in-application Auto-Update is unavailable for container deployments.
-
-[Docker installation and operations](../docker/README.md) · [Docker architecture details](../docs/architecture.md#option-1-docker-containers) · [Diagram source](../docs/diagrams/architecture-docker.drawio)
-
-## Object Storage authentication
-
-| Environment | Authentication |
-| --- | --- |
-| Native OCI Compute host | Instance Principal, authorized through a Compute dynamic group and bucket IAM policy |
-| Native OL9 host outside OCI | OCI config profile and private API signing key; explicitly enable `oci_config` in the service environment |
-| Docker outside OCI | Stored OCI config profile and private key, configured through **Admin > Setup Object Storage > OCI Config** |
-| Docker on OCI Compute | Stored config is tried first; if unavailable, the supplied configuration attempts Instance Principal, which requires metadata access and IAM permissions |
-
-For a native OL9 service outside OCI, use `sudo systemctl edit dbconsole-https.service` to set:
+On an **OL9 host outside OCI**, use an OCI config profile and private API signing key. Run `sudo systemctl edit dbconsole-https.service` and add:
 
 ```ini
 [Service]
@@ -121,20 +80,16 @@ Environment=DBCONSOLE_OBJECT_STORAGE_AUTH_MODE=oci_config
 Environment=DBCONSOLE_OCI_CONFIG_DIR=/var/lib/dbconsole/oci-config
 ```
 
-Use the `oci-config` directory under your actual state directory if it differs from `/var/lib/dbconsole`. Apply the configuration:
+If you changed the application state directory, use its `oci-config` subdirectory instead. Apply the service settings:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart dbconsole-https.service
 ```
 
-Then enter the OCI profile and private key under **Admin > Setup Object Storage > OCI Config**, and select that profile for the bucket. For HTTP installations, substitute `dbconsole-http.service`. Object Storage credentials are separate from MySQL login credentials.
+Sign in again, enter the profile and private key under **Admin > Setup Object Storage > OCI Config**, and select that profile for the bucket. For an HTTP service, substitute `dbconsole-http.service` in the commands. Object Storage credentials are separate from MySQL login credentials.
 
-For OCI Instance Principal policies and bucket configuration, see [OCI prerequisites](../docs/prerequisites-oci.md). For Docker config storage and profile selection, see [Docker Object Storage authentication](../docker/README.md#object-storage-authentication).
-
-## Operations
-
-For a native HTTPS installation:
+### Manage the native service
 
 ```bash
 sudo systemctl status dbconsole-https.service
@@ -142,15 +97,67 @@ sudo journalctl -u dbconsole-https.service -n 100 --no-pager
 sudo systemctl restart dbconsole-https.service
 ```
 
-Use `dbconsole-http.service` when HTTP was selected. Native application updates are available through **Admin > Auto-Update** while signed in with `local-admin-profile`. Rerun setup for host packages, MySQL Shell upgrades, firewall changes or service provisioning. Restarts clear in-memory login sessions.
+Use **Admin > Auto-Update** for application updates while signed in with `local-admin-profile`. Rerun setup when host packages, MySQL Shell, firewall settings or service provisioning need to change. A service restart clears active login sessions.
 
-See [Operations](../docs/operations.md) for local MySQL control and administrator password reset, or the [Docker guide](../docker/README.md#lifecycle-commands) for container lifecycle commands.
+See [Operations](../docs/operations.md) for local MySQL control and administrator password reset.
 
-## Files in this directory
+## Install with Docker
 
-| File | Purpose |
+Docker runs the application and the local administrator database in separate containers. The application container includes Gunicorn, Flask and MySQL Shell. The MySQL container exposes only a shared Unix socket to DBConsole. Named volumes preserve application state and database files.
+
+![DBConsole Docker deployment on OL9](../docs/diagrams/architecture-docker.svg)
+
+The browser connects to host port `8080`. Remote MySQL targets and OCI Object Storage are optional connections from the application container.
+
+[Detailed Docker architecture](../docs/architecture.md#docker-containers) · [Diagram source](../docs/diagrams/architecture-docker.drawio)
+
+### Prepare Docker and start DBConsole
+
+If you have not cloned the repository, do that first:
+
+```bash
+sudo dnf install -y git
+git clone https://github.com/ivanxma/mysqlconsole.git
+cd mysqlconsole
+```
+
+From the repository root, install Docker Engine and the Compose plugin:
+
+```bash
+./OL9/init_docker.sh
+```
+
+Sign out and back in to activate Docker group membership. Return to the repository root and start the stack:
+
+```bash
+./docker/setup_docker.sh
+```
+
+Open `http://127.0.0.1:8080` from a browser on the server. To use a browser on your workstation, open an SSH tunnel to the server:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 <user>@<host>
+```
+
+Then open `http://127.0.0.1:8080` on the workstation. The supplied Compose mapping also publishes port `8080` on the server; direct network access depends on its firewall and upstream rules.
+
+Select `local-admin-profile`. Fresh setup uses `localadmin` / `ChangeMe123!` and requires an immediate password change.
+
+### Object Storage and updates in Docker
+
+Outside OCI, enter your OCI profile and private key under **Admin > Setup Object Storage > OCI Config**, then select that profile for the bucket. Docker stores these files in the private application state volume.
+
+The supplied Docker configuration tries stored OCI config first. If no usable config is available, it attempts Instance Principal; that fallback requires an OCI Compute host, access to instance metadata, and the required IAM permissions.
+
+To update the containers, rerun `./docker/setup_docker.sh`. The named volumes are retained. In-application Auto-Update is unavailable in Docker.
+
+See the [Docker guide](../docker/README.md) for lifecycle commands, volume details and Object Storage configuration.
+
+## Installer reference
+
+| Script | Purpose |
 | --- | --- |
-| [setup.sh](setup.sh) | Calls the shared setup script with Oracle Linux 9 selected |
-| [oci_compute_init.sh](oci_compute_init.sh) | OL9 entry point for OCI initialization |
-| [init_docker.sh](init_docker.sh) | Installs Docker Engine, Compose, and Git; grants the login user Docker group membership |
-| [install_mysql_shell_innovation.sh](install_mysql_shell_innovation.sh) | MySQL Shell Innovation installer |
+| [setup.sh](setup.sh) | Native Oracle Linux 9 setup |
+| [oci_compute_init.sh](oci_compute_init.sh) | OL9 entry point for OCI first-boot initialization |
+| [init_docker.sh](init_docker.sh) | Docker Engine, Compose and Git installation |
+| [install_mysql_shell_innovation.sh](install_mysql_shell_innovation.sh) | MySQL Shell Innovation installation |
