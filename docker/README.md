@@ -6,6 +6,14 @@ DBConsole and MySQL share a private Docker volume mounted at `/var/run/mysqld`. 
 
 The DBConsole image includes the generated `en_US.UTF-8` locale. MySQL Shell therefore runs without the missing-`LC_ALL` locale warning that can occur in minimal Debian images.
 
+## Architecture
+
+![Docker deployment architecture](../docs/diagrams/architecture-docker.svg)
+
+The browser connects to DBConsole through host port `8080`. The application and local MySQL run in separate containers with a shared Unix socket, while named volumes retain application state and database files. Remote MySQL targets and OCI Object Storage are optional integrations. Outside OCI, Object Storage uses an OCI config profile and private API signing key.
+
+[Architecture details](../docs/architecture.md#option-1-docker-containers) · [Diagram source](../docs/diagrams/architecture-docker.drawio)
+
 ## Prerequisites
 
 - Docker Desktop (macOS) or Docker Engine plus the Compose plugin (Linux) is installed and running.
