@@ -4,17 +4,40 @@ DBConsole is a Flask web console for MySQL administration, SQL workspaces, monit
 
 Current version: `1.1.20`
 
-## Architecture
+## Deployment options
 
-![DBConsole application architecture](docs/diagrams/architecture.svg)
+Choose the deployment that matches where DBConsole will run. Each option has a separate diagram and [architecture details](docs/architecture.md).
 
-See the [architecture document](docs/architecture.md) for components, sessions, background jobs, state storage, and deployment options. [Edit the diagram in draw.io](docs/diagrams/architecture.drawio).
+### Option 1: Docker containers on macOS or Linux
+
+DBConsole and its local administrator MySQL database run in separate containers, connected by a private Unix socket. Open `http://127.0.0.1:8080`. Persistent Docker volumes hold application state and MySQL data. Outside OCI, use **OCI config** for Object Storage.
+
+![Docker deployment](docs/diagrams/architecture-docker.svg)
+
+[Docker installation](docker/README.md) · [Architecture details](docs/architecture.md#option-1-docker-containers) · [Diagram source](docs/diagrams/architecture-docker.drawio)
+
+### Option 2: Native installation on a Mac
+
+DBConsole, MySQL Shell and the local administrator MySQL process run directly on the Mac. Files stay on the Mac, and remote databases connect through TCP/TLS or SSH. Use **OCI config** for Object Storage by setting `DBCONSOLE_OBJECT_STORAGE_AUTH_MODE=oci_config` when starting DBConsole, pointing the runtime at your OCI config location, and selecting that profile. The native setup instructions below include the required settings.
+
+![Native macOS deployment](docs/diagrams/architecture-macos.svg)
+
+[Native Mac setup and architecture](docs/architecture.md#option-2-native-macos) · [Diagram source](docs/diagrams/architecture-macos.drawio)
+
+### Option 3: Hosted on OCI Compute
+
+DBConsole runs on an Oracle Linux 9 or Ubuntu Compute instance. This example places the application in a public subnet, a separate target MySQL host in a private subnet, and Object Storage outside the VCN. Use **Instance Principal** with a dynamic group and IAM policy for Object Storage. Region, CIDRs and network rules shown below are illustrative.
+
+![OCI host deployment](docs/diagrams/architecture-oci.svg)
+
+[OCI prerequisites](docs/prerequisites-oci.md) · [Architecture details](docs/architecture.md#option-3-oci-host) · [Diagram source](docs/diagrams/architecture-oci.drawio)
 
 ## Choose an installation
 
 | Environment | Guide |
 | --- | --- |
 | macOS or Linux local Docker stack with MySQL Innovation | [Docker installation](docker/README.md) |
+| Native macOS host | [Mac setup](docs/architecture.md#option-2-native-macos) |
 | Oracle Linux 9 host | [OL9 installation](OL9/README.md) |
 | Ubuntu host | [Ubuntu installation](ubuntu/README.md) |
 | OCI Compute with Object Storage | [OCI one-step prerequisites and setup](docs/prerequisites-oci.md) |
@@ -25,7 +48,7 @@ Oracle Linux 8 is no longer supported.
 
 - Docker users need Docker Desktop. Fresh Docker setup uses `localadmin` / `ChangeMe123!` and requires an immediate password change at first sign-in.
 - Linux users need Oracle Linux 9 or Ubuntu and `sudo`. Fresh host setup uses `localadmin` / `ChangeMe123!` and requires an immediate password change at first sign-in.
-- OCI Object Storage users need a dedicated test bucket plus Compute Instance Principal IAM permissions. See the [specific bucket and IAM requirements](docs/prerequisites-oci.md).
+- Object Storage users outside OCI need an OCI config profile and private API signing key with bucket access. On OCI Compute, use Instance Principal with dynamic-group IAM permissions. See the [authentication and deployment details](docs/architecture.md).
 
 ## Daily operations
 
@@ -33,7 +56,7 @@ Service control, updates, and local-password guidance are in [Operations](docs/o
 
 ## Security model
 
-Database passwords are never stored in `profiles.json`. DBConsole uses server-side session state. Host and OCI Compute deployments use Instance Principal for Object Storage. Docker uses the selected private OCI config profile first, then attempts Instance Principal only when no usable stored config is available; Docker credentials remain in the DBConsole state volume and are used for Object Storage only.
+Database passwords are never stored in `profiles.json`. DBConsole keeps login credentials in server-side memory. For Object Storage, use OCI config outside OCI and Instance Principal on OCI Compute. Docker selects a stored config first, with an Instance Principal fallback for OCI environments; native installations outside OCI must explicitly set `DBCONSOLE_OBJECT_STORAGE_AUTH_MODE=oci_config`. Private config and key files remain in application state and are used for Object Storage, independently of MySQL login.
 
 ## Development
 

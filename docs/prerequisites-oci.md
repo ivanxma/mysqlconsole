@@ -42,4 +42,4 @@ If the Compute instance and bucket are in different compartments, write the buck
 
 After signing in through `local-admin-profile`, open **Admin > Setup Object Storage** and enter the recorded region, namespace, bucket name, and optional prefix. Use the page’s validation/upload flow with a harmless test CSV first.
 
-Host and OCI Compute installations use the Compute instance's principal. Docker tries Instance Principal first and can fall back to a private OCI config uploaded through DBConsole for Object Storage only; see the [Docker Object Storage instructions](../docker/README.md#object-storage-authentication).
+On an OCI Compute host, use Instance Principal. Outside OCI, use an OCI config profile and private API signing key with the required bucket permissions. Docker uses the selected stored config first; native installations outside OCI must set `DBCONSOLE_OBJECT_STORAGE_AUTH_MODE=oci_config` at launch. See the [deployment-specific authentication details](architecture.md) and [Docker Object Storage instructions](../docker/README.md#object-storage-authentication).
