@@ -4,11 +4,11 @@ Run DBConsole directly on an Oracle Linux 9 host or in Docker containers. A nati
 
 ## Choose a deployment
 
-| Option | Runtime | Browser access | Installation |
+| Deployment | Runtime | Browser access | Installation |
 | --- | --- | --- | --- |
 | Native OL9 host | Gunicorn, Flask, MySQL Shell and local MySQL on the host | HTTPS on port `443` by default | [Existing host](#install-on-an-existing-host) |
 | Native OCI Compute host | Same native runtime, with OCI networking and IAM | HTTPS through the instance public IP or hostname | [OCI first boot](#oci-first-boot) |
-| Docker on OL9 | Separate DBConsole and local MySQL containers | HTTP on host port `8080` | [Docker installation](#option-2-docker-on-ol9) |
+| Docker on OL9 | Separate DBConsole and local MySQL containers | HTTP on host port `8080` | [Docker installation](#docker-deployment-on-ol9) |
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ Run DBConsole directly on an Oracle Linux 9 host or in Docker containers. A nati
 - For a native HTTPS deployment, allow inbound TCP `443` from approved clients in the host firewall and upstream network controls. On OCI, configure the subnet security list or NSG as well; setup cannot change OCI network rules.
 - For Object Storage, a bucket and the matching [authentication configuration](#object-storage-authentication).
 
-## Option 1: Native OL9 host
+## Native OL9 host deployment
 
 DBConsole runs as a systemd service. Gunicorn serves Flask, MySQL Shell runs background jobs, and a local MySQL service authenticates the local administrator over a Unix socket. Connection profiles can point to separate remote MySQL targets. Application state defaults to `/var/lib/dbconsole`, while runtime files use `/run/dbconsole` under systemd.
 
@@ -80,7 +80,7 @@ Open `https://<host-or-public-ip>` and choose `local-admin-profile`. Fresh insta
 
 Add connection profiles for remote databases after signing in. The local administrator database and remote target databases have separate credentials.
 
-## Option 2: Docker on OL9
+## Docker deployment on OL9
 
 ![Docker deployment architecture on Oracle Linux 9](../docs/diagrams/architecture-docker.svg)
 

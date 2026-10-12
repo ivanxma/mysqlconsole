@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mxfile host="app.diagrams.net" type="device">
-  <diagram id="architecture-oci" name="Option 3  |  OCI-hosted DBConsole">
+  <diagram id="architecture-oci" name="OCI-hosted DBConsole">
     <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1300" pageHeight="1030" background="#ffffff">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" value="Option 3  |  OCI-hosted DBConsole" vertex="1" parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=17;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;spacing=0;fontSize=28;">
+        <mxCell id="title" value="OCI-hosted DBConsole" vertex="1" parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=17;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;spacing=0;fontSize=28;">
           <mxGeometry as="geometry" x="30" y="20" width="1240" height="45" />
         </mxCell>
         <mxCell id="subtitle" value="Illustrative deployment • Example region and CIDRs • Oracle Linux 9 or Ubuntu Compute host" vertex="1" parent="1" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=17;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;spacing=0;fontSize=17;">
