@@ -4,6 +4,12 @@ DBConsole is a Flask web console for MySQL administration, SQL workspaces, monit
 
 Current version: `1.1.20`
 
+## Architecture
+
+![DBConsole application architecture](docs/diagrams/architecture.svg)
+
+See the [architecture document](docs/architecture.md) for components, sessions, background jobs, state storage, and deployment options. [Edit the diagram in draw.io](docs/diagrams/architecture.drawio).
+
 ## Choose an installation
 
 | Environment | Guide |

@@ -1,0 +1,176 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="dbconsole-architecture" name="Application architecture">
+    <mxGraphModel dx="1400" dy="1060" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1400" pageHeight="1060" background="#ffffff">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;MySQL DBConsole&lt;/b&gt;  |  Application architecture" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;fontSize=28;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="25" width="1300" height="42" />
+        </mxCell>
+        <mxCell id="subtitle" value="Logical components and connections • Host or Docker deployment • Optional integrations shown explicitly" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;fontSize=16;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="75" width="1300" height="30" />
+        </mxCell>
+        <mxCell id="browser" value="&lt;b&gt;Administrator browser&lt;/b&gt;&lt;br&gt;Server-rendered pages • SQL workspace" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#EDF3F5;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="330" y="130" width="410" height="75" />
+        </mxCell>
+        <mxCell id="host" value="&lt;b&gt;DBConsole host / application container&lt;/b&gt;" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#F5F4F2;verticalAlign=top;align=left;spacingTop=15;fontSize=20;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="260" width="930" height="650" />
+        </mxCell>
+        <mxCell id="web" value="&lt;b&gt;Gunicorn → Flask&lt;/b&gt;&lt;br&gt;app.py / wsgi.py&lt;br&gt;1 worker • threaded requests" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#EDF3F5;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="290" y="65" width="410" height="90" />
+        </mxCell>
+        <mxCell id="routes" value="&lt;b&gt;Pages and route modules&lt;/b&gt;&lt;br&gt;Admin • SQL • monitoring • HeatWave&lt;br&gt;MySQL import • Shell jobs • updates" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="290" y="190" width="410" height="100" />
+        </mxCell>
+        <mxCell id="sessions" value="&lt;b&gt;Session &amp;amp; profile services&lt;/b&gt;&lt;br&gt;Credentials in process memory&lt;br&gt;CSRF checks • session expiry" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fontSize=15;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="30" y="190" width="225" height="100" />
+        </mxCell>
+        <mxCell id="sql" value="&lt;b&gt;Database access&lt;/b&gt;&lt;br&gt;Query services&lt;br&gt;mysql-connector-python&lt;br&gt;Optional SSH tunnel" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="30" y="345" width="225" height="110" />
+        </mxCell>
+        <mxCell id="jobs" value="&lt;b&gt;MySQL Shell jobs&lt;/b&gt;&lt;br&gt;Job manager → worker&lt;br&gt;→ mysqlsh subprocess" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="330" y="345" width="230" height="110" />
+        </mxCell>
+        <mxCell id="oci" value="&lt;b&gt;Object Storage adapter&lt;/b&gt;&lt;br&gt;OCI Python SDK&lt;br&gt;Configured authentication" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="630" y="345" width="270" height="110" />
+        </mxCell>
+        <mxCell id="state" value="&lt;b&gt;Private persistent state&lt;/b&gt;&lt;br&gt;Profiles • keys • settings&lt;br&gt;Job metadata / logs / progress" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#F1E9DE;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="30" y="530" width="300" height="90" />
+        </mxCell>
+        <mxCell id="runtime" value="&lt;b&gt;Private runtime files&lt;/b&gt;&lt;br&gt;Temporary Shell requests&lt;br&gt;May contain job credentials" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#F1E9DE;" vertex="1" parent="host">
+          <mxGeometry as="geometry" x="420" y="530" width="290" height="90" />
+        </mxCell>
+        <mxCell id="remote" value="&lt;b&gt;Target MySQL server&lt;/b&gt;&lt;br&gt;Self-managed or HeatWave&lt;br&gt;TCP • profile TLS settings&lt;br&gt;Direct or via SSH host" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1060" y="325" width="290" height="115" />
+        </mxCell>
+        <mxCell id="local" value="&lt;b&gt;Local MySQL&lt;/b&gt;&lt;br&gt;Local administrator login&lt;br&gt;Unix socket only&lt;br&gt;Host service / Compose container" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1060" y="505" width="290" height="115" />
+        </mxCell>
+        <mxCell id="storage" value="" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=#F5F4F2;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1060" y="700" width="290" height="160" />
+        </mxCell>
+        <mxCell id="official-os-2" value="" style="group" vertex="1" connectable="0" parent="storage">
+          <mxGeometry width="114" height="109" as="geometry" x="15" y="15" />
+        </mxCell>
+        <mxCell id="official-os-3" style="vsdxID=70;fillColor=none;gradientColor=none;strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-2">
+          <mxGeometry x="15" width="84" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-4" style="vsdxID=71;fillColor=none;gradientColor=none;strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-3">
+          <mxGeometry width="84" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-5" style="vsdxID=72;fillColor=#FFFFFF;gradientColor=none;shape=stencil(lZPRDoIwDEW/Zq9LWUHCs+J/EAVZRCATFP/eYYdsAzW+td2922mzMtxey6zNmYBrp5pzfpfHrmS4Y0LIusyV7HTEMGW4LRqVn1TT10fK22xUjtGluY03DOSLOEajScCDCknC482rsif9oVdkCEggeIjGEfgWGASVwChMmsQchVGgqzBpEvLQfrWStUUJDuKb+QMhuHgz8ERnteDyTnDWVBzcVTiNvnFnCN/o9Cyi2CUEFy8Ab3xWB+hLfOJVxFnuI3+AnA1L6kEsG/HJB1zOxkNfBf39Hf/V62D++4WsKlod+9zfFV2iPcP0CQ==);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-4">
+          <mxGeometry x="1" y="1" width="82" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-6" style="vsdxID=73;fillColor=#FFFFFF;gradientColor=none;shape=stencil(lZXRdoIwDIafprc9aUMpvXb6Hp6JgzMmHsSNvf1gLbQNCHpX4h/88iehDHe34njNmYRb29Sf+U95aguGb0zK8lLkTdn2J4Z7hrtz3eQfTX2/nOzz9Tgoh9NX/T28obN5BjmqIUvCr41Ijtl/4GD17/fGJgiXoXhiXIYgKdBJJ9IcR5ELJVy6SIdzkQulPMHwz6vyEsIGCRN+JlZpgxRfgFEEN6jJV5ClhDfwCqlqEbgvR8S8VE95e5c0wdU8lTFu77cmtIprEdMGIs+v9GPYIGG5GZQ1SBCzHstZPXI2LDhzCZdnkIzB5sy+qt/aCXihxbBuWaZiyyD2C6hZdAghdmp9YSAi21wWYHTyREInb+J3EQHANro5Sh41R8U7TeQLGy2Ih56BQgXbPJWCVPPcenj9c9thDNcp/U5O3Ry5Um5EjErsXPjorLu5Nrr9wV8E57Kq7D0S/k4vjj5kLx3c/wE=);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-4">
+          <mxGeometry width="84" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-7" style="vsdxID=74;fillColor=none;gradientColor=none;strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-3">
+          <mxGeometry x="13" y="19" width="56" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-8" style="vsdxID=75;fillColor=#2d5967;gradientColor=none;shape=stencil(lZPLDoMgEEW/hi2BoVZdW/sfJmIhpWJQ+/j7QklTH5Hibpg598IAg1jRi6rjCEg/GH3lD1kPArETApCt4EYONkKsRKxotOEXo8e29uuucqSLbvruHJ5ed8xwmjgVkJfPUIoh/2TOXqBkOxFkKZ7zhxzTAL/ewDrQbZ7Z7ffwFPadZ+3/p+HdNxQhmL/Bgibb1hBNkhmYxHtSEmCXfYXYbzHmDPE3ECJt8PvmjVTKT8m0vhwLm/Ijxco3);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-7">
+          <mxGeometry x="27" width="28" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-9" style="vsdxID=76;fillColor=#2d5967;gradientColor=none;shape=stencil(lVTRcoMgEPwaXpnjiEWf0/Q/Mo2pTK1miGnj31cC6gEjTd9g3XN3jwMm99fmeKkZwnUw/Wf9o09Dw+QrQ9RdUxs9TCsmD0zuz72pP0x/605ufzlapl199d/2D3dXV4AtQRjdVgiO1QN5c+z3m3F04QgKeKV8iYhr4I4OKhX3yOgRLLndP0gyIXlkV3GRVSclqx/xEopTi6sfEYovuWXE2FDGioMMpclPvYzAGRkxtScT0rOxSYlI24mpQ0xPZiN3cuCt7v4xHtlhgmxDkRdlGArCQBCGIQVzmChLkRWEUEwpvos7SCzNHQT4o3+QFSUqy3WBKOcCLENDrMmY81TWlT53W3ClomtCrIUd38oaSGbnJGBOi/X1Oeu2dY8X/R6/VhPkXjp5+AU=);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-7">
+          <mxGeometry x="15" y="29" width="24" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-10" style="vsdxID=77;fillColor=#2d5967;gradientColor=none;shape=stencil(lZLLDoMgEEW/ZraEh624tvY/TMRCSsEgff19oaSpNqnK7jJz7mQmXGD1KNtBAMWjd/Ys7qrzEtgBKFVGCqd8UMAaYHVvnTg5ezVdeg9tJKO62Fuc8Ei+okJ7Fl0UP1OFFohU78oxGbQyEwMnqNzNDLxECzzhiObw2QttMKydjP9PxzOQ4AX009wEZy2xAgfx/d5eaZ3SMe3/xiGUUpRY8wI=);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-7">
+          <mxGeometry width="27" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-11" style="vsdxID=78;fillColor=#2d5967;gradientColor=none;shape=stencil(pZRRc4IwDMc/TV97bUIFn51+D09x9MbAq7jpt7csDNp0sO18S9Jfwj8JF4GbS7U/lwLUpXPtW/lpj10l8EUA2KYqne28JXArcHNqXfnq2mtzJP+878neem8/+go3ylsbmZs+C9SdIlqpL39HeG2bAM8kLNKHq6Pqmp5hgHVMqxtQYHDvg7vOZV4MBMYEjnqhmNenInELjYxK/o8mEnjTU4JO2/rutIg7nyaD6WLwD5v5dZHx3pHTmdT5fPUE958zZmkIQYYeUwqMp5Cx9a+k1vEYgh8OOfTzHFaxTk5znR4ALjSQMSkzTGvQDSYQzkyJa5VPLeFJ3BvTWTjZuqarEr7zM+JDdIJw+wA=);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-3">
+          <mxGeometry x="2" y="10" width="80" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-12" style="vsdxID=79;fillColor=#2d5967;gradientColor=none;shape=stencil(nZLbDoIwDEC/Zq9ktILwjPAfRIYsIiMDFP9eli5hw1v0re1Ol5O2DLOhKXvBgA+jVmdxk9XYMDwwANk1QstxiRjmDLNaaXHSauoqyvvSkCa6qKv5Yaa+kHPTA/zu5wXBrewc+G80SoIYXPg4abIIfdymsA+ilEoz2JIlwGuYkdJdAJEF0AVeuqWxJ8c/iaWJb8Z9q3V88GyOWwbfTMPX+2klX+AlWDdfy7alw3Hft5eylOjKMH8A);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-3">
+          <mxGeometry x="2" y="2" width="80" height="5" as="geometry" />
+        </mxCell>
+        <mxCell id="official-os-13" value="&lt;div style=&quot;font-size: 1px&quot;&gt;&lt;font style=&quot;font-size:16.93px;font-family:Oracle Sans;color:#000000;direction:ltr;letter-spacing:0px;line-height:120%;opacity:1&quot;&gt;Object Storage&lt;br/&gt;&lt;/font&gt;&lt;/div&gt;" style="verticalAlign=middle;align=center;vsdxID=81;fillColor=none;gradientColor=none;shape=stencil(nZBLDoAgDERP0z3SIyjew0SURgSD+Lu9kMZoXLhwN9O+tukAlrNpJg1SzDH4QW/URgNYgZTkjA4UkwJUgGXng+6DX1zLfmoymdXo17xh5zmRJ6Q42BWCfc2oJfdAr+Yv+AP9Cb7OJ3H/2JG1HNGz/84klThPVCc=);strokeColor=none;spacingTop=-3;spacingBottom=-3;spacingLeft=-3;spacingRight=-3;points=[];labelBackgroundColor=none;rounded=0;html=1;whiteSpace=wrap;" vertex="1" parent="official-os-2">
+          <mxGeometry y="89" width="114" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="storage-caption" value="&lt;b&gt;OCI Object&lt;br&gt;Storage&lt;/b&gt;&lt;br&gt;Optional bucket" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;fontSize=16;spacing=0;" vertex="1" parent="storage">
+          <mxGeometry as="geometry" x="130" y="35" width="150" height="90" />
+        </mxCell>
+        <mxCell id="https" value="HTTP(S)" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="browser" target="web">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="dispatch" value="" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="web" target="routes">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="auth" value="" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="routes" target="sessions">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="queries" value="SQL" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=0.15;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="routes" target="sql">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="391" y="580" />
+              <mxPoint x="182" y="580" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="launch" value="launch" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="routes" target="jobs">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="sdk" value="API" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.75;entryX=0.5;entryY=0;" edge="1" parent="1" source="routes" target="oci">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="805" y="525" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="tcp" value="MySQL / optional SSH" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="sql" target="remote">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="55" y="660" />
+              <mxPoint x="55" y="235" />
+              <mxPoint x="1205" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="socket" value="Unix socket" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.2;entryX=0.5;entryY=0;" edge="1" parent="1" source="sql" target="local">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="315" y="627" />
+              <mxPoint x="315" y="590" />
+              <mxPoint x="1020" y="590" />
+              <mxPoint x="1020" y="480" />
+              <mxPoint x="1205" y="480" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="jobsql" value="MySQL" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.2;entryX=0;entryY=0.65;" edge="1" parent="1" source="jobs" target="remote">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="630" y="627" />
+              <mxPoint x="630" y="570" />
+              <mxPoint x="995" y="570" />
+              <mxPoint x="995" y="400" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="objects" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.7;entryX=0.5;entryY=0;" edge="1" parent="1" source="oci" target="storage">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1005" y="682" />
+              <mxPoint x="1205" y="682" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="job-state" value="logs / status" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;dashed=1;strokeColor=#9A7045;exitX=0.15;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="jobs" target="state">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="404" y="835" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="job-request" value="request file" style="edgeStyle=orthogonalEdgeStyle;jumpStyle=arc;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#416878;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#312D2A;labelBackgroundColor=#FFFFFF;dashed=1;strokeColor=#9A7045;exitX=0.8;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="jobs" target="runtime">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;Connections&lt;/b&gt;  Solid blue: application / data access    •    Dashed: job control / file access" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;fontSize=16;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="940" width="1300" height="30" />
+        </mxCell>
+        <mxCell id="notes" value="Arrows show the caller or writer; responses return on the same connection. MySQL Shell can also access Object Storage.&lt;br&gt;Logical view: host/container boundary is not an OCI VCN. Network layout and CIDRs depend on the deployment." style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=16;fontColor=#312D2A;fillColor=#FFFFFF;strokeColor=#9E9892;spacing=12;fillColor=none;strokeColor=none;align=left;fontSize=15;spacing=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="980" width="1300" height="50" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
